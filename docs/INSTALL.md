@@ -52,7 +52,8 @@ Both hashes must match.
 npm test                  # full suite (node:test)
 node scripts/check-allowlist.mjs        # import allowlist + require/eval ban (desktop + scripts)
 node scripts/sync-shapes.mjs --check    # copy-identity lib -> routines.js
-npm run check             # both checks
+node scripts/check-version.mjs          # package.json version == definePlugin({ version })
+npm run check             # all three checks
 ```
 
 The five pure routing helpers (`routeKey`, `resolveProfileRoute`,
@@ -67,11 +68,32 @@ copy-identical between `desktop/lib/cron-shapes.mjs` (canonical) and
 - `schedule` is trimmed (max 256 chars, no control characters); cron
   semantics stay backend-owned, the desktop only fails fast on shape.
 - `payload` must be a plain object and is deep-cloned; `listJobs` clones
-  items so callers cannot mutate queued shapes.
-- `listRoutines` requires a resolved profile route (fail-closed, never
-  falls back to the active gateway); generic `requestCronForRoute` keeps
-  the active-door fallback only for genuinely unscoped entries.
+  items so callers cannot mutate queued shapes. Values that
+  `structuredClone` cannot clone (e.g. functions) surface as `TypeError`
+  (`uncloneable value`, with the original `DataCloneError` as `cause`)
+  instead of leaking the raw DOMException.
+- Fail-closed routing (never silently on the active gateway):
+  - `listRoutines` requires a resolved profile route with a
+    profile/targetProfile — never falls back to the active gateway.
+  - `requestCronForRoute(host, null|unscoped, ...)` rejects with
+    `Cannot dispatch <method> without a resolved profile route` unless the
+    caller passes the explicit opt-in `{ allowActiveDoor: true }` (last
+    parameter, after `timeoutMs`), in which case `host.request` is used.
+    A truthy-but-not-`true` flag does NOT open the door.
+  - `scopedCronParams(route, params)` with a route but no own `profile`
+    key in `params` throws
+    `TypeError: scopedCronParams requires params.profile ...` instead of
+    sending unscoped; pass `{ allowUnscoped: true }` (last parameter) only
+    for an intentionally unscoped call. With no route (`null`/`undefined`)
+    params pass through untouched. A routed `requestCronForRoute` forwards
+    `allowUnscoped` to `scopedCronParams`, so routed calls also require
+    `params.profile` by default.
 - `timeoutMs`, when given, must be a non-negative finite number.
+- `options`, when given, must be a plain object; `allowActiveDoor` and
+  `allowUnscoped` must be booleans when present.
+- Version pin: `package.json` `version` must equal
+  `definePlugin({ version })` in `desktop/routines.js`;
+  `node scripts/check-version.mjs` (part of `npm run check`) fails on drift.
 
 ## Reload
 

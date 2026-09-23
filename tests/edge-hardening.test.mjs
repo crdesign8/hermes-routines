@@ -84,9 +84,12 @@ describe('edge-hardening', () => {
     for (const bad of [-1, NaN, Infinity, '100', {}]) {
       await assert.rejects(() => shapes.requestCronForRoute(okHost, route, 'cron.manage', {}, bad), TypeError);
     }
-    await assert.rejects(() => shapes.requestCronForRoute({}, route, 'cron.manage', {}), /Cannot route/);
-    await assert.rejects(() => shapes.requestCronForRoute({}, null, 'cron.manage', {}), /Cannot dispatch/);
-    const out = await shapes.requestCronForRoute(okHost, route, 'cron.manage', { action: 'list' }, 100);
+    await assert.rejects(() => shapes.requestCronForRoute({}, route, 'cron.manage', { profile: 'p1' }), /Cannot route/);
+    await assert.rejects(
+      () => shapes.requestCronForRoute({}, null, 'cron.manage', {}, undefined, { allowActiveDoor: true }),
+      /Cannot dispatch/,
+    );
+    const out = await shapes.requestCronForRoute(okHost, route, 'cron.manage', { action: 'list', profile: 'p1' }, 100);
     assert.equal(out, 'routed');
   });
 

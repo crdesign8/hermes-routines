@@ -48,7 +48,14 @@ describe('profile-route', () => {
     assert.equal(out, 'routed');
     assert.equal(calls[0][0], 'profile');
     assert.equal(calls[0][2], 'cron.manage');
-    const out2 = await shapes.requestCronForRoute(fakeHost, null, 'cron.manage', { action: 'list' });
+    const out2 = await shapes.requestCronForRoute(
+      fakeHost,
+      null,
+      'cron.manage',
+      { action: 'list' },
+      undefined,
+      { allowActiveDoor: true },
+    );
     assert.equal(out2, 'plain');
     assert.equal(calls[calls.length - 1][0], 'plain');
   });
