@@ -49,7 +49,14 @@ function assertPayload(payload) {
 }
 
 function cloneValue(value) {
-  return structuredClone(value);
+  try {
+    return structuredClone(value);
+  } catch (err) {
+    if (err?.name === 'DataCloneError') {
+      throw new TypeError(`uncloneable value: ${err?.message || 'DataCloneError'}`, { cause: err });
+    }
+    throw err;
+  }
 }
 
 export function listJobs(jobs = []) {
@@ -86,8 +93,14 @@ export function resumeJob(job_id) {
 
 // ── profile routing (mirrors cross-connection routing semantics) ──
 // Pure helpers with zero imports. A route descriptor carries
-// connectionId, profile, and targetProfile. Rows without scoping fall
-// back to the active gateway door.
+// connectionId, profile, and targetProfile.
+//
+// Fail-closed: a caller that looks profile-scoped must never slide
+// silently into the active gateway door. `requestCronForRoute` with no
+// resolved route rejects unless the caller passes the explicit opt-in
+// `{ allowActiveDoor: true }`; `scopedCronParams` with a route but no
+// `profile` key in params throws unless the caller passes
+// `{ allowUnscoped: true }`.
 // NOTE (copy-identity): the five functions below must stay byte-identical
 // with desktop/routines.js. Run `node scripts/sync-shapes.mjs --check`
 // in CI; use `--write` to propagate this file (canonical) to routines.js.
@@ -145,16 +158,38 @@ export function backendTargetProfile(route, fallbackProfile = 'default') {
   return route.targetProfile || route.profile;
 }
 
-export function scopedCronParams(route, params = {}) {
+export function scopedCronParams(route, params = {}, options = {}) {
   if (!route) {
     return params;
+  }
+  assertRoutingOptions(options);
+  if (params === null || typeof params !== 'object' || Array.isArray(params)) {
+    throw new TypeError('scopedCronParams params must be a plain object');
   }
   const logical = route.profile;
   const target = backendTargetProfile(route, logical);
   if (!Object.prototype.hasOwnProperty.call(params, 'profile')) {
-    return params;
+    if (options?.allowUnscoped === true) {
+      return params;
+    }
+    throw new TypeError(
+      `scopedCronParams requires params.profile for ${route.connectionId}::${route.profile} (pass { allowUnscoped: true } to send unscoped intentionally)`,
+    );
   }
   return { ...params, profile: target };
+}
+
+function assertRoutingOptions(options) {
+  if (options === undefined) return;
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    throw new TypeError('options must be a plain object');
+  }
+  if (options.allowActiveDoor !== undefined && typeof options.allowActiveDoor !== 'boolean') {
+    throw new TypeError('options.allowActiveDoor must be a boolean');
+  }
+  if (options.allowUnscoped !== undefined && typeof options.allowUnscoped !== 'boolean') {
+    throw new TypeError('options.allowUnscoped must be a boolean');
+  }
 }
 
 export function assertTimeoutMs(timeoutMs) {
@@ -164,17 +199,31 @@ export function assertTimeoutMs(timeoutMs) {
   }
 }
 
-export async function requestCronForRoute(host, target, method, params = {}, timeoutMs) {
+// Fail-closed dispatch. `target` is either a resolved route descriptor
+// (has connectionId) or a scoping entry resolved via profileRoute().
+// When no route resolves, the active gateway door (`host.request`) opens
+// ONLY with the explicit opt-in `{ allowActiveDoor: true }` — a bare
+// null/unscoped target rejects so a misdirected profile operation can
+// never land silently on the active gateway. Profile-scoped params flow
+// through scopedCronParams, so a routed call without params.profile
+// throws unless `{ allowUnscoped: true }` is passed alongside.
+export async function requestCronForRoute(host, target, method, params = {}, timeoutMs, options = {}) {
   assertTimeoutMs(timeoutMs);
+  assertRoutingOptions(options);
   const route = target && target.connectionId ? target : profileRoute(target);
   if (route) {
     if (typeof host?.requestProfile !== 'function') {
       throw new Error(`Cannot route ${method} for ${route.connectionId}::${route.profile}`);
     }
-    const scoped = scopedCronParams(route, params);
+    const scoped = scopedCronParams(route, params, { allowUnscoped: options?.allowUnscoped });
     return timeoutMs === undefined
       ? host.requestProfile(route, method, scoped)
       : host.requestProfile(route, method, scoped, timeoutMs);
+  }
+  if (options?.allowActiveDoor !== true) {
+    throw new Error(
+      `Cannot dispatch ${method} without a resolved profile route (active gateway door is opt-in via { allowActiveDoor: true })`,
+    );
   }
   if (typeof host?.request !== 'function') {
     throw new Error(`Cannot dispatch ${method}: host.request is not a function`);

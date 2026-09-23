@@ -72,16 +72,38 @@ export function backendTargetProfile(route, fallbackProfile = 'default') {
   return route.targetProfile || route.profile;
 }
 
-export function scopedCronParams(route, params = {}) {
+export function scopedCronParams(route, params = {}, options = {}) {
   if (!route) {
     return params;
+  }
+  assertRoutingOptions(options);
+  if (params === null || typeof params !== 'object' || Array.isArray(params)) {
+    throw new TypeError('scopedCronParams params must be a plain object');
   }
   const logical = route.profile;
   const target = backendTargetProfile(route, logical);
   if (!Object.prototype.hasOwnProperty.call(params, 'profile')) {
-    return params;
+    if (options?.allowUnscoped === true) {
+      return params;
+    }
+    throw new TypeError(
+      `scopedCronParams requires params.profile for ${route.connectionId}::${route.profile} (pass { allowUnscoped: true } to send unscoped intentionally)`,
+    );
   }
   return { ...params, profile: target };
+}
+
+function assertRoutingOptions(options) {
+  if (options === undefined) return;
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    throw new TypeError('options must be a plain object');
+  }
+  if (options.allowActiveDoor !== undefined && typeof options.allowActiveDoor !== 'boolean') {
+    throw new TypeError('options.allowActiveDoor must be a boolean');
+  }
+  if (options.allowUnscoped !== undefined && typeof options.allowUnscoped !== 'boolean') {
+    throw new TypeError('options.allowUnscoped must be a boolean');
+  }
 }
 
 function assertTimeoutMs(timeoutMs) {
@@ -92,23 +114,31 @@ function assertTimeoutMs(timeoutMs) {
 }
 
 // Gateway RPC on the entry owning connection. Entries with a resolved
-// route descriptor ride host.requestProfile; unscoped entries keep the
-// active gateway door. Same dispatch shape as cross-connection routing
-// elsewhere, reimplemented here so this file stays dependency free.
+// route descriptor ride host.requestProfile. Fail-closed: with no resolved
+// route the active gateway door (`host.request`) opens ONLY with the
+// explicit opt-in `{ allowActiveDoor: true }`. Same dispatch shape as
+// cross-connection routing elsewhere, reimplemented here so this file
+// stays dependency free.
 // Route type: PluginProfileRoute from the host registry.
 // NOTE: this overload binds the imported `host`, unlike the lib version
 // which takes `host` as a parameter (see copy-identity test).
-export async function requestCronForRoute(target, method, params = {}, timeoutMs) {
+export async function requestCronForRoute(target, method, params = {}, timeoutMs, options = {}) {
   assertTimeoutMs(timeoutMs);
+  assertRoutingOptions(options);
   const route = target && target.connectionId ? target : profileRoute(target);
   if (route) {
     if (typeof host.requestProfile !== 'function') {
       throw new Error(`Cannot route ${method} for ${route.connectionId}::${route.profile}`);
     }
-    const scoped = scopedCronParams(route, params);
+    const scoped = scopedCronParams(route, params, { allowUnscoped: options?.allowUnscoped });
     return timeoutMs === undefined
       ? host.requestProfile(route, method, scoped)
       : host.requestProfile(route, method, scoped, timeoutMs);
+  }
+  if (options?.allowActiveDoor !== true) {
+    throw new Error(
+      `Cannot dispatch ${method} without a resolved profile route (active gateway door is opt-in via { allowActiveDoor: true })`,
+    );
   }
   if (typeof host.request !== 'function') {
     throw new Error(`Cannot dispatch ${method}: host.request is not a function`);
@@ -137,11 +167,13 @@ export async function listRoutines(route) {
     throw new Error('listRoutines requires a resolved profile route');
   }
   const target = backendTargetProfile(route, '');
-  const scope = target ? { profile: target } : {};
+  if (!target) {
+    throw new Error('listRoutines requires a route with profile/targetProfile');
+  }
   return requestCronForRoute(route, 'cron.manage', {
     action: 'list',
     include_disabled: true,
-    ...scope,
+    profile: target,
   });
 }
 
