@@ -4,11 +4,12 @@
 
 | Source (repo)         | Destination (profile home)                |
 |-----------------------|-------------------------------------------|
-| `desktop/routines.js` | `<profile-home>/plugins/routines/plugin.js` |
+| `desktop/plugin.js`   | `<profile-home>/plugins/routines/plugin.js` |
 
 The plugin folder name equals the registered route id `routines`
 (plugin id is `hermes-routines`). The installed file is always named
-`plugin.js` and must be byte-identical to `desktop/routines.js`;
+`plugin.js` and must be byte-identical to `desktop/plugin.js`
+(the **generated** artifact — see Development);
 `scripts/install.mjs` stages to a unique temp file
 (`plugin.js.tmp.<pid>.<rand>`, 64-bit `crypto.randomBytes` suffix,
 exclusive `wx` create so an existing temp is never truncated), verifies
@@ -43,6 +44,19 @@ bytes, hash-verified). When scripting, prefer the canonical path
 (`realpath "$HERMES_PROFILE_HOME"` / `pwd -P`) so logs and hashes are
 easy to compare — but both spellings install the same bytes.
 
+## Development
+
+`src/**/*.ts(x)` is the only editable source. `desktop/plugin.js` is
+produced by `node scripts/build.mjs` (esbuild, deterministic output,
+externals `@hermes/plugin-sdk` / `react` / `react/jsx-runtime`,
+non-minified) and carries an `AUTO-GENERATED — DO NOT EDIT` banner.
+There is no mirrored copy anywhere: the former
+`desktop/lib/cron-shapes.mjs` + `sync-shapes` copy-identity guard are
+gone. `requestCronForRoute` behavior (routing, scoping, `timeoutMs`
+positioning, fail-closed errors, both opt-ins) is pinned against the
+shipped artifact by `tests/gateway-semantics.test.mjs` with the SDK face
+stubbed.
+
 ## Install
 
 ```sh
@@ -56,7 +70,7 @@ node scripts/install.mjs --profile=default
 Verify manually:
 
 ```sh
-sha256sum desktop/routines.js <profile-home>/plugins/routines/plugin.js
+sha256sum desktop/plugin.js <profile-home>/plugins/routines/plugin.js
 ```
 
 Both hashes must match.
@@ -70,13 +84,14 @@ stays live until the swap completes. Then reload the desktop profile
 (see Reload below) and re-check the two hashes.
 
 ```sh
+npm run build          # refresh desktop/plugin.js from src/ first
 node scripts/install.mjs --profile-home="$HOME/.hermes/profiles/default"
-sha256sum desktop/routines.js "$HOME/.hermes/profiles/default/plugins/routines/plugin.js"
+sha256sum desktop/plugin.js "$HOME/.hermes/profiles/default/plugins/routines/plugin.js"
 ```
 
 There is no version check or migration step: the plugin file carries no
 local state (jobs live in the backend via `cron.manage`), so overwriting
-with the newer `desktop/routines.js` is the whole upgrade.
+with the newer `desktop/plugin.js` is the whole upgrade.
 
 ## Uninstall
 
@@ -98,44 +113,16 @@ Install command again.
 
 ```sh
 npm test                  # full suite (node:test)
-node scripts/check-allowlist.mjs        # import allowlist + require/eval ban (desktop + scripts)
-node scripts/sync-shapes.mjs --check    # copy-identity lib -> routines.js
-node scripts/check-version.mjs          # package.json version == definePlugin({ version })
-node scripts/check-types.mjs            # tsc --noEmit over jsconfig.json (checkJs, desktop + scripts)
-npm run check             # all four checks
+node scripts/check-allowlist.mjs   # import allowlist + require/eval ban (src/ + desktop/)
+node scripts/check-version.mjs     # package.json version == descriptor version in desktop/plugin.js
+node scripts/build.mjs --check     # desktop/plugin.js is fresh (regenerate on drift)
+npm run typecheck                  # tsc --noEmit (strict, src/ + scripts/)
+npm run check             # all gates above
 ```
 
-The five pure routing helpers (`routeKey`, `resolveProfileRoute`,
-`profileRoute`, `backendTargetProfile`, `scopedCronParams`) are
-copy-identical between `desktop/lib/cron-shapes.mjs` (canonical) and
-`desktop/routines.js`. Edit the lib, then run
-`node scripts/sync-shapes.mjs --write` to propagate.
-
-Copy-identity is by marked region + sha256 hash, never by parsing JS.
-Two regions stay byte-identical (lib canonical, `routines.js` cannot
-import relatively per the allowlist):
-
-- `cron-shapes-routing` — the five helpers above plus the private
-  `assertRoutingOptions` and `assertTimeoutMs` (exported on both sides
-  since P1-3 so the region hashes identically).
-- `cron-shapes-builders` — `MAX_*` consts, `assertJobId`,
-  `assertSchedule`, `assertPayload`, `cloneValue`, `listJobs`, `addJob`,
-  `removeJob`, `pauseJob`, `resumeJob` (builders exported on both sides
-  for the same reason).
-
-Each region is delimited by `// @begin-sync <name>` /
-`// @end-sync <name>` in both files. `--check` hashes the inner lines
-(CRLF-normalized sha256) and fails on drift; `--write` propagates
-lib → `routines.js` verbatim. `npm test` pins the same hashes
-(`copy-identity`, plus the builders region in `routines-view`), so
-textual drift breaks both gates.
-
-`requestCronForRoute` is intentionally NOT in a sync region: the lib
-takes `host` as a parameter while `routines.js` binds the imported
-`host`. Parity is behavioral instead — `tests/sync-semantics.test.mjs`
-drives both overloads against a mock host (routing, scoping,
-`timeoutMs` positioning, fail-closed errors, both opt-ins) and pins
-`assertTimeoutMs` export + behavior on each side.
+Freshness (`build.mjs --check`) is what binds the artifact to `src/`:
+an edit to `src/` without a rebuild fails `npm run check` and
+`tests/source-of-truth.test.mjs`.
 
 ## View (`RoutinesView`)
 
@@ -173,18 +160,18 @@ icons (ink 18.1, muted 7.0, primary 5.1, danger 6.6, active badge 7.1,
 paused badge 14.7 — all above 4.5).
 
 Mount note: the route surface is the single `ROUTES_AREA`
-contribution (`id: routines`, `path: /routines`, `render:
-RoutinesView`). `definePlugin({ component })` stays as entry metadata
-plus the release marker pinned by `check-version`; the shipped
-Desktop plugins expose pages only through `ROUTES_AREA` render with
-no second render of `component`, so keeping both preserves loader
-compatibility without a double mount.
+contribution (`id: routines`, `path: /routines`, `render` through the
+contribution). The default-export descriptor carries `id` / `name` /
+`version` / `register` only — there is no `component` and no
+`definePlugin` (the real SDK exposes neither; the loader reads the
+default export), so nothing can render the descriptor a second time.
 
 The cron builders (`listJobs`, `addJob`, `removeJob`, `pauseJob`,
-`resumeJob` plus validators) are verbatim copies of the canonical lib
-— `routines.js` cannot import relatively (allowlist) — pinned by the
-`cron-shapes-builders` sync region (`sync-shapes` guard plus
-`tests/routines-view.test.mjs`).
+`resumeJob` plus validators) are compiled from
+`src/domain/cronShapes.ts` — the single source bundled into
+`desktop/plugin.js` at build time — pinned by
+`tests/cron-actions.test.mjs` and the artifact export pins in
+`tests/scaffold.test.mjs`.
 
 ## Edge behavior
 
@@ -199,7 +186,7 @@ The cron builders (`listJobs`, `addJob`, `removeJob`, `pauseJob`,
 - Fail-closed routing (never silently on the active gateway):
   - `listRoutines` requires a resolved profile route with a
     profile/targetProfile — never falls back to the active gateway.
-  - `requestCronForRoute(host, null|unscoped, ...)` rejects with
+  - `requestCronForRoute(null|unscoped, ...)` rejects with
     `Cannot dispatch <method> without a resolved profile route` unless the
     caller passes the explicit opt-in `{ allowActiveDoor: true }` (last
     parameter, after `timeoutMs`), in which case `host.request` is used.
@@ -215,36 +202,37 @@ The cron builders (`listJobs`, `addJob`, `removeJob`, `pauseJob`,
 - `timeoutMs`, when given, must be a non-negative finite number.
 - `options`, when given, must be a plain object; `allowActiveDoor` and
   `allowUnscoped` must be booleans when present.
-- Version pin: `package.json` `version` must equal
-  `definePlugin({ version })` in `desktop/routines.js`;
-  `node scripts/check-version.mjs` (part of `npm run check`) fails on drift.
-  Statically, `PluginDefinition` requires `version: string`, so `tsc`
-  fails if the pin is missing or mistyped; equality stays enforced by
-  `check-version` + `tests/version-sync.test.mjs`.
+- Version pin: `package.json` `version` equals the descriptor
+  `version` in `desktop/plugin.js` (injected from `package.json` at
+  build time via esbuild `define`, so the artifact cannot drift);
+  `node scripts/check-version.mjs` (part of `npm run check`) fails on
+  drift. Statically, the descriptor type (`RoutinesPlugin`) requires
+  `version: string`, so `tsc` fails if the pin is missing or mistyped;
+  equality stays enforced by `check-version` +
+  `tests/version-sync.test.mjs`.
 
-## Static contract (checkJs, no runtime deps)
+## Static contract (strict TypeScript, no runtime deps)
 
-`// @ts-check` + JSDoc typedefs in `desktop/` + `scripts/`, enforced by
-`node scripts/check-types.mjs` (`tsc --noEmit` over `jsconfig.json` with
-`checkJs` + `strict`, covering `desktop/**/*.js|mjs`,
-`scripts/**/*.mjs`, `types/**/*.d.ts`). The gate runs the pinned
-TypeScript via npx (`typescript@5.6.3`) so the repo keeps zero
-dependencies — no runtime dep, no devDep on `typescript`.
+`tsconfig.json` enforces `strict` + `noEmit` + `jsx: react-jsx` over
+`src/**/*.ts(x)` and `checkJs` over `scripts/*.mjs`; the gate is
+`npm run typecheck` (`tsc --noEmit`), wired into `npm run check`.
+`desktop/plugin.js` is generated output and intentionally not
+type-checked (it is banner-marked and rebuilt from the typed source).
 
 SDK decision (recorded): `@hermes/plugin-sdk` is NOT added as a
 devDependency. Verification 2026-09-23: `npm view @hermes/plugin-sdk`
 returns 404 on the public registry, so the published package cannot
 represent the SDK the Desktop host loads; adding it would be false
-safety. The contract instead uses local typedefs in `types/sdk.d.ts`
-mirroring the verified loader (`tests/stubs/sdk-stub.mjs`:
-`profileRoutes` / `requestProfile` / `request`, `ROUTES_AREA`,
-`SIDEBAR_NAV_AREA`, `definePlugin` identity) plus the mount note above
-(single `ROUTES_AREA` mount, `component` as entry metadata only).
-`types/react.d.ts` and `types/node.d.ts` are permissive ambient stubs
-(`any`) so the check pins the SDK/host surface without pulling
-`@types/react` / `@types/node`. `tests/types-contract.test.mjs` pins the
-wiring (jsconfig flags, typedef names, `@ts-check` presence, no SDK/TS
-deps, `npm run check` gate, version typing).
+safety. The contract instead uses the local shim
+`src/types/plugin-sdk.d.ts` mirroring the verified loader
+(`tests/stubs/sdk-stub.mjs`: `profileRoutes` / `requestProfile` /
+`request`, `ROUTES_AREA`, `SIDEBAR_NAV_AREA` — no `definePlugin`,
+which does not exist upstream) plus the mount note above (single
+`ROUTES_AREA` mount, descriptor as entry metadata only). `typescript`,
+`esbuild`, `@types/node` and `@types/react` are devDependencies only —
+no runtime dep. `tests/types-contract.test.mjs` pins the wiring
+(tsconfig flags, shim names, `@ts-check` presence, no SDK/runtime deps,
+`npm run check` gates, version typing).
 
 ## Reload
 
@@ -271,7 +259,8 @@ plugin reload for the profile). The Routines page then mounts at
   concurrent installs no longer collide (unique `wx` temp per process),
   so just re-run install and compare hashes manually. The staging temp
   is cleaned up on failure.
-- `sync-shapes: drift in ...` → run `node scripts/sync-shapes.mjs --write`.
+- `build: desktop/plugin.js is stale` → run `npm run build` after
+  editing `src/` (freshness gate compares hashes).
 - `allowlist: ...` → only `@hermes/plugin-sdk` + `react/jsx-runtime`
   (+ pre-approved `react`, `react/jsx-dev-runtime`) and `node:` builtins
   are allowed; `require`/`eval`/`new Function` are banned.

@@ -1,29 +1,47 @@
 // @ts-check
+// Import allowlist + code-generation ban.
+//
+// What is scanned, and under which rules:
+//   desktop/  GENERATED artifact that ships to the Desktop: bare
+//             specifiers must stay inside the host allowlist, NO relative
+//             imports (the build must have inlined them), no node:.
+//   src/      editable TypeScript source: same bare allowlist, relative
+//             imports allowed (esbuild inlines them), no node: (the
+//             plugin runs in the renderer, not in Node).
+//   scripts/  repo tooling: node: builtins plus the esbuild devDependency.
+// Every directory: no CJS loading, no eval-style code generation, no
+// dynamic import with a non-literal argument.
+//
+// REQUIRED specifiers are asserted on the desktop artifact only: they
+// prove the bundle still leans on the host-provided SDK and JSX runtime
+// instead of carrying its own copy.
+//
+// Only node: builtins plus the devDependency `esbuild` (imported by
+// scripts/build.mjs); messages below deliberately avoid the trigger
+// substrings so this self-scan stays green.
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Allowlist for plugin runtime files (desktop/).
-// Currently used: '@hermes/plugin-sdk' + 'react/jsx-runtime'.
-// 'react' (bare) and 'react/jsx-dev-runtime' are pre-approved for future
-// component work and dev builds so adding them later needs no tooling
-// change; REQUIRED below pins what must be present today.
-const ALLOWED = new Set([
-  '@hermes/plugin-sdk',
-  'react',
-  'react/jsx-runtime',
-  'react/jsx-dev-runtime',
-]);
+// The Desktop host resolves exactly these specifiers for a disk plugin.
+const HOST_ALLOW = new Set(['@hermes/plugin-sdk', 'react', 'react/jsx-runtime', 'react/jsx-dev-runtime']);
+// Build tooling may be imported by repo scripts only.
+const SCRIPT_ALLOW = new Set(['esbuild']);
+// Must be present in the shipped artifact today.
+const REQUIRED_DESKTOP = ['@hermes/plugin-sdk', 'react/jsx-runtime'];
 
-const REQUIRED = ['@hermes/plugin-sdk', 'react/jsx-runtime'];
+/** @type {{ dir: string, bare: Set<string>, allowRelative: boolean, allowNode: boolean, required: string[] }[]} */
+const RULES = [
+  { dir: 'desktop', bare: HOST_ALLOW, allowRelative: false, allowNode: false, required: REQUIRED_DESKTOP },
+  { dir: 'src', bare: HOST_ALLOW, allowRelative: true, allowNode: false, required: [] },
+  { dir: 'scripts', bare: SCRIPT_ALLOW, allowRelative: false, allowNode: true, required: [] },
+];
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-// Plugin runtime code (desktop) plus installer scripts. Tests are
-// intentionally excluded: they run under node:test with node: builtins.
-const SCAN_DIRS = [path.join(root, 'desktop'), path.join(root, 'scripts')];
 
 const MAX_DEPTH = 25;
+const SOURCE_FILE_RE = /\.(m|c)?[jt]sx?$/;
 
 /**
  * @param {string} dir
@@ -32,7 +50,7 @@ const MAX_DEPTH = 25;
  * @param {string[]} [out]
  * @returns {string[]}
  */
-function collectJsFiles(dir, depth = 0, seen = new Set(), out = []) {
+function collectSourceFiles(dir, depth = 0, seen = new Set(), out = []) {
   if (depth > MAX_DEPTH) {
     throw new Error(`max scan depth exceeded at ${dir}`);
   }
@@ -56,8 +74,8 @@ function collectJsFiles(dir, depth = 0, seen = new Set(), out = []) {
       throw new Error(`symlink not allowed in scanned tree: ${path.relative(root, full)}`);
     }
     if (st.isDirectory()) {
-      collectJsFiles(full, depth + 1, seen, out);
-    } else if (/\.m?js$/.test(entry)) {
+      collectSourceFiles(full, depth + 1, seen, out);
+    } else if (SOURCE_FILE_RE.test(entry)) {
       out.push(full);
     }
   }
@@ -78,7 +96,7 @@ function extractSpecifiers(source) {
   for (const re of patterns) {
     let m;
     while ((m = re.exec(source)) !== null) {
-      found.push(m[1]);
+      found.push(/** @type {string} */ (m[1]));
     }
   }
   return found;
@@ -86,14 +104,12 @@ function extractSpecifiers(source) {
 
 // Patterns the specifier allowlist cannot see: CJS loading, eval-style
 // code generation, and dynamic loading with a non-literal argument.
-// NOTE: messages below deliberately avoid the trigger substrings
-// so this self-scan stays green.
 /** @type {[RegExp, string][]} */
 const FORBIDDEN_PATTERNS = [
   [/\brequire\s*\(/, 'CJS require call forbidden — ESM only'],
   [/\beval\s*\(/, 'eval use forbidden'],
   [/new\s+Function\s*\(/, 'Function constructor use forbidden'],
-  [/import\s*\(\s*[^'"`\s]/, 'dynamic import with non-literal argument forbidden'],
+  [/import\s*\(\s*[^'\"`\s]/, 'dynamic import with non-literal argument forbidden'],
 ];
 
 /**
@@ -101,37 +117,57 @@ const FORBIDDEN_PATTERNS = [
  * @returns {boolean}
  */
 function isRelative(spec) {
-  return spec.startsWith('./') || spec.startsWith('../') || spec.startsWith('/');
+  return spec.startsWith('./') || spec.startsWith('../');
 }
 
-const files = SCAN_DIRS.flatMap((d) => collectJsFiles(d));
-const seen = new Set();
+/**
+ * @param {string} spec
+ * @returns {boolean}
+ */
+function isAbsolute(spec) {
+  return spec.startsWith('/');
+}
+
 const errors = [];
+const desktopSpecifiers = new Set();
 
-for (const file of files) {
-  const rel = path.relative(root, file);
-  const src = readFileSync(file, 'utf8');
-  for (const [re, msg] of FORBIDDEN_PATTERNS) {
-    if (re.test(src)) {
-      errors.push(`${rel}: ${msg}`);
+for (const rule of RULES) {
+  const base = path.join(root, rule.dir);
+  const files = collectSourceFiles(base);
+  const seen = new Set();
+
+  for (const file of files) {
+    const rel = path.relative(root, file);
+    const src = readFileSync(file, 'utf8');
+    for (const [re, msg] of FORBIDDEN_PATTERNS) {
+      if (re.test(src)) {
+        errors.push(`${rel}: ${msg}`);
+      }
+    }
+    for (const spec of extractSpecifiers(src)) {
+      if (isAbsolute(spec) || (isRelative(spec) && !rule.allowRelative)) {
+        errors.push(`${rel}: relative specifier forbidden: ${spec}`);
+        continue;
+      }
+      if (spec.startsWith('node:')) {
+        if (!rule.allowNode) {
+          errors.push(`${rel}: node builtin forbidden here: ${spec}`);
+        }
+        continue;
+      }
+      if (isRelative(spec)) continue;
+      seen.add(spec);
+      if (rule.dir === 'desktop') desktopSpecifiers.add(spec);
+      if (!rule.bare.has(spec)) {
+        errors.push(`${rel}: disallowed bare specifier: ${spec}`);
+      }
     }
   }
-  for (const spec of extractSpecifiers(src)) {
-    if (isRelative(spec)) {
-      errors.push(`${rel}: relative specifier forbidden: ${spec}`);
-      continue;
-    }
-    if (spec.startsWith('node:')) continue;
-    seen.add(spec);
-    if (!ALLOWED.has(spec)) {
-      errors.push(`${rel}: disallowed bare specifier: ${spec}`);
-    }
-  }
-}
 
-for (const req of REQUIRED) {
-  if (!seen.has(req)) {
-    errors.push(`missing required bare specifier: ${req}`);
+  for (const req of rule.required) {
+    if (!seen.has(req)) {
+      errors.push(`desktop artifact: missing required bare specifier: ${req}`);
+    }
   }
 }
 
@@ -140,4 +176,6 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`allowlist ok: ${files.length} file(s), ${seen.size} bare specifier(s)`);
+console.log(
+  `allowlist ok: ${RULES.length} rules, ${desktopSpecifiers.size} bare specifier(s) in the artifact`,
+);

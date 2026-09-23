@@ -1,0 +1,9 @@
+# Dependencies (dev toolchain only: typescript, esbuild, @types/*)
+node_modules/
+
+# tsc incremental state (noEmit, but tsc may still write it)
+*.tsbuildinfo
+
+# Logs and OS noise
+npm-debug.log*
+.DS_Store

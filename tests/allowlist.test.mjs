@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const routinesPath = path.join(root, 'desktop', 'routines.js');
+const artifactPath = path.join(root, 'desktop', 'plugin.js');
 
 const ALLOWED = new Set([
   '@hermes/plugin-sdk',
@@ -34,24 +34,24 @@ function extractBareSpecifiers(source) {
 }
 
 describe('allowlist', () => {
-  it('routines.js uses only allowed bare specifiers', () => {
-    assert.equal(existsSync(routinesPath), true, 'desktop/routines.js must exist');
-    const src = readFileSync(routinesPath, 'utf8');
+  it('desktop/plugin.js uses only allowed bare specifiers', () => {
+    assert.equal(existsSync(artifactPath), true, 'desktop/plugin.js must exist');
+    const src = readFileSync(artifactPath, 'utf8');
     const bare = extractBareSpecifiers(src);
     for (const spec of bare) {
       assert.equal(ALLOWED.has(spec), true, `disallowed bare specifier: ${spec}`);
     }
   });
 
-  it('routines.js includes both required specifiers', () => {
-    const src = readFileSync(routinesPath, 'utf8');
+  it('desktop/plugin.js includes both required specifiers', () => {
+    const src = readFileSync(artifactPath, 'utf8');
     const bare = new Set(extractBareSpecifiers(src));
     assert.equal(bare.has('@hermes/plugin-sdk'), true, 'missing @hermes/plugin-sdk');
     assert.equal(bare.has('react/jsx-runtime'), true, 'missing react/jsx-runtime');
   });
 
-  it('routines.js has zero relative specifiers', () => {
-    const src = readFileSync(routinesPath, 'utf8');
+  it('desktop/plugin.js has zero relative specifiers', () => {
+    const src = readFileSync(artifactPath, 'utf8');
     const rel = [];
     const patterns = [
       /import\s+(?:[^'"]*?\sfrom\s+)?['"]([^'"]+)['"]/g,
@@ -70,7 +70,7 @@ describe('allowlist', () => {
     assert.deepEqual(rel, []);
   });
 
-  it('check-allowlist script passes on the scaffold', async () => {
+  it('check-allowlist script passes on src/ + desktop/', async () => {
     const { execFile } = await import('node:child_process');
     const script = path.join(root, 'scripts', 'check-allowlist.mjs');
     assert.equal(existsSync(script), true, 'scripts/check-allowlist.mjs must exist');
@@ -81,6 +81,6 @@ describe('allowlist', () => {
         else resolve(0);
       });
     });
-    assert.equal(code, 0, 'check-allowlist must exit 0 on the scaffold');
+    assert.equal(code, 0, 'check-allowlist must exit 0');
   });
 });

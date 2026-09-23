@@ -6,26 +6,22 @@ import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
+const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+// Version pin: package.json <-> the plugin descriptor embedded in the
+// GENERATED artifact (desktop/plugin.js, built by scripts/build.mjs).
+// Drift must break the suite (and `npm run check` via check-version.mjs).
+const artifact = readFileSync(path.join(root, 'desktop', 'plugin.js'), 'utf8');
 
-function readJson(rel) {
-  return JSON.parse(readFileSync(path.join(root, rel), 'utf8'));
-}
-
-// Version pin: package.json <-> definePlugin({ version }) in
-// desktop/routines.js. Drift must break the suite (and `npm run check`
-// via scripts/check-version.mjs).
 describe('version-sync', () => {
-  it('package.json version equals definePlugin({ version })', () => {
-    const pkg = readJson('package.json');
-    const src = readFileSync(path.join(root, 'desktop', 'routines.js'), 'utf8');
-    const match = src.match(/definePlugin\(\{[^}]*?version:\s*['"]([^'"]+)['"]/s);
-    assert.ok(match, 'definePlugin({ version }) must exist in desktop/routines.js');
-    assert.equal(src.match(/version:\s*['"][^'"]+['"]/g)?.length, 1, 'exactly one version pin expected');
-    assert.equal(match[1], pkg.version, `drift: package.json (${pkg.version}) vs routines.js (${match[1]})`);
+  it('package.json version equals the plugin.js descriptor version', () => {
+    const pins = artifact.match(/version:\s*['"][^'"]+['"]/g) || [];
+    assert.equal(pins.length, 1, `exactly one version pin expected in desktop/plugin.js, got ${pins.length}`);
+    const match = /version:\s*['"]([^'"]+)['"]/.exec(pins[0]);
+    assert.ok(match, 'version pin must carry a value');
+    assert.equal(match[1], pkg.version, `drift: package.json (${pkg.version}) vs plugin.js (${match[1]})`);
   });
 
   it('npm run check wires the version gate', () => {
-    const pkg = readJson('package.json');
     assert.match(pkg.scripts.check, /check-version/, 'npm run check must include check-version');
     assert.match(pkg.scripts['check:version'], /check-version\.mjs/, 'check:version script must exist');
   });

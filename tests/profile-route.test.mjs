@@ -1,16 +1,29 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { register } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const routinesPath = path.join(root, 'desktop', 'routines.js');
+
+register('./stubs/sdk-loader.mjs', import.meta.url);
+const sdk = await import('./stubs/sdk-stub.mjs');
+// Routing helpers are pure and re-exported by the generated artifact;
+// requestCronForRoute closes over the imported host, so it is exercised
+// through the same artifact with the stubbed SDK face.
+const shapes = await import('../desktop/plugin.js');
+
+function readSrcTree() {
+  const base = path.join(root, 'src');
+  const files = readdirSync(base, { recursive: true }).filter((f) => /\.(ts|tsx)$/.test(String(f)));
+  return files.map((f) => readFileSync(path.join(base, String(f)), 'utf8')).join('\n');
+}
 
 describe('profile-route', () => {
-  it('routines.js consumes PluginProfileRoute via host.profileRoutes then host.requestProfile for cron.manage without hermes-bots import', () => {
-    const src = readFileSync(routinesPath, 'utf8');
+  it('src consumes PluginProfileRoute via host.profileRoutes then host.requestProfile for cron.manage without hermes-bots import', () => {
+    const src = readSrcTree();
     assert.match(src, /PluginProfileRoute/, 'must reference PluginProfileRoute');
     assert.match(src, /host\.profileRoutes/, 'must consume host.profileRoutes');
     assert.match(src, /host\.requestProfile/, 'must consume host.requestProfile');
@@ -19,9 +32,15 @@ describe('profile-route', () => {
     assert.equal(src.includes('hermes-bots'), false, 'must not import hermes-bots');
   });
 
-  it('cron-shapes mirrors cross-connection routing semantics without imports', async () => {
-    const shapes = await import('../desktop/lib/cron-shapes.mjs');
-    for (const fn of ['routeKey', 'resolveProfileRoute', 'profileRoute', 'backendTargetProfile', 'scopedCronParams', 'requestCronForRoute']) {
+  it('routing helpers keep cross-connection semantics without imports', async () => {
+    for (const fn of [
+      'routeKey',
+      'resolveProfileRoute',
+      'profileRoute',
+      'backendTargetProfile',
+      'scopedCronParams',
+      'requestCronForRoute',
+    ]) {
       assert.equal(typeof shapes[fn], 'function', `${fn} must be exported`);
     }
     assert.equal(shapes.routeKey({ connectionId: 'c1', profile: 'p1' }), 'c1::p1');
@@ -33,23 +52,18 @@ describe('profile-route', () => {
     assert.equal(shapes.backendTargetProfile({ targetProfile: 't1', profile: 'p1' }, 'd'), 't1');
     const scoped = shapes.scopedCronParams({ targetProfile: 't1', profile: 'p1' }, { action: 'list', profile: 'p1' });
     assert.equal(scoped.profile, 't1');
-    const calls = [];
-    const fakeHost = {
-      requestProfile: async (...args) => {
-        calls.push(['profile', ...args]);
-        return 'routed';
-      },
-      request: async (...args) => {
-        calls.push(['plain', ...args]);
-        return 'plain';
-      },
-    };
-    const out = await shapes.requestCronForRoute(fakeHost, resolved.route, 'cron.manage', { action: 'list', profile: 'p1' });
+
+    sdk.__reset();
+    sdk.__setHost({ requestProfile: async () => 'routed', request: async () => 'plain' });
+    const out = await shapes.requestCronForRoute(resolved.route, 'cron.manage', {
+      action: 'list',
+      profile: 'p1',
+    });
     assert.equal(out, 'routed');
-    assert.equal(calls[0][0], 'profile');
-    assert.equal(calls[0][2], 'cron.manage');
+    let logged = sdk.__calls();
+    assert.equal(logged[0].door, 'requestProfile');
+    assert.equal(logged[0].args[1], 'cron.manage');
     const out2 = await shapes.requestCronForRoute(
-      fakeHost,
       null,
       'cron.manage',
       { action: 'list' },
@@ -57,6 +71,7 @@ describe('profile-route', () => {
       { allowActiveDoor: true },
     );
     assert.equal(out2, 'plain');
-    assert.equal(calls[calls.length - 1][0], 'plain');
+    logged = sdk.__calls();
+    assert.equal(logged[logged.length - 1].door, 'request');
   });
 });

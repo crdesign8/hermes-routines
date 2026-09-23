@@ -1,6 +1,6 @@
 // @ts-check
 // Install mapping for hermes-routines (phase 4).
-// Copies desktop/routines.js to <profile-home>/plugins/routines/plugin.js
+// Copies desktop/plugin.js (the generated artifact) to <profile-home>/plugins/routines/plugin.js
 // byte-identical, verified by sha256. Folder name equals the registered
 // route id `routines`. Only node: builtins; zero relative imports,
 // zero bare specifiers.
@@ -13,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 export const PLUGIN_ID = 'hermes-routines';
 export const PLUGIN_DIR_NAME = 'routines';
 export const PLUGIN_FILE_NAME = 'plugin.js';
-export const SOURCE_REL = path.join('desktop', 'routines.js');
+// The generated artifact (built from src/ by scripts/build.mjs).
+export const SOURCE_REL = path.join('desktop', 'plugin.js');
 
 // Profile names become a single path segment under ~/.hermes/profiles.
 // Anything outside [A-Za-z0-9._-] (e.g. "../evil", absolute paths,
@@ -52,7 +53,7 @@ export function resolveProfileHome({ profileHome, profile } = {}) {
 
 /**
  * @param {unknown} profileHome
- * @param {unknown} [root]
+ * @param {string} [root]
  * @returns {{ src: string, destDir: string, dest: string }}
  */
 export function resolveInstallPaths(profileHome, root = DEFAULT_ROOT) {
@@ -144,7 +145,7 @@ export function stageTempExclusive(dest, srcBytes) {
 }
 
 /**
- * @param {{ profileHome?: unknown, profile?: unknown, root?: unknown }} [opts]
+ * @param {{ profileHome?: unknown, profile?: unknown, root?: string }} [opts]
  * @returns {{ src: string, dest: string, sha256: string }}
  */
 export function install({ profileHome, profile, root = DEFAULT_ROOT } = {}) {

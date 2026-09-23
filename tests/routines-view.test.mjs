@@ -1,22 +1,21 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { register } from 'node:module';
 
-// Stub the Desktop-only bare imports so desktop/routines.js can be
-// exercised behaviorally under node:test (zero deps, node: builtins).
+// Stub the Desktop-only bare imports so the GENERATED artifact
+// (desktop/plugin.js) can be exercised behaviorally under node:test
+// (zero deps, node: builtins).
 register('./stubs/sdk-loader.mjs', import.meta.url);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const routinesPath = path.join(root, 'desktop', 'routines.js');
-const libPath = path.join(root, 'desktop', 'lib', 'cron-shapes.mjs');
 
-const routines = await import('../desktop/routines.js');
-const shapes = await import('../desktop/lib/cron-shapes.mjs');
+const routines = await import('../desktop/plugin.js');
+// Single bundled source: the builders live in the artifact itself.
+const shapes = routines;
 const sdk = await import('./stubs/sdk-stub.mjs');
 const reactStub = await import('./stubs/react-stub.mjs');
 
@@ -29,20 +28,33 @@ function reduce(events) {
   return state;
 }
 
-function extractSyncRegion(src, name, label) {
-  const beginNeedle = `// @begin-sync ${name}`;
-  const endNeedle = `// @end-sync ${name}`;
-  const beginIdx = src.indexOf(beginNeedle);
-  const endIdx = src.indexOf(endNeedle);
-  assert.notEqual(beginIdx, -1, `${label}: missing ${beginNeedle}`);
-  assert.notEqual(endIdx, -1, `${label}: missing ${endNeedle}`);
-  assert.ok(endIdx > beginIdx, `${label}: ${name} end precedes begin`);
-  const innerStart = src.indexOf('\n', beginIdx) + 1;
-  const endLineStart = src.slice(0, endIdx).lastIndexOf('\n') + 1;
-  return src.slice(innerStart, endLineStart);
+function readSrcTree() {
+  const base = path.join(root, 'src');
+  const files = readdirSync(base, { recursive: true }).filter((f) => /\.(ts|tsx)$/.test(String(f)));
+  return files.map((f) => readFileSync(path.join(base, String(f)), 'utf8')).join('\n');
 }
 
-// Walk a jsx-stub tree ({ type, props }) collecting every node.
+// Render entry: exactly the ROUTES_AREA contribution the descriptor
+// registers (nothing renders the descriptor a second time). The jsx-stub
+// returns an element — unwrap the top-level component so paint() sees the
+// evaluated tree (hooks run here, fed by reactStub.__presetStates).
+function renderView() {
+  const items = [];
+  routines.register({ register: (c) => items.push(c) });
+  const routes = items.filter((c) => c.area === 'routes');
+  assert.equal(routes.length, 1, 'a single ROUTES_AREA render means no double-mount');
+  assert.equal(typeof routes[0].render, 'function');
+  let tree = routes[0].render();
+  if (tree && typeof tree === 'object' && typeof tree.type === 'function') {
+    tree = tree.type(tree.props);
+  }
+  return tree;
+}
+
+// Walk a jsx-stub tree ({ type, props }) collecting every node. Function
+// nodes are child components: the stub renders one level, so expand them
+// by calling the component (pure in this view layer — state hooks live
+// only in RoutinesPage, already unwrapped by renderView/paint).
 function collect(node, out = []) {
   if (Array.isArray(node)) {
     for (const child of node) collect(child, out);
@@ -50,7 +62,11 @@ function collect(node, out = []) {
   }
   if (node && typeof node === 'object' && 'type' in node) {
     out.push(node);
-    collect(node.props ? node.props.children : null, out);
+    if (typeof node.type === 'function') {
+      collect(node.type(node.props), out);
+    } else {
+      collect(node.props ? node.props.children : null, out);
+    }
     return out;
   }
   return out;
@@ -163,7 +179,7 @@ describe('routines-view create/pause/resume/remove via builders', () => {
     assert.throws(() => routines.buildListParams({}), /resolved profile route/);
   });
 
-  it('buildAddParams matches the lib addJob plus scope', () => {
+  it('buildAddParams matches addJob plus scope', () => {
     const input = { job_id: '  j1  ', schedule: '  0 9 * * MON  ', payload: { k: 'v' } };
     assert.deepEqual(
       routines.buildAddParams(ROUTE, input),
@@ -178,7 +194,7 @@ describe('routines-view create/pause/resume/remove via builders', () => {
     });
   });
 
-  it('buildPause/Resume/Remove match the lib builders plus scope', () => {
+  it('buildPause/Resume/Remove match the builders plus scope', () => {
     assert.deepEqual(routines.buildPauseParams(ROUTE, 'j1'), { ...shapes.pauseJob('j1'), profile: 't1' });
     assert.deepEqual(routines.buildResumeParams(ROUTE, 'j1'), { ...shapes.resumeJob('j1'), profile: 't1' });
     assert.deepEqual(routines.buildRemoveParams(ROUTE, 'j1'), { ...shapes.removeJob('j1'), profile: 't1' });
@@ -199,16 +215,6 @@ describe('routines-view create/pause/resume/remove via builders', () => {
       );
     }
     assert.equal(sdk.__calls().length, 0, 'validation must not touch the host');
-  });
-
-  it('view builders stay byte-identical to the canonical lib copy (sync region)', () => {
-    const a = readFileSync(routinesPath, 'utf8');
-    const b = readFileSync(libPath, 'utf8');
-    const fromRoutines = extractSyncRegion(a, 'cron-shapes-builders', 'routines.js');
-    const fromLib = extractSyncRegion(b, 'cron-shapes-builders', 'cron-shapes.mjs');
-    const hash = (s) => createHash('sha256').update(s.replace(/\r\n/g, '\n'), 'utf8').digest('hex');
-    assert.equal(hash(fromRoutines), hash(fromLib), 'builders region hash mismatch');
-    assert.equal(fromRoutines, fromLib, 'builders region must be copy-identical');
   });
 });
 
@@ -238,7 +244,7 @@ describe('routines-view delete confirmation', () => {
   });
 
   it('source renders a two-step remove (ask, then confirm/cancel)', () => {
-    const src = readFileSync(routinesPath, 'utf8');
+    const src = readSrcTree();
     assert.match(src, /confirm-open/, 'remove must open a confirmation first');
     assert.match(src, /Confirm remove/, 'confirmation must name the action');
     assert.match(src, /Cancel/, 'confirmation must offer cancel');
@@ -346,17 +352,24 @@ describe('routines-view fail-closed dispatch', () => {
     assert.equal(sdk.__calls().length, 0);
   });
 
-  it('the active-door opt-in lives only in the fail-closed router', () => {
-    const src = readFileSync(routinesPath, 'utf8');
-    const total = src.split('allowActiveDoor: true').length - 1;
-    assert.equal(total, 2, 'exactly the two pre-existing router occurrences expected');
-    const viewStart = src.indexOf('RoutinesView: functional page');
-    const viewEnd = src.indexOf('// Route descriptor for one desktop profile connection.');
-    assert.notEqual(viewStart, -1);
-    assert.notEqual(viewEnd, -1);
-    assert.ok(viewEnd > viewStart);
-    const viewSide = src.slice(viewStart, viewEnd).split('allowActiveDoor: true').length - 1;
-    assert.equal(viewSide, 0, 'the view block must never opt into the active door');
+  it('the active-door opt-in never lives in the view layer', () => {
+    const base = path.join(root, 'src');
+    const files = readdirSync(base, { recursive: true }).filter((f) => /\.(ts|tsx)$/.test(String(f)));
+    for (const f of files) {
+      const text = readFileSync(path.join(base, String(f)), 'utf8');
+      const name = String(f);
+      const isViewLayer = name.startsWith(`views${path.sep}`) || name === `plugin.tsx`;
+      if (isViewLayer) {
+        assert.equal(
+          text.includes('allowActiveDoor'),
+          false,
+          `${name} must never opt into the active door`,
+        );
+      }
+    }
+    // the opt-in exists only as an explicit router capability
+    const artifact = readFileSync(path.join(root, 'desktop', 'plugin.js'), 'utf8');
+    assert.match(artifact, /allowActiveDoor/, 'router must keep the explicit active-door opt-in');
   });
 
   it('wrapHostError keeps the message and cause, never a raw stack', () => {
@@ -376,8 +389,9 @@ describe('routines-view fail-closed dispatch', () => {
 describe('routines-view render branches', () => {
   function paint(state) {
     const noop = () => {};
+    // RoutinesPage hooks: [state, draftId, draftSchedule, routesNonce]
     reactStub.__presetStates([[state, noop], ['', noop], ['', noop], [0, noop]]);
-    return routines.plugin.component();
+    return renderView();
   }
 
   function readyWith(jobs, extra = {}) {
@@ -482,16 +496,18 @@ describe('routines-view registration and render', () => {
     assert.equal(nav[0].data.path, '/routines');
   });
 
-  it('definePlugin keeps component metadata without a second route', () => {
+  it('descriptor keeps id/version/register without a second route', () => {
     assert.equal(routines.plugin.id, 'hermes-routines');
     assert.equal(routines.plugin.version, '0.1.0');
-    assert.equal(typeof routines.plugin.component, 'function');
     assert.equal(typeof routines.plugin.register, 'function');
     assert.equal(routines.default, routines.plugin);
+    // no descriptor-level component: rendering happens only through the
+    // routes contribution (single mount, nothing renders twice)
+    assert.equal(routines.plugin.component, undefined, 'component must not live on the descriptor');
   });
 
   it('initial paint renders landmark, heading and a polite live region', () => {
-    const tree = routines.plugin.component();
+    const tree = renderView();
     assert.equal(tree.type, 'section');
     assert.equal(tree.props.id, 'hermes-routines-root');
     assert.equal(tree.props['aria-labelledby'], 'hermes-routines-heading');
@@ -506,7 +522,7 @@ describe('routines-view registration and render', () => {
   });
 
   it('source wires the a11y contract end to end', () => {
-    const src = readFileSync(routinesPath, 'utf8');
+    const src = readSrcTree();
     assert.match(src, /aria-labelledby.*hermes-routines-heading/, 'landmark labelled by the heading');
     assert.match(src, /aria-live.*polite/, 'polite live region for updates');
     assert.match(src, /aria-current/, 'current marker on the in-view filter nav');
@@ -515,8 +531,8 @@ describe('routines-view registration and render', () => {
     assert.match(src, /htmlFor.*hermes-routines-profile/, 'labelled profile selector');
     assert.match(src, /role.*alert/, 'assertive error boxes');
     assert.match(src, /\.focus\(\)/, 'managed focus after delete and retry');
-    assert.match(src, /jsx\('nav'/, 'in-view filter navigation');
-    assert.match(src, /jsx\('ul'/, 'routine list');
-    assert.match(src, /jsx\('select'/, 'native keyboard-operable selector');
+    assert.match(src, /<nav\b/, 'in-view filter navigation');
+    assert.match(src, /<ul\b/, 'routine list');
+    assert.match(src, /<select\b/, 'native keyboard-operable selector');
   });
 });

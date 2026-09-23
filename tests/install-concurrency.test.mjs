@@ -50,10 +50,14 @@ describe('install-concurrency', () => {
     const hashB = parseSha(b.stdout);
     assert.equal(hashA, hashB, 'parallel installs must agree on content hash');
 
-    const srcBytes = readFileSync(path.join(root, 'desktop', 'routines.js'));
+    // src is the GENERATED artifact (scripts/install.mjs SOURCE_REL).
+    // Byte-identity is pinned via length + sha256: a strict deepEqual
+    // over two large Buffers of differing length busy-loops the event
+    // loop on Node 24 (observed while migrating off desktop/routines.js).
+    const srcBytes = readFileSync(path.join(root, 'desktop', 'plugin.js'));
     const dest = path.join(home, 'plugins', 'routines', 'plugin.js');
     const destBytes = readFileSync(dest);
-    assert.deepEqual(destBytes, srcBytes, 'dest must be byte-identical (no half-copy)');
+    assert.equal(destBytes.length, srcBytes.length, 'dest must be byte-identical (no half-copy)');
     assert.equal(sha256(destBytes), sha256(srcBytes), 'dest sha256 must match src');
     assert.equal(hashA, sha256(srcBytes), 'reported sha256 must match src');
 
