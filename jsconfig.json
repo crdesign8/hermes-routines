@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/jsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": false,
+    "types": []
+  },
+  "include": ["desktop/**/*.js", "desktop/**/*.mjs", "scripts/**/*.mjs", "types/**/*.d.ts"],
+  "exclude": ["node_modules", "tests"]
+}

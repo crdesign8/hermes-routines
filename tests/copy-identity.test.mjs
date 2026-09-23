@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -9,47 +10,43 @@ const root = path.resolve(here, '..');
 const routinesPath = path.join(root, 'desktop', 'routines.js');
 const libPath = path.join(root, 'desktop', 'lib', 'cron-shapes.mjs');
 
-// Phase 3: lib sharing is copy-identity only. The pure routing helpers are
-// duplicated verbatim between desktop/routines.js and
-// desktop/lib/cron-shapes.mjs; there is no runtime import between them.
-// requestCronForRoute is excluded: it binds `host` differently on each side
-// (imported host vs host parameter) as required by the bare-only /
-// zero-import constraints.
-const IDENTITY_FNS = [
-  'routeKey',
-  'resolveProfileRoute',
-  'profileRoute',
-  'backendTargetProfile',
-  'scopedCronParams',
-];
+// Region + hash identity (no JS parsing, no brace counting). The sync
+// script owns propagation (lib -> routines.js); this test fails the suite
+// on the same drift so `npm test` and `npm run check` agree.
+const SYNC_REGIONS = ['cron-shapes-routing', 'cron-shapes-builders'];
 
-function extractFunction(src, name) {
-  const i = src.indexOf(`function ${name}`);
-  assert.notEqual(i, -1, `function ${name} must exist`);
-  const p = src.indexOf('(', i);
-  let pd = 0;
-  let q = -1;
-  for (let k = p; k < src.length; k++) {
-    if (src[k] === '(') pd++;
-    else if (src[k] === ')') {
-      pd--;
-      if (pd === 0) {
-        q = k;
-        break;
-      }
-    }
-  }
-  assert.notEqual(q, -1, `function ${name} must have balanced params`);
-  const j = src.indexOf('{', q);
-  let d = 0;
-  for (let k = j; k < src.length; k++) {
-    if (src[k] === '{') d++;
-    else if (src[k] === '}') {
-      d--;
-      if (d === 0) return src.slice(i, k + 1);
-    }
-  }
-  throw new Error(`function ${name} has unbalanced braces`);
+function extractRegion(src, name, label) {
+  const beginNeedle = `// @begin-sync ${name}`;
+  const endNeedle = `// @end-sync ${name}`;
+  const beginIdx = src.indexOf(beginNeedle);
+  const endIdx = src.indexOf(endNeedle);
+  assert.notEqual(beginIdx, -1, `${label}: missing ${beginNeedle}`);
+  assert.notEqual(endIdx, -1, `${label}: missing ${endNeedle}`);
+  assert.ok(endIdx > beginIdx, `${label}: ${name} end precedes begin`);
+  assert.equal(
+    src.indexOf(beginNeedle, beginIdx + beginNeedle.length),
+    -1,
+    `${label}: duplicate ${beginNeedle}`,
+  );
+  assert.equal(
+    src.indexOf(endNeedle, endIdx + endNeedle.length),
+    -1,
+    `${label}: duplicate ${endNeedle}`,
+  );
+  const innerStart = src.indexOf('\n', beginIdx) + 1;
+  const endLineStart = src.slice(0, endIdx).lastIndexOf('\n') + 1;
+  return src.slice(innerStart, endLineStart);
+}
+
+function hashRegion(inner) {
+  return createHash('sha256').update(inner.replace(/\r\n/g, '\n'), 'utf8').digest('hex');
+}
+
+function stripSyncMarkers(source) {
+  return source
+    .split('\n')
+    .filter((line) => !line.includes('@begin-sync') && !line.includes('@end-sync'))
+    .join('\n');
 }
 
 function extractSpecifiers(source) {
@@ -67,11 +64,40 @@ function extractSpecifiers(source) {
 }
 
 describe('copy-identity', () => {
-  it('pure routing helpers are byte-identical copies (extract-and-diff)', () => {
+  it('sync regions are byte-identical with matching sha256 (lib canonical)', () => {
     const a = readFileSync(routinesPath, 'utf8');
     const b = readFileSync(libPath, 'utf8');
-    for (const fn of IDENTITY_FNS) {
-      assert.equal(extractFunction(b, fn), extractFunction(a, fn), `${fn} must be copy-identical`);
+    for (const name of SYNC_REGIONS) {
+      const fromLib = extractRegion(b, name, 'cron-shapes.mjs');
+      const fromRoutines = extractRegion(a, name, 'routines.js');
+      assert.equal(
+        hashRegion(fromRoutines),
+        hashRegion(fromLib),
+        `${name} hash mismatch (run node scripts/sync-shapes.mjs --write)`,
+      );
+      assert.equal(fromRoutines, fromLib, `${name} must be copy-identical`);
+    }
+  });
+
+  it('both files carry each region marker exactly once', () => {
+    const a = readFileSync(routinesPath, 'utf8');
+    const b = readFileSync(libPath, 'utf8');
+    for (const name of SYNC_REGIONS) {
+      for (const [src, label] of [
+        [a, 'routines.js'],
+        [b, 'cron-shapes.mjs'],
+      ]) {
+        assert.equal(
+          src.split(`// @begin-sync ${name}`).length - 1,
+          1,
+          `${label} must contain exactly one begin marker for ${name}`,
+        );
+        assert.equal(
+          src.split(`// @end-sync ${name}`).length - 1,
+          1,
+          `${label} must contain exactly one end marker for ${name}`,
+        );
+      }
     }
   });
 
@@ -81,7 +107,13 @@ describe('copy-identity', () => {
       (s) => s.startsWith('./') || s.startsWith('../') || s.startsWith('/'),
     );
     assert.deepEqual(rel, [], 'routines.js must use no relative specifiers');
-    assert.equal(src.includes('cron-shapes'), false, 'routines.js must not reference cron-shapes');
+    // Sync markers name the canonical lib; they are comments, not imports.
+    // Anything else mentioning the lib file is a forbidden runtime coupling.
+    assert.equal(
+      stripSyncMarkers(src).includes('cron-shapes'),
+      false,
+      'routines.js must not reference cron-shapes outside sync markers',
+    );
   });
 
   it('cron-shapes.mjs keeps zero imports (copy target stays dependency free)', () => {

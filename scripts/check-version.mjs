@@ -1,3 +1,4 @@
+// @ts-check
 // Version sync check: package.json <-> definePlugin({ version }) in
 // desktop/routines.js.
 //

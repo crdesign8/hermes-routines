@@ -1,3 +1,4 @@
+// @ts-check
 import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +25,13 @@ const SCAN_DIRS = [path.join(root, 'desktop'), path.join(root, 'scripts')];
 
 const MAX_DEPTH = 25;
 
+/**
+ * @param {string} dir
+ * @param {number} [depth]
+ * @param {Set<string>} [seen]
+ * @param {string[]} [out]
+ * @returns {string[]}
+ */
 function collectJsFiles(dir, depth = 0, seen = new Set(), out = []) {
   if (depth > MAX_DEPTH) {
     throw new Error(`max scan depth exceeded at ${dir}`);
@@ -56,6 +64,10 @@ function collectJsFiles(dir, depth = 0, seen = new Set(), out = []) {
   return out;
 }
 
+/**
+ * @param {string} source
+ * @returns {string[]}
+ */
 function extractSpecifiers(source) {
   const found = [];
   const patterns = [
@@ -76,6 +88,7 @@ function extractSpecifiers(source) {
 // code generation, and dynamic loading with a non-literal argument.
 // NOTE: messages below deliberately avoid the trigger substrings
 // so this self-scan stays green.
+/** @type {[RegExp, string][]} */
 const FORBIDDEN_PATTERNS = [
   [/\brequire\s*\(/, 'CJS require call forbidden — ESM only'],
   [/\beval\s*\(/, 'eval use forbidden'],
@@ -83,6 +96,10 @@ const FORBIDDEN_PATTERNS = [
   [/import\s*\(\s*[^'"`\s]/, 'dynamic import with non-literal argument forbidden'],
 ];
 
+/**
+ * @param {string} spec
+ * @returns {boolean}
+ */
 function isRelative(spec) {
   return spec.startsWith('./') || spec.startsWith('../') || spec.startsWith('/');
 }
