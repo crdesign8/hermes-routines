@@ -1,14 +1,17 @@
 {
   "name": "hermes-routines",
   "version": "0.1.0",
-  "description": "hermes-routines phase-1 scaffold",
+  "description": "hermes-routines standalone Desktop plugin (routes + cron pins)",
   "type": "module",
   "private": true,
+  "license": "MIT",
   "engines": {
-    "node": ">=24"
+    "node": ">=20"
   },
   "scripts": {
     "test": "node --test \"tests/*.test.mjs\"",
-    "check:allowlist": "node scripts/check-allowlist.mjs"
+    "check:allowlist": "node scripts/check-allowlist.mjs",
+    "sync:shapes": "node scripts/sync-shapes.mjs --check",
+    "check": "node scripts/check-allowlist.mjs && node scripts/sync-shapes.mjs --check"
   }
 }

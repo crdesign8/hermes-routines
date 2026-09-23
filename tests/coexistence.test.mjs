@@ -16,7 +16,9 @@ describe('coexistence', () => {
     assert.match(src, /SIDEBAR_NAV_AREA/, 'nav row via SIDEBAR_NAV_AREA');
     assert.equal(src.includes("'panes'"), false, 'must never register panes area');
     assert.equal(src.includes('"panes"'), false, 'must never register panes area');
-    assert.match(src, /path:\s*['"]\/routines['"]/, 'page path must be /routines');
+    // Path flows from the ROUTE_PATH constant (single source of truth).
+    assert.match(src, /const ROUTE_PATH = ['"]\/routines['"]/, 'ROUTE_PATH constant must be /routines');
+    assert.match(src, /path:\s*ROUTE_PATH/, 'page path must use ROUTE_PATH');
   });
 
   it('does not collide with /cron and INSTALL.md documents coexistence', () => {

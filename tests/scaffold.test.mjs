@@ -12,12 +12,12 @@ function readJson(rel) {
 }
 
 describe('scaffold', () => {
-  it('package.json is ESM private with node>=24 and zero deps', () => {
+  it('package.json is ESM private with node>=20 and zero deps', () => {
     const pkg = readJson('package.json');
     assert.equal(pkg.type, 'module');
     assert.equal(pkg.private, true);
     assert.ok(pkg.engines && typeof pkg.engines.node === 'string', 'engines.node required');
-    assert.match(pkg.engines.node, /24/, 'engines.node must require node>=24');
+    assert.match(pkg.engines.node, />=\s*20/, 'engines.node must require node>=20');
     for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
       const v = pkg[field];
       assert.ok(v === undefined || Object.keys(v).length === 0, `${field} must be absent or empty`);

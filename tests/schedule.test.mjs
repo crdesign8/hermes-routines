@@ -1,11 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-// Phase 3: schedule is opaque pass-through. The desktop never parses or
-// normalizes the schedule string; validation lives in the backend
-// parse_schedule. addJob must carry the exact input string to `schedule`.
+// Schedule is opaque pass-through: the desktop never parses cron semantics;
+// validation lives in the backend parse_schedule. The desktop only trims
+// border whitespace and enforces length/printability at the edge so
+// malformed input fails fast. addJob carries the *trimmed* string.
 describe('schedule', () => {
-  it('passes schedule strings through verbatim', async () => {
+  it('passes schedule strings through (trimming border whitespace)', async () => {
     const shapes = await import('../desktop/lib/cron-shapes.mjs');
     const schedules = [
       '* * * * *',
@@ -14,29 +15,34 @@ describe('schedule', () => {
       '0 0 1 * *',
       '@daily',
       '2026-09-24T09:00:00-03:00',
-      '  * * * * *  ',
     ];
     for (const schedule of schedules) {
       const added = shapes.addJob({ job_id: 'j1', schedule });
-      assert.equal(added.schedule, schedule, `schedule must pass through verbatim: ${schedule}`);
+      assert.equal(added.schedule, schedule, `schedule must pass through: ${schedule}`);
       assert.equal(added.action, 'add');
       assert.equal(added.name, 'j1');
     }
+    const padded = shapes.addJob({ job_id: 'j1', schedule: '  * * * * *  ' });
+    assert.equal(padded.schedule, '* * * * *', 'border whitespace is trimmed');
   });
 
-  it('keeps schedule and payload independent', async () => {
+  it('keeps schedule and payload independent (deep clone)', async () => {
     const shapes = await import('../desktop/lib/cron-shapes.mjs');
     const payload = { channel: 'ops', text: 'ping' };
     const added = shapes.addJob({ job_id: 'j1', schedule: '0 9 * * *', payload });
     assert.equal(added.schedule, '0 9 * * *');
     assert.deepEqual(added.payload, payload);
+    payload.text = 'mutated';
+    assert.equal(added.payload.text, 'ping', 'payload must be cloned, not aliased');
   });
 
-  it('rejects empty or non-string schedule', async () => {
+  it('rejects empty, whitespace-only, non-string, overlong or control-char schedule', async () => {
     const shapes = await import('../desktop/lib/cron-shapes.mjs');
-    for (const bad of ['', 42, null, undefined, {}, []]) {
+    for (const bad of ['', '   ', 42, null, undefined, {}, []]) {
       assert.throws(() => shapes.addJob({ job_id: 'j1', schedule: bad }), TypeError);
     }
     assert.throws(() => shapes.addJob({ job_id: 'j1' }), TypeError);
+    assert.throws(() => shapes.addJob({ job_id: 'j1', schedule: 'x'.repeat(257) }), TypeError);
+    assert.throws(() => shapes.addJob({ job_id: 'j1', schedule: '* * *\n*' }), TypeError);
   });
 });

@@ -16,8 +16,19 @@ function RoutinesView() {
 
 // Route descriptor for one desktop profile connection.
 // Shape follows PluginProfileRoute: connectionId plus profile pair.
+// NOTE (copy-identity): the five functions below must stay byte-identical
+// with the canonical lib copy. Do not edit by hand —
+// edit the lib and run the sync script with --write.
 export function routeKey(route) {
-  return `${route.connectionId}::${route.profile}`;
+  if (!route || typeof route.connectionId !== 'string' || typeof route.profile !== 'string') {
+    throw new TypeError('invalid route: connectionId and profile must be strings');
+  }
+  const connectionId = route.connectionId.trim();
+  const profile = route.profile.trim();
+  if (!connectionId || !profile) {
+    throw new TypeError('invalid route: connectionId and profile must be non-empty');
+  }
+  return `${connectionId}::${profile}`;
 }
 
 export function resolveProfileRoute(entry) {
@@ -30,6 +41,9 @@ export function resolveProfileRoute(entry) {
     profile: entry.name,
     targetProfile: entry.targetProfile || entry.name,
   };
+  if (candidate.mode !== undefined && candidate.mode !== 'local' && candidate.mode !== 'remote') {
+    throw new TypeError(`invalid route mode: ${String(candidate.mode)}`);
+  }
   const connectionId = String(candidate?.connectionId || '').trim();
   const profile = String(candidate?.profile || entry?.name || '').trim() || 'default';
   const targetProfile = String(candidate?.targetProfile || profile).trim() || profile;
@@ -59,6 +73,9 @@ export function backendTargetProfile(route, fallbackProfile = 'default') {
 }
 
 export function scopedCronParams(route, params = {}) {
+  if (!route) {
+    return params;
+  }
   const logical = route.profile;
   const target = backendTargetProfile(route, logical);
   if (!Object.prototype.hasOwnProperty.call(params, 'profile')) {
@@ -67,12 +84,22 @@ export function scopedCronParams(route, params = {}) {
   return { ...params, profile: target };
 }
 
+function assertTimeoutMs(timeoutMs) {
+  if (timeoutMs === undefined) return;
+  if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs < 0) {
+    throw new TypeError('timeoutMs must be a non-negative finite number');
+  }
+}
+
 // Gateway RPC on the entry owning connection. Entries with a resolved
 // route descriptor ride host.requestProfile; unscoped entries keep the
 // active gateway door. Same dispatch shape as cross-connection routing
 // elsewhere, reimplemented here so this file stays dependency free.
 // Route type: PluginProfileRoute from the host registry.
+// NOTE: this overload binds the imported `host`, unlike the lib version
+// which takes `host` as a parameter (see copy-identity test).
 export async function requestCronForRoute(target, method, params = {}, timeoutMs) {
+  assertTimeoutMs(timeoutMs);
   const route = target && target.connectionId ? target : profileRoute(target);
   if (route) {
     if (typeof host.requestProfile !== 'function') {
@@ -83,6 +110,9 @@ export async function requestCronForRoute(target, method, params = {}, timeoutMs
       ? host.requestProfile(route, method, scoped)
       : host.requestProfile(route, method, scoped, timeoutMs);
   }
+  if (typeof host.request !== 'function') {
+    throw new Error(`Cannot dispatch ${method}: host.request is not a function`);
+  }
   return timeoutMs === undefined
     ? host.request(method, params)
     : host.request(method, params, timeoutMs);
@@ -91,12 +121,21 @@ export async function requestCronForRoute(target, method, params = {}, timeoutMs
 // Inventory every credential free route, then read that profile own
 // cron store. Route type: PluginProfileRoute from host.profileRoutes.
 export async function listProfileRoutes() {
-  return host.profileRoutes();
+  try {
+    return await host.profileRoutes();
+  } catch (err) {
+    throw new Error(`failed to list profile routes: ${err?.message || err}`, { cause: err });
+  }
 }
 
 // List helper scoped to one profile route via cron.manage.
 // Route type: PluginProfileRoute; backend field profile carries target.
+// Fail-closed: a resolved route is required — never fall back to the
+// active gateway door for an explicitly scoped read.
 export async function listRoutines(route) {
+  if (!route?.connectionId) {
+    throw new Error('listRoutines requires a resolved profile route');
+  }
   const target = backendTargetProfile(route, '');
   const scope = target ? { profile: target } : {};
   return requestCronForRoute(route, 'cron.manage', {
@@ -108,16 +147,16 @@ export async function listRoutines(route) {
 
 export function register(ctx) {
   ctx.register({
-    id: 'routines',
+    id: ROUTE_ID,
     area: ROUTES_AREA,
-    data: { path: '/routines' },
+    data: { path: ROUTE_PATH },
     render: () => jsx(RoutinesView, {}),
   });
   ctx.register({
-    id: 'sidebar-nav',
+    id: SIDEBAR_ID,
     area: SIDEBAR_NAV_AREA,
     order: 50,
-    data: { path: '/routines', label: 'Routines', codicon: 'history' },
+    data: { path: ROUTE_PATH, label: 'Routines', codicon: 'history' },
   });
 }
 
