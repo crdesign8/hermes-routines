@@ -1,0 +1,14 @@
+{
+  "name": "hermes-routines",
+  "version": "0.1.0",
+  "description": "hermes-routines phase-1 scaffold",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test \"tests/*.test.mjs\"",
+    "check:allowlist": "node scripts/check-allowlist.mjs"
+  }
+}
