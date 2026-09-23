@@ -16,6 +16,32 @@ export const SIDEBAR_NAV_AREA = 'sidebar.nav';
 // same host shape a real (incomplete) host may present.
 export const host = {};
 
+// Active-profile atoms: the reactive identity the page subscribes to via
+// useValue(host.state.profile / host.state.connectionId). Tests drive
+// profile switches through __setActive.
+const active = { profile: 'p1', connectionId: 'c1' };
+
+function makeAtom(getter) {
+  return {
+    get: getter,
+    subscribe: () => () => {},
+  };
+}
+
+host.state = {
+  profile: makeAtom(() => active.profile),
+  connectionId: makeAtom(() => active.connectionId),
+};
+
+export function useValue(atom) {
+  return atom.get();
+}
+
+export function __setActive(profile, connectionId) {
+  active.profile = profile;
+  active.connectionId = connectionId;
+}
+
 function installDoor(name) {
   host[name] = (...args) => {
     calls.push({ door: name, args });
@@ -39,7 +65,15 @@ export function __calls() {
 
 export function __reset() {
   calls.length = 0;
+  active.profile = 'p1';
+  active.connectionId = 'c1';
   for (const door of DOORS) {
     if (typeof host[door] !== 'function') installDoor(door);
+  }
+  if (!host.state) {
+    host.state = {
+      profile: makeAtom(() => active.profile),
+      connectionId: makeAtom(() => active.connectionId),
+    };
   }
 }

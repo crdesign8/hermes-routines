@@ -1,16 +1,25 @@
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
-import { coerceRoutes, findRouteByKey, routeKey } from '../domain/routing';
-import { jobIdOf, normalizeJobs, visibleJobs, withPausedFlag, type RoutineFilter, type RoutineJob } from '../domain/jobs';
+import { activeRouteKey, coerceRoutes, resolveActiveRoute } from '../domain/routing';
+import { jobIdOf, normalizeJobs, withPausedFlag, type RoutineFilter, type RoutineJob } from '../domain/jobs';
 import { messageOf } from '../lib/errors';
 
 // Page state machine for the Routines view. Pure and reducer-driven: every
 // event passes through routinesViewReducer, so one event = one
 // transition. The component dispatches functional state updates (see
 // RoutinesPage) and tests drive the reducer directly.
+//
+// Active-profile binding: the plugin never offers a profile picker. The
+// Desktop owns the active profile (`host.state.profile` +
+// `host.state.connectionId`); the reducer only ever represents that exact
+// connection-qualified route. A profile switch clears the previous
+// profile's rows — stale data is never shown as current — and late
+// list responses carry their route key so a superseded request cannot
+// contaminate the new view.
 
 export const ROUTINES_VIEW_STATUS = Object.freeze({
   ROUTES_LOADING: 'routes-loading',
   ROUTES_ERROR: 'routes-error',
+  ROUTE_UNAVAILABLE: 'route-unavailable',
   LIST_LOADING: 'list-loading',
   READY: 'ready',
   LIST_ERROR: 'list-error',
@@ -21,29 +30,29 @@ export type RoutinesStatus = (typeof ROUTINES_VIEW_STATUS)[keyof typeof ROUTINES
 export interface RoutinesState {
   status: RoutinesStatus;
   routes: PluginProfileRoute[];
-  selectedKey: string | null;
+  /** Connection-qualified key of the active route (`connectionId::profile`). */
+  activeKey: string | null;
+  activeProfile: string | null;
+  activeConnectionId: string | null;
   jobs: RoutineJob[];
   error: string | null;
   notice: string | null;
   pending: string[];
-  confirmName: string | null;
   filter: RoutineFilter;
   snapshot: RoutineJob[] | null;
 }
 
 export type RoutinesEvent =
   | { type: 'routes-loading' }
-  | { type: 'routes-loaded'; routes: unknown }
+  | { type: 'routes-loaded'; routes: unknown; profile: unknown; connectionId: unknown }
   | { type: 'routes-error'; error: unknown }
   | { type: 'retry-routes' }
-  | { type: 'route-changed'; key: string }
+  | { type: 'active-changed'; profile: unknown; connectionId: unknown }
   | { type: 'list-loading' }
-  | { type: 'list-loaded'; jobs: unknown }
-  | { type: 'list-error'; error: unknown }
+  | { type: 'list-loaded'; jobs: unknown; key: unknown }
+  | { type: 'list-error'; error: unknown; key: unknown }
   | { type: 'retry-list' }
   | { type: 'filter-changed'; filter: unknown }
-  | { type: 'confirm-open'; name: unknown }
-  | { type: 'confirm-close' }
   | { type: 'mutate-start'; name: unknown }
   | { type: 'mutate-end'; name: unknown }
   | { type: 'optimistic-pause'; name: string }
@@ -56,15 +65,22 @@ export function initialRoutinesState(): RoutinesState {
   return {
     status: ROUTINES_VIEW_STATUS.ROUTES_LOADING,
     routes: [],
-    selectedKey: null,
+    activeKey: null,
+    activeProfile: null,
+    activeConnectionId: null,
     jobs: [],
     error: null,
     notice: null,
     pending: [],
-    confirmName: null,
     filter: 'all',
     snapshot: null,
   };
+}
+
+function profileText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 export function routinesViewReducer(
@@ -76,33 +92,52 @@ export function routinesViewReducer(
   if (!event) return base;
   switch (event.type) {
     case 'routes-loading':
-      return { ...base, status: S.ROUTES_LOADING, error: null, notice: null };
+      return {
+        ...base,
+        status: S.ROUTES_LOADING,
+        routes: [],
+        activeKey: null,
+        activeProfile: null,
+        activeConnectionId: null,
+        jobs: [],
+        error: null,
+        notice: null,
+        pending: [],
+        snapshot: null,
+      };
     case 'routes-loaded': {
       const usable = coerceRoutes(event.routes);
-      if (usable.length === 0) {
+      const profile = profileText(event.profile);
+      const connectionId = profileText(event.connectionId);
+      const route = resolveActiveRoute(usable, profile, connectionId);
+      const key = activeRouteKey(profile, connectionId);
+      if (!route || !key) {
         return {
           ...base,
-          status: S.READY,
-          routes: [],
-          selectedKey: null,
+          status: S.ROUTE_UNAVAILABLE,
+          routes: usable,
+          activeKey: null,
+          activeProfile: profile,
+          activeConnectionId: connectionId,
           jobs: [],
           error: null,
-          snapshot: null,
+          notice: null,
           pending: [],
-          confirmName: null,
+          snapshot: null,
         };
       }
       return {
         ...base,
         status: S.LIST_LOADING,
         routes: usable,
-        selectedKey: routeKey(usable[0]),
+        activeKey: key,
+        activeProfile: profile,
+        activeConnectionId: connectionId,
         jobs: [],
         error: null,
         notice: null,
-        confirmName: null,
-        snapshot: null,
         pending: [],
+        snapshot: null,
       };
     }
     case 'routes-error':
@@ -111,25 +146,64 @@ export function routinesViewReducer(
         status: S.ROUTES_ERROR,
         error: messageOf(event.error),
         routes: [],
-        selectedKey: null,
+        activeKey: null,
+        activeProfile: null,
+        activeConnectionId: null,
         jobs: [],
       };
     case 'retry-routes':
-      return { ...base, status: S.ROUTES_LOADING, error: null, notice: null };
-    case 'route-changed':
       return {
         ...base,
-        status: S.LIST_LOADING,
-        selectedKey: event.key,
+        status: S.ROUTES_LOADING,
+        routes: [],
+        activeKey: null,
+        activeProfile: null,
+        activeConnectionId: null,
         jobs: [],
         error: null,
         notice: null,
-        confirmName: null,
+        pending: [],
         snapshot: null,
       };
+    case 'active-changed': {
+      const profile = profileText(event.profile);
+      const connectionId = profileText(event.connectionId);
+      const key = activeRouteKey(profile, connectionId);
+      if (key === base.activeKey) return base;
+      const route = resolveActiveRoute(base.routes, profile, connectionId);
+      if (!route || !key) {
+        return {
+          ...base,
+          status: S.ROUTE_UNAVAILABLE,
+          activeKey: null,
+          activeProfile: profile,
+          activeConnectionId: connectionId,
+          jobs: [],
+          error: null,
+          notice: null,
+          pending: [],
+          snapshot: null,
+        };
+      }
+      return {
+        ...base,
+        status: S.LIST_LOADING,
+        activeKey: key,
+        activeProfile: profile,
+        activeConnectionId: connectionId,
+        jobs: [],
+        error: null,
+        notice: null,
+        pending: [],
+        snapshot: null,
+      };
+    }
     case 'list-loading':
       return { ...base, status: S.LIST_LOADING, error: null };
-    case 'list-loaded':
+    case 'list-loaded': {
+      // Race guard: a superseded request (profile A resolving after the
+      // switch to B) carries A's key and is ignored — the view keeps B.
+      if (typeof event.key !== 'string' || event.key !== base.activeKey) return base;
       return {
         ...base,
         status: S.READY,
@@ -137,21 +211,19 @@ export function routinesViewReducer(
         error: null,
         snapshot: null,
         pending: [],
-        confirmName: null,
       };
-    case 'list-error':
+    }
+    case 'list-error': {
+      if (typeof event.key !== 'string' || event.key !== base.activeKey) return base;
       return { ...base, status: S.LIST_ERROR, error: messageOf(event.error) };
+    }
     case 'retry-list':
-      return { ...base, status: S.LIST_LOADING, error: null, notice: null, confirmName: null };
+      return { ...base, status: S.LIST_LOADING, error: null, notice: null };
     case 'filter-changed':
       return {
         ...base,
         filter: event.filter === 'active' || event.filter === 'paused' ? event.filter : 'all',
       };
-    case 'confirm-open':
-      return { ...base, confirmName: typeof event.name === 'string' ? event.name : null };
-    case 'confirm-close':
-      return { ...base, confirmName: null };
     case 'mutate-start': {
       if (typeof event.name !== 'string' || !event.name) return base;
       if (base.pending.indexOf(event.name) !== -1) return { ...base, notice: null };

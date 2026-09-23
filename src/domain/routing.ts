@@ -201,3 +201,33 @@ export function findRouteByKey(
   }
   return null;
 }
+
+/**
+ * Resolve the exact route for the Desktop's currently active profile.
+ *
+ * The plugin never offers a profile picker: it always represents
+ * `host.state.profile` + `host.state.connectionId`. Matching is on the
+ * connection-qualified key (`connectionId::profile`), so two connections
+ * exposing the same profile name can never collide. A null/empty
+ * connectionId or profile fails closed with null — the view shows the
+ * unavailable state instead of guessing a backend.
+ */
+export function resolveActiveRoute(
+  routes: unknown,
+  profile: unknown,
+  connectionId: unknown,
+): PluginProfileRoute | null {
+  if (typeof profile !== 'string' || !profile.trim()) return null;
+  if (typeof connectionId !== 'string' || !connectionId.trim()) return null;
+  const usable = coerceRoutes(routes);
+  if (usable.length === 0) return null;
+  const key = `${connectionId.trim()}::${profile.trim()}`;
+  return findRouteByKey(usable, key);
+}
+
+/** Stable key for the active identity (for query/state identity + races). */
+export function activeRouteKey(profile: unknown, connectionId: unknown): string | null {
+  if (typeof profile !== 'string' || !profile.trim()) return null;
+  if (typeof connectionId !== 'string' || !connectionId.trim()) return null;
+  return `${connectionId.trim()}::${profile.trim()}`;
+}

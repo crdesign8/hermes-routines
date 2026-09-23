@@ -52,6 +52,9 @@ describe('types-contract', () => {
     assert.equal(/definePlugin/.test(dts), false, 'definePlugin must not appear in the shim');
     assert.match(dts, /profileRoutes/, 'host.profileRoutes surface required');
     assert.match(dts, /requestProfile/, 'host.requestProfile surface required');
+    assert.match(dts, /host\.state/, 'host.state surface required (active-profile binding)');
+    assert.match(dts, /connectionId/, 'host.state.connectionId surface required');
+    assert.match(dts, /useValue/, 'useValue surface required (reactive atoms in React)');
     assert.match(dts, /ROUTES_AREA/, 'ROUTES_AREA surface required');
     assert.match(dts, /SIDEBAR_NAV_AREA/, 'SIDEBAR_NAV_AREA surface required');
     assert.match(dts, /register\s*[:(]/, 'ctx.register surface required');

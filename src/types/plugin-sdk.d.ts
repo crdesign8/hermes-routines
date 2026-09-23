@@ -18,6 +18,10 @@
 //     ALL required: sdk/index.ts
 //   - host.profileRoutes / host.requestProfile(route, method, params,
 //     timeoutMs?) / host.request(method, params?, timeoutMs?): sdk/index.ts
+//   - host.state.profile / host.state.connectionId: sdk/index.ts (`profile:
+//     readonlyAtom<string>($activeGatewayProfile)`, `connectionId:
+//     readonlyAtom<null | string>($activeConnectionId)`)
+//   - useValue: sdk/index.ts (`export { useStore as useValue }`)
 //   - ROUTES_AREA = 'routes', SIDEBAR_NAV_AREA = 'sidebar.nav': app/routes.ts
 //
 // Do NOT add a symbol here without checking it exists upstream: the Desktop
@@ -79,9 +83,32 @@ declare module '@hermes/plugin-sdk' {
       params?: Record<string, unknown>,
       timeoutMs?: number,
     ): Promise<T>;
+    /**
+     * Readonly live app state (nanostore atoms). This plugin subscribes to
+     * `profile` + `connectionId` only — the active-profile binding.
+     * Verified in sdk/index.ts: `profile: readonlyAtom<string>
+     * ($activeGatewayProfile)`, `connectionId: readonlyAtom<null | string>
+     * ($activeConnectionId)`.
+     */
+    readonly state: {
+      readonly profile: ReadableAtom<string>;
+      readonly connectionId: ReadableAtom<null | string>;
+    };
+  }
+
+  /** Minimal readable atom face: `.get()` in handlers, `useValue` in React. */
+  export interface ReadableAtom<T> {
+    get(): T;
+    subscribe(listener: (value: T) => void): () => void;
   }
 
   export const host: PluginHost;
   export const ROUTES_AREA: 'routes';
   export const SIDEBAR_NAV_AREA: 'sidebar.nav';
+  /**
+   * Subscribe to a readonly atom in React (the SDK's useValue binding over
+   * nanostores' useStore). Verified in sdk/index.ts (useStore aliased as
+   * useValue, sourced from the nanostores React binding).
+   */
+  export function useValue<T>(atom: ReadableAtom<T>): T;
 }

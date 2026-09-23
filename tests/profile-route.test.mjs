@@ -40,6 +40,8 @@ describe('profile-route', () => {
       'backendTargetProfile',
       'scopedCronParams',
       'requestCronForRoute',
+      'resolveActiveRoute',
+      'activeRouteKey',
     ]) {
       assert.equal(typeof shapes[fn], 'function', `${fn} must be exported`);
     }

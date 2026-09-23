@@ -28,6 +28,10 @@ function reduce(events) {
   return state;
 }
 
+function loaded(routes, profile = 'p1', connectionId = 'c1') {
+  return { type: 'routes-loaded', routes, profile, connectionId };
+}
+
 function readSrcTree() {
   const base = path.join(root, 'src');
   const files = readdirSync(base, { recursive: true }).filter((f) => /\.(ts|tsx)$/.test(String(f)));
@@ -37,7 +41,8 @@ function readSrcTree() {
 // Render entry: exactly the ROUTES_AREA contribution the descriptor
 // registers (nothing renders the descriptor a second time). The jsx-stub
 // returns an element — unwrap the top-level component so paint() sees the
-// evaluated tree (hooks run here, fed by reactStub.__presetStates).
+// evaluated tree (hooks run here, fed by reactStub.__presetStates and the
+// sdk-stub active identity).
 function renderView() {
   const items = [];
   routines.register({ register: (c) => items.push(c) });
@@ -53,8 +58,9 @@ function renderView() {
 
 // Walk a jsx-stub tree ({ type, props }) collecting every node. Function
 // nodes are child components: the stub renders one level, so expand them
-// by calling the component (pure in this view layer — state hooks live
-// only in RoutinesPage, already unwrapped by renderView/paint).
+// by calling the component (pure in this view layer — page-level state
+// hooks live only in RoutinesPage, already unwrapped by renderView/paint;
+// RoutineList expansion state defaults with an empty preset queue).
 function collect(node, out = []) {
   if (Array.isArray(node)) {
     for (const child of node) collect(child, out);
@@ -79,65 +85,137 @@ function texts(node) {
     .filter((c) => typeof c === 'string');
 }
 
-describe('routines-view loading/empty/error/retry', () => {
+describe('routines-view active-profile binding', () => {
   it('starts in routes-loading with empty collections', () => {
     const state = routines.initialRoutinesState();
     assert.equal(state.status, 'routes-loading');
     assert.deepEqual(state.routes, []);
     assert.deepEqual(state.jobs, []);
-    assert.equal(state.selectedKey, null);
+    assert.equal(state.activeKey, null);
   });
 
-  it('routes-loaded selects the first usable route and enters list-loading', () => {
-    const state = reduce([{ type: 'routes-loaded', routes: [ROUTE, ROUTE_B] }]);
+  it('routes-loaded resolves the exact active route and enters list-loading', () => {
+    const state = reduce([loaded([ROUTE, ROUTE_B], 'p1', 'c1')]);
     assert.equal(state.status, 'list-loading');
-    assert.equal(state.selectedKey, 'c1::p1');
+    assert.equal(state.activeKey, 'c1::p1');
+    assert.equal(state.activeProfile, 'p1');
+    assert.equal(state.activeConnectionId, 'c1');
     assert.deepEqual(state.jobs, []);
   });
 
-  it('routes-loaded with zero routes lands on ready-empty (no invented route)', () => {
-    const state = reduce([{ type: 'routes-loaded', routes: [] }]);
-    assert.equal(state.status, 'ready');
+  it('routes-loaded is connection-aware: same profile on another connection resolves there', () => {
+    const other = { connectionId: 'c9', mode: 'remote', profile: 'p1', targetProfile: 'p1' };
+    const state = reduce([loaded([ROUTE, other], 'p1', 'c9')]);
+    assert.equal(state.status, 'list-loading');
+    assert.equal(state.activeKey, 'c9::p1');
+  });
+
+  it('routes-loaded with zero routes lands on route-unavailable (no invented route)', () => {
+    const state = reduce([loaded([], 'p1', 'c1')]);
+    assert.equal(state.status, 'route-unavailable');
+    assert.equal(state.activeKey, null);
     assert.deepEqual(state.jobs, []);
-    assert.equal(state.selectedKey, null);
+  });
+
+  it('routes-loaded with an unresolvable active identity lands on route-unavailable', () => {
+    const state = reduce([loaded([ROUTE, ROUTE_B], 'ghost', 'c1')]);
+    assert.equal(state.status, 'route-unavailable');
+    assert.equal(state.activeKey, null);
+    assert.deepEqual(state.jobs, [], 'no other profile rows may stand in');
+  });
+
+  it('routes-loaded with null connectionId fails closed', () => {
+    const state = reduce([loaded([ROUTE], 'p1', null)]);
+    assert.equal(state.status, 'route-unavailable');
+    assert.equal(state.activeKey, null);
   });
 
   it('routes-loaded skips unusable entries instead of failing the view', () => {
-    const state = reduce([{ type: 'routes-loaded', routes: [{ nope: true }, ROUTE_B] }]);
+    const state = reduce([loaded([{ nope: true }, ROUTE_B], 'p2', 'c2')]);
     assert.equal(state.status, 'list-loading');
-    assert.equal(state.selectedKey, 'c2::p2');
+    assert.equal(state.activeKey, 'c2::p2');
   });
 
-  it('routes-loaded with only unusable entries lands on ready-empty', () => {
-    const state = reduce([{ type: 'routes-loaded', routes: [{ nope: true }] }]);
-    assert.equal(state.status, 'ready');
-    assert.equal(state.selectedKey, null);
+  it('active-changed follows the Desktop switch and clears stale rows', () => {
+    let state = reduce([
+      loaded([ROUTE, ROUTE_B], 'p1', 'c1'),
+      { type: 'list-loaded', jobs: [{ name: 'j1' }], key: 'c1::p1' },
+    ]);
+    assert.equal(state.jobs.length, 1);
+    state = routines.routinesViewReducer(state, { type: 'active-changed', profile: 'p2', connectionId: 'c2' });
+    assert.equal(state.status, 'list-loading');
+    assert.equal(state.activeKey, 'c2::p2');
+    assert.deepEqual(state.jobs, [], 'previous profile rows must not read as current');
+  });
+
+  it('active-changed to an unresolvable identity lands on route-unavailable with cleared rows', () => {
+    let state = reduce([
+      loaded([ROUTE, ROUTE_B], 'p1', 'c1'),
+      { type: 'list-loaded', jobs: [{ name: 'j1' }], key: 'c1::p1' },
+    ]);
+    state = routines.routinesViewReducer(state, { type: 'active-changed', profile: 'ghost', connectionId: 'c1' });
+    assert.equal(state.status, 'route-unavailable');
+    assert.equal(state.activeKey, null);
     assert.deepEqual(state.jobs, []);
   });
 
+  it('active-changed with the same identity is a no-op', () => {
+    const before = reduce([loaded([ROUTE], 'p1', 'c1')]);
+    const after = routines.routinesViewReducer(before, { type: 'active-changed', profile: 'p1', connectionId: 'c1' });
+    assert.equal(after, before);
+  });
+
+  it('stale list responses cannot contaminate the new view (race guard)', () => {
+    let state = reduce([loaded([ROUTE, ROUTE_B], 'p1', 'c1')]);
+    state = routines.routinesViewReducer(state, { type: 'active-changed', profile: 'p2', connectionId: 'c2' });
+    assert.equal(state.activeKey, 'c2::p2');
+    // Late arrival from profile A carries A's key and is ignored.
+    const stale = routines.routinesViewReducer(state, {
+      type: 'list-loaded',
+      jobs: [{ name: 'from-A' }],
+      key: 'c1::p1',
+    });
+    assert.equal(stale, state);
+    assert.deepEqual(stale.jobs, []);
+    const staleErr = routines.routinesViewReducer(state, {
+      type: 'list-error',
+      error: 'A failed late',
+      key: 'c1::p1',
+    });
+    assert.equal(staleErr, state);
+    // The current key still lands.
+    const fresh = routines.routinesViewReducer(state, {
+      type: 'list-loaded',
+      jobs: [{ name: 'from-B' }],
+      key: 'c2::p2',
+    });
+    assert.equal(fresh.status, 'ready');
+    assert.deepEqual(fresh.jobs, [{ name: 'from-B' }]);
+  });
+
   it('list-loaded normalizes envelope, bare array and garbage', () => {
-    const base = [{ type: 'routes-loaded', routes: [ROUTE] }];
-    const fromEnvelope = reduce([...base, { type: 'list-loaded', jobs: { jobs: [{ name: 'j1' }] } }]);
+    const base = [loaded([ROUTE], 'p1', 'c1')];
+    const fromEnvelope = reduce([...base, { type: 'list-loaded', jobs: { jobs: [{ name: 'j1' }] }, key: 'c1::p1' }]);
     assert.equal(fromEnvelope.status, 'ready');
     assert.deepEqual(fromEnvelope.jobs, [{ name: 'j1' }]);
-    const fromArray = reduce([...base, { type: 'list-loaded', jobs: [{ name: 'j2' }] }]);
+    const fromArray = reduce([...base, { type: 'list-loaded', jobs: [{ name: 'j2' }], key: 'c1::p1' }]);
     assert.deepEqual(fromArray.jobs, [{ name: 'j2' }]);
     for (const bad of [null, undefined, {}, 'nope', 42]) {
-      const s = reduce([...base, { type: 'list-loaded', jobs: bad }]);
+      const s = reduce([...base, { type: 'list-loaded', jobs: bad, key: 'c1::p1' }]);
       assert.equal(s.status, 'ready');
       assert.deepEqual(s.jobs, [], `payload ${JSON.stringify(bad)} must normalize to []`);
     }
   });
 
-  it('list-error keeps the route and retry-list re-enters loading', () => {
-    let state = reduce([{ type: 'routes-loaded', routes: [ROUTE] }, { type: 'list-error', error: 'boom' }]);
+  it('list-error keeps the route key and retry-list re-enters loading', () => {
+    let state = reduce([loaded([ROUTE], 'p1', 'c1'), { type: 'list-error', error: 'boom', key: 'c1::p1' }]);
     assert.equal(state.status, 'list-error');
     assert.equal(state.error, 'boom');
-    assert.equal(state.selectedKey, 'c1::p1');
+    assert.equal(state.activeKey, 'c1::p1');
     state = routines.routinesViewReducer(state, { type: 'retry-list' });
     assert.equal(state.status, 'list-loading');
     assert.equal(state.error, null);
-    assert.equal(state.selectedKey, 'c1::p1');
+    assert.equal(state.activeKey, 'c1::p1');
   });
 
   it('routes-error surfaces the message and retry-routes resets', () => {
@@ -149,26 +227,14 @@ describe('routines-view loading/empty/error/retry', () => {
     assert.equal(state.error, null);
   });
 
-  it('route-changed switches selection and clears stale rows', () => {
-    let state = reduce([
-      { type: 'routes-loaded', routes: [ROUTE, ROUTE_B] },
-      { type: 'list-loaded', jobs: [{ name: 'j1' }] },
-    ]);
-    assert.equal(state.jobs.length, 1);
-    state = routines.routinesViewReducer(state, { type: 'route-changed', key: 'c2::p2' });
-    assert.equal(state.status, 'list-loading');
-    assert.equal(state.selectedKey, 'c2::p2');
-    assert.deepEqual(state.jobs, []);
-  });
-
   it('unknown events leave state untouched', () => {
-    const beforeState = reduce([{ type: 'routes-loaded', routes: [ROUTE] }]);
+    const beforeState = reduce([loaded([ROUTE], 'p1', 'c1')]);
     assert.equal(routines.routinesViewReducer(beforeState, { type: 'nope' }), beforeState);
     assert.equal(routines.routinesViewReducer(beforeState, null), beforeState);
   });
 });
 
-describe('routines-view create/pause/resume/remove via builders', () => {
+describe('routines-view pause/resume via builders', () => {
   it('buildListParams pins the list envelope with the backend profile', () => {
     assert.deepEqual(routines.buildListParams(ROUTE), {
       action: 'list',
@@ -179,25 +245,9 @@ describe('routines-view create/pause/resume/remove via builders', () => {
     assert.throws(() => routines.buildListParams({}), /resolved profile route/);
   });
 
-  it('buildAddParams matches addJob plus scope', () => {
-    const input = { job_id: '  j1  ', schedule: '  0 9 * * MON  ', payload: { k: 'v' } };
-    assert.deepEqual(
-      routines.buildAddParams(ROUTE, input),
-      { ...shapes.addJob(input), profile: 't1' },
-    );
-    assert.deepEqual(routines.buildAddParams(ROUTE, { job_id: 'j1', schedule: '* * * * *' }), {
-      action: 'add',
-      name: 'j1',
-      schedule: '* * * * *',
-      payload: {},
-      profile: 't1',
-    });
-  });
-
-  it('buildPause/Resume/Remove match the builders plus scope', () => {
+  it('buildPause/Resume match the builders plus scope', () => {
     assert.deepEqual(routines.buildPauseParams(ROUTE, 'j1'), { ...shapes.pauseJob('j1'), profile: 't1' });
     assert.deepEqual(routines.buildResumeParams(ROUTE, 'j1'), { ...shapes.resumeJob('j1'), profile: 't1' });
-    assert.deepEqual(routines.buildRemoveParams(ROUTE, 'j1'), { ...shapes.removeJob('j1'), profile: 't1' });
   });
 
   it('builder validation rejects bad input with TypeError before any host call', () => {
@@ -205,50 +255,59 @@ describe('routines-view create/pause/resume/remove via builders', () => {
     for (const bad of ['', '   ', 'a b', 'x'.repeat(129), 42, null, undefined]) {
       assert.throws(() => routines.buildPauseParams(ROUTE, bad), TypeError);
       assert.throws(() => routines.buildResumeParams(ROUTE, bad), TypeError);
-      assert.throws(() => routines.buildRemoveParams(ROUTE, bad), TypeError);
-      assert.throws(() => routines.buildAddParams(ROUTE, { job_id: bad, schedule: '* * * * *' }), TypeError);
-    }
-    for (const badSchedule of ['', '   ', 42, null, undefined, 'x'.repeat(257)]) {
-      assert.throws(
-        () => routines.buildAddParams(ROUTE, { job_id: 'j1', schedule: badSchedule }),
-        TypeError,
-      );
     }
     assert.equal(sdk.__calls().length, 0, 'validation must not touch the host');
   });
+
+  it('active route helper resolves connection-qualified identity', () => {
+    assert.equal(typeof routines.resolveActiveRoute, 'function');
+    assert.equal(typeof routines.activeRouteKey, 'function');
+    assert.deepEqual(routines.resolveActiveRoute([ROUTE, ROUTE_B], 'p2', 'c2'), ROUTE_B);
+    assert.equal(routines.resolveActiveRoute([ROUTE, ROUTE_B], 'p1', 'c2'), null);
+    assert.equal(routines.resolveActiveRoute([ROUTE], 'p1', null), null);
+    assert.equal(routines.activeRouteKey('p1', 'c1'), 'c1::p1');
+    assert.equal(routines.activeRouteKey('', 'c1'), null);
+  });
 });
 
-describe('routines-view delete confirmation', () => {
-  it('confirm-open/close tracks the pending removal without mutating rows', () => {
-    const jobs = [{ name: 'j1' }, { name: 'j2' }];
-    let state = reduce([
-      { type: 'routes-loaded', routes: [ROUTE] },
-      { type: 'list-loaded', jobs },
-      { type: 'confirm-open', name: 'j1' },
-    ]);
-    assert.equal(state.confirmName, 'j1');
-    assert.deepEqual(state.jobs, jobs);
-    state = routines.routinesViewReducer(state, { type: 'confirm-close' });
-    assert.equal(state.confirmName, null);
-    assert.deepEqual(state.jobs, jobs);
+describe('routines-view presentation (Crew port)', () => {
+  it('humanizes cron schedules instead of showing raw cron', () => {
+    assert.equal(routines.describeSchedule('0 7 * * 2'), 'Tuesdays at 07:00');
+    assert.equal(routines.describeSchedule('0 9 * * *'), 'Every day at 09:00');
+    assert.equal(routines.describeSchedule('every 5m'), 'Every 5 minutes');
+    assert.equal(routines.describeSchedule('0 9 * * MON'), '0 9 * * MON', 'unknown tokens stay verbatim');
   });
 
-  it('list reload clears a stale confirmation', () => {
-    const state = reduce([
-      { type: 'routes-loaded', routes: [ROUTE] },
-      { type: 'list-loaded', jobs: [{ name: 'j1' }] },
-      { type: 'confirm-open', name: 'j1' },
-      { type: 'list-loaded', jobs: [{ name: 'j1' }] },
-    ]);
-    assert.equal(state.confirmName, null);
+  it('titles strip the bot prefix and fall back honestly', () => {
+    assert.equal(routines.routineTitle({ name: '[bot:news] Morning brief' }, 'routine 1'), 'Morning brief');
+    assert.equal(routines.routineTitle({ name: '' }, 'routine 1'), 'routine 1');
   });
 
-  it('source renders a two-step remove (ask, then confirm/cancel)', () => {
-    const src = readSrcTree();
-    assert.match(src, /confirm-open/, 'remove must open a confirmation first');
-    assert.match(src, /Confirm remove/, 'confirmation must name the action');
-    assert.match(src, /Cancel/, 'confirmation must offer cancel');
-    assert.match(src, /Confirm removal of/, 'confirmation group must be labelled');
+  it('collapsed subtitles lead with human schedule and next run; paused stays Paused', () => {
+    assert.equal(
+      routines.collapsedSubtitleOf({ name: 'a', schedule: '0 9 * * *', disabled: false }),
+      'Every day at 09:00',
+    );
+    assert.equal(routines.collapsedSubtitleOf({ name: 'b', disabled: true }), 'Paused');
+    assert.equal(routines.collapsedSubtitleOf({ name: 'c', state: 'completed' }), 'Completed');
+    assert.equal(routines.collapsedSubtitleOf({ name: 'd', state: 'error' }), 'Error');
+  });
+
+  it('visibleJobs filters active/paused without mutating', () => {
+    const jobs = [{ name: 'a' }, { name: 'b', disabled: true }, { name: 'c', enabled: false }];
+    assert.deepEqual(
+      routines.visibleJobs(jobs, 'active').map((j) => j.name),
+      ['a'],
+    );
+    assert.deepEqual(
+      routines.visibleJobs(jobs, 'paused').map((j) => j.name),
+      ['b', 'c'],
+    );
+    assert.deepEqual(
+      routines.visibleJobs(jobs, 'all').map((j) => j.name),
+      ['a', 'b', 'c'],
+    );
+    assert.deepEqual(jobs.map((j) => j.name), ['a', 'b', 'c']);
   });
 });
 
@@ -267,8 +326,8 @@ describe('routines-view optimism policy', () => {
       { name: 'j2', schedule: '0 9 * * MON', disabled: true },
     ];
     let state = reduce([
-      { type: 'routes-loaded', routes: [ROUTE] },
-      { type: 'list-loaded', jobs },
+      loaded([ROUTE], 'p1', 'c1'),
+      { type: 'list-loaded', jobs, key: 'c1::p1' },
       { type: 'optimistic-pause', name: 'j1' },
     ]);
     assert.equal(state.jobs[0].disabled, true);
@@ -282,8 +341,8 @@ describe('routines-view optimism policy', () => {
   it('optimistic resume clears the flag and rollback restores it', () => {
     const jobs = [{ name: 'j1', schedule: '* * * * *', disabled: true, enabled: false }];
     let state = reduce([
-      { type: 'routes-loaded', routes: [ROUTE] },
-      { type: 'list-loaded', jobs },
+      loaded([ROUTE], 'p1', 'c1'),
+      { type: 'list-loaded', jobs, key: 'c1::p1' },
       { type: 'optimistic-resume', name: 'j1' },
     ]);
     assert.equal(state.jobs[0].disabled, false);
@@ -294,28 +353,11 @@ describe('routines-view optimism policy', () => {
   it('rollback without a snapshot keeps current rows', () => {
     const jobs = [{ name: 'j1' }];
     const state = reduce([
-      { type: 'routes-loaded', routes: [ROUTE] },
-      { type: 'list-loaded', jobs },
+      loaded([ROUTE], 'p1', 'c1'),
+      { type: 'list-loaded', jobs, key: 'c1::p1' },
       { type: 'optimistic-rollback' },
     ]);
     assert.deepEqual(state.jobs, jobs);
-  });
-
-  it('visibleJobs filters active/paused without mutating', () => {
-    const jobs = [{ name: 'a' }, { name: 'b', disabled: true }, { name: 'c', enabled: false }];
-    assert.deepEqual(
-      routines.visibleJobs(jobs, 'active').map((j) => j.name),
-      ['a'],
-    );
-    assert.deepEqual(
-      routines.visibleJobs(jobs, 'paused').map((j) => j.name),
-      ['b', 'c'],
-    );
-    assert.deepEqual(
-      routines.visibleJobs(jobs, 'all').map((j) => j.name),
-      ['a', 'b', 'c'],
-    );
-    assert.deepEqual(jobs.map((j) => j.name), ['a', 'b', 'c']);
   });
 });
 
@@ -389,21 +431,21 @@ describe('routines-view fail-closed dispatch', () => {
 describe('routines-view render branches', () => {
   function paint(state) {
     const noop = () => {};
-    // RoutinesPage hooks: [state, draftId, draftSchedule, routesNonce]
-    reactStub.__presetStates([[state, noop], ['', noop], ['', noop], [0, noop]]);
+    // RoutinesPage hooks: [state, routesNonce]
+    reactStub.__presetStates([[state, noop], [0, noop]]);
     return renderView();
   }
 
   function readyWith(jobs, extra = {}) {
     return reduce([
-      { type: 'routes-loaded', routes: [ROUTE, ROUTE_B] },
-      { type: 'list-loaded', jobs },
+      loaded([ROUTE, ROUTE_B], 'p1', 'c1'),
+      { type: 'list-loaded', jobs, key: 'c1::p1' },
       ...(extra.events || []),
     ]);
   }
 
-  it('ready list renders rows with badges and row actions', () => {
-    const tree = paint(readyWith([{ name: 'j1', schedule: '* * * * *' }, { name: 'j2', schedule: '0 9 * * MON', disabled: true }]));
+  it('ready list renders humanized cards with status and pause/resume only', () => {
+    const tree = paint(readyWith([{ name: 'j1', schedule: '0 9 * * *' }, { name: 'j2', schedule: '0 9 * * *', disabled: true }]));
     const nodes = collect(tree);
     const list = nodes.find((n) => n.type === 'ul');
     assert.ok(list, 'ul required');
@@ -413,11 +455,21 @@ describe('routines-view render branches', () => {
     assert.match(all, /j1/);
     assert.match(all, /Active/);
     assert.match(all, /Paused/);
+    assert.match(all, /Every day at 09:00/, 'schedule must read human, not raw cron');
     const buttons = nodes.filter((n) => n.type === 'button').map((n) => n.props.children);
     assert.ok(buttons.includes('Pause'));
     assert.ok(buttons.includes('Resume'));
-    assert.ok(buttons.includes('Remove'));
-    assert.ok(buttons.includes('Create routine'));
+    assert.equal(buttons.includes('Remove'), false, 'delete is not part of this surface');
+    assert.equal(buttons.includes('Create routine'), false, 'create is not part of this surface');
+    assert.equal(buttons.includes('Confirm remove'), false);
+  });
+
+  it('cards disclose details on demand with aria-expanded', () => {
+    const tree = paint(readyWith([{ name: 'j1', schedule: '0 9 * * *' }]));
+    const nodes = collect(tree);
+    const toggle = nodes.find((n) => n.type === 'button' && n.props['aria-expanded'] !== undefined);
+    assert.ok(toggle, 'expand toggle required');
+    assert.equal(toggle.props['aria-expanded'], false);
   });
 
   it('filter nav marks the current filter and filters rows', () => {
@@ -437,20 +489,19 @@ describe('routines-view render branches', () => {
     assert.ok(texts(tree).join(' ').includes('b'));
   });
 
-  it('confirm state renders the two-step removal group', () => {
-    const tree = paint(readyWith([{ name: 'j1' }], { events: [{ type: 'confirm-open', name: 'j1' }] }));
+  it('no profile picker, create form or delete affordance exists anywhere', () => {
+    const tree = paint(readyWith([{ name: 'j1' }]));
     const nodes = collect(tree);
-    const group = nodes.find((n) => n.props && n.props.role === 'group');
-    assert.ok(group, 'confirm group required');
-    assert.match(String(group.props['aria-label']), /Confirm removal of j1/);
-    const buttons = nodes.filter((n) => n.type === 'button').map((n) => n.props.children);
-    assert.ok(buttons.includes('Confirm remove'));
-    assert.ok(buttons.includes('Cancel'));
-    assert.equal(buttons.includes('Pause'), false, 'row actions hide while confirming');
+    assert.equal(nodes.some((n) => n.type === 'select'), false, 'RoutePicker must be gone');
+    assert.equal(nodes.some((n) => n.type === 'form'), false, 'create form must be gone');
+    const src = readSrcTree();
+    assert.equal(src.includes('RoutePicker'), false, 'RoutePicker must not remain in src/');
+    assert.equal(src.includes('CreateRoutineForm'), false);
+    assert.equal(src.includes('Confirm remove'), false);
   });
 
   it('error states render message plus retry', () => {
-    const listErr = paint(reduce([{ type: 'routes-loaded', routes: [ROUTE] }, { type: 'list-error', error: 'ctx: backend says no' }]));
+    const listErr = paint(reduce([loaded([ROUTE], 'p1', 'c1'), { type: 'list-error', error: 'ctx: backend says no', key: 'c1::p1' }]));
     let nodes = collect(listErr);
     assert.ok(nodes.some((n) => n.props && n.props.role === 'alert'));
     assert.ok(texts(listErr).join(' ').includes('backend says no'));
@@ -461,22 +512,27 @@ describe('routines-view render branches', () => {
     assert.ok(texts(routesErr).join(' ').includes('door shut'));
   });
 
-  it('empty list renders the empty state plus the create form', () => {
-    const tree = paint(readyWith([]));
-    const all = texts(tree).join(' ');
-    assert.ok(all.includes('No routines yet.'));
+  it('unavailable state names the problem with retry', () => {
+    const tree = paint(reduce([loaded([ROUTE], 'ghost', 'c1')]));
     const nodes = collect(tree);
-    assert.ok(nodes.some((n) => n.type === 'form'), 'create form stays visible when empty');
-    assert.ok(nodes.some((n) => n.type === 'select'), 'profile selector stays visible');
+    assert.ok(nodes.some((n) => n.props && n.props.role === 'alert'));
+    assert.ok(texts(tree).join(' ').includes('unavailable'));
+    assert.ok(nodes.filter((n) => n.type === 'button').map((n) => n.props.children).includes('Retry'));
   });
 
-  it('profile selector lists every usable route', () => {
-    const tree = paint(readyWith([{ name: 'j1' }]));
+  it('empty list renders the product empty state without a create form', () => {
+    const tree = paint(readyWith([]));
+    const all = texts(tree).join(' ');
+    assert.ok(all.includes('No routines yet'));
     const nodes = collect(tree);
-    const select = nodes.find((n) => n.type === 'select');
-    assert.ok(select);
-    const options = nodes.filter((n) => n.type === 'option').map((n) => n.props.value);
-    assert.deepEqual(options, ['c1::p1', 'c2::p2']);
+    assert.equal(nodes.some((n) => n.type === 'form'), false, 'no create form in this surface');
+    assert.equal(nodes.some((n) => n.type === 'select'), false, 'no profile selector in this surface');
+  });
+
+  it('header follows the active profile without a selector', () => {
+    sdk.__setActive('p1', 'c1');
+    const tree = paint(readyWith([{ name: 'j1' }]));
+    assert.ok(texts(tree).join(' ').includes('p1'));
   });
 });
 
@@ -518,7 +574,7 @@ describe('routines-view registration and render', () => {
     const live = nodes.find((n) => n.props && n.props.role === 'status');
     assert.ok(live, 'live region required');
     assert.equal(live.props['aria-live'], 'polite');
-    assert.ok(texts(tree).some((t) => t.includes('Loading profile routes.')));
+    assert.ok(texts(tree).some((t) => t.includes('Loading routines.')));
   });
 
   it('source wires the a11y contract end to end', () => {
@@ -526,13 +582,13 @@ describe('routines-view registration and render', () => {
     assert.match(src, /aria-labelledby.*hermes-routines-heading/, 'landmark labelled by the heading');
     assert.match(src, /aria-live.*polite/, 'polite live region for updates');
     assert.match(src, /aria-current/, 'current marker on the in-view filter nav');
+    assert.match(src, /aria-expanded/, 'disclosure state on routine cards');
     assert.match(src, /tabIndex.*-1/, 'programmatic focus targets');
     assert.match(src, /:focus-visible/, 'visible focus ring');
-    assert.match(src, /htmlFor.*hermes-routines-profile/, 'labelled profile selector');
     assert.match(src, /role.*alert/, 'assertive error boxes');
-    assert.match(src, /\.focus\(\)/, 'managed focus after delete and retry');
+    assert.match(src, /\.focus\(\)/, 'managed focus after errors');
     assert.match(src, /<nav\b/, 'in-view filter navigation');
     assert.match(src, /<ul\b/, 'routine list');
-    assert.match(src, /<select\b/, 'native keyboard-operable selector');
+    assert.equal(src.includes('<select'), false, 'no native selector: the plugin follows the active profile');
   });
 });
