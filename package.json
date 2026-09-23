@@ -11,7 +11,8 @@
   "scripts": {
     "test": "node --test \"tests/*.test.mjs\"",
     "check:allowlist": "node scripts/check-allowlist.mjs",
+    "check:version": "node scripts/check-version.mjs",
     "sync:shapes": "node scripts/sync-shapes.mjs --check",
-    "check": "node scripts/check-allowlist.mjs && node scripts/sync-shapes.mjs --check"
+    "check": "node scripts/check-allowlist.mjs && node scripts/sync-shapes.mjs --check && node scripts/check-version.mjs"
   }
 }
