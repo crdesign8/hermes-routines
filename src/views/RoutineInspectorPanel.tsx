@@ -72,10 +72,10 @@ export function RoutineInspectorPanel({
           onClick={onClose}
           aria-label="Back to list"
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style={{ marginRight: 6, verticalAlign: -1 }}>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style={{ flexShrink: 0 }}>
             <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
           </svg>
-          Back to list
+          <span>Back to list</span>
         </button>
         <div className="hr-inspector-header-badges">
           {activeRoute?.mode ? (

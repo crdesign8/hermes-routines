@@ -12,6 +12,7 @@ import { jobIdOf, visibleJobs } from '../domain/jobs';
 import { humanScheduleOf, routineTitle } from '../domain/present';
 import { wrapHostError } from '../lib/errors';
 import {
+  buildAddParams,
   buildListParams,
   buildPauseParams,
   buildResumeParams,
@@ -22,6 +23,7 @@ import { ROUTINES_CSS } from './routinesStyles';
 import { FilterNav } from './FilterNav';
 import { RoutineList } from './RoutineList';
 import { RoutineInspectorPanel } from './RoutineInspectorPanel';
+import { RoutineComposerPanel } from './RoutineComposerPanel';
 import { StatusLine } from './panels';
 import {
   EmptyFilterState,
@@ -87,6 +89,7 @@ export function RoutinesPage() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJobName, setSelectedJobName] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Clear selected job if it is no longer present in the jobs inventory
   useEffect(() => {
@@ -241,6 +244,37 @@ export function RoutinesPage() {
     void runMutation('resume', name, () => buildResumeParams(route, name));
   }
 
+  async function handleCreateRoutine(
+    name: string,
+    schedule: string,
+    payload: Record<string, unknown>,
+    active: boolean,
+  ): Promise<boolean> {
+    if (!activeRoute) {
+      dispatch({ type: 'mutation-error', error: 'the active profile route is no longer available' });
+      return false;
+    }
+    const route = activeRoute;
+    try {
+      const addParams = buildAddParams(route, { job_id: name, schedule, payload });
+      dispatch({ type: 'mutate-start', name });
+      await requestCronForRoute(route, 'cron.manage', addParams);
+      if (!active) {
+        const pauseParams = buildPauseParams(route, name);
+        await requestCronForRoute(route, 'cron.manage', pauseParams);
+      }
+      dispatch({ type: 'mutate-end', name });
+      dispatch({ type: 'notice', notice: 'routine ' + name + ' created' });
+      dispatch({ type: 'retry-list' });
+      setIsCreating(false);
+      return true;
+    } catch (err) {
+      dispatch({ type: 'mutate-end', name });
+      dispatch({ type: 'mutation-error', error: wrapHostError(err, 'failed to create routine').message });
+      return false;
+    }
+  }
+
   function renderList(): ReactNode {
     const totalCount = state.jobs.length;
     const shownCount = filteredJobs.length;
@@ -299,7 +333,10 @@ export function RoutinesPage() {
             pending={state.pending}
             locked={locked}
             inspectedId={selectedJobName}
-            onInspect={setSelectedJobName}
+            onInspect={(name) => {
+              setSelectedJobName(name);
+              if (name) setIsCreating(false);
+            }}
             onPause={handlePause}
             onResume={handleResume}
           />
@@ -373,12 +410,37 @@ export function RoutinesPage() {
     <section id="hermes-routines-root" className="hr-root" aria-labelledby="hermes-routines-heading">
       <style>{ROUTINES_CSS}</style>
       <div className="hr-workspace">
-        <div className={`hr-feed-column${!selectedJob ? ' hr-feed-contained' : ''}`}>
+        <div className={`hr-feed-column${!selectedJob && !isCreating ? ' hr-feed-contained' : ''}`}>
           <header className="hr-header">
             <div className="hr-header-top">
               <h2 id="hermes-routines-heading" ref={headingRef} tabIndex={-1} className="hr-title">
                 Routines
               </h2>
+              <button
+                type="button"
+                className="hr-btn-new"
+                onClick={() => {
+                  setSelectedJobName(null);
+                  setIsCreating(true);
+                }}
+                aria-label="New routine"
+                title="New routine"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
               <span className="hr-sr-only">Profile: {profileLabel}</span>
             </div>
             <p className="hr-sub">
@@ -398,6 +460,14 @@ export function RoutinesPage() {
             onClose={() => setSelectedJobName(null)}
             onPause={() => handlePause(jobIdOf(selectedJob) || selectedJobName || '')}
             onResume={() => handleResume(jobIdOf(selectedJob) || selectedJobName || '')}
+          />
+        ) : isCreating ? (
+          <RoutineComposerPanel
+            activeRoute={activeRoute}
+            activeProfile={state.activeProfile ?? (typeof activeProfile === 'string' ? activeProfile : null)}
+            disabled={locked}
+            onClose={() => setIsCreating(false)}
+            onSubmit={handleCreateRoutine}
           />
         ) : null}
       </div>

@@ -65,3 +65,6 @@ export * from './gateway/cronGateway';
 export * from './gateway/cronParams';
 export * from './lib/errors';
 export * from './state/routinesState';
+export * from './domain/routineSchedule';
+export * from './views/RoutineComposerPanel';
+export * from './views/SelectField';

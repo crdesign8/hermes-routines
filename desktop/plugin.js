@@ -16,7 +16,7 @@ var SIDEBAR_LABEL = "Routines";
 var SIDEBAR_CODICON = "history";
 
 // src/views/RoutinesPage.tsx
-import { useCallback, useEffect as useEffect2, useMemo, useRef, useState as useState3 } from "react";
+import { useCallback, useEffect as useEffect3, useMemo as useMemo2, useRef as useRef2, useState as useState5 } from "react";
 import { host as host2, useValue } from "@hermes/plugin-sdk";
 
 // src/domain/routing.ts
@@ -1285,29 +1285,30 @@ var ROUTINES_CSS = [
   "  display: inline-flex;",
   "  align-items: center;",
   "  justify-content: center;",
-  "  width: 26px;",
-  "  height: 26px;",
+  "  width: 24px;",
+  "  height: 24px;",
   "  border: none;",
   "  background: transparent;",
   "  color: var(--ui-text-tertiary, #888);",
+  "  opacity: 0.6;",
   "  border-radius: 4px;",
   "  cursor: pointer;",
   "  font-size: 0;",
   "  line-height: 0;",
   "  position: relative;",
-  "  transition: all 0.15s ease;",
+  "  transition: color 0.15s ease, opacity 0.15s ease;",
   "  padding: 0;",
   "}",
   ".hr-icon-btn:hover {",
-  "  background: var(--chrome-action-hover, rgba(255, 255, 255, 0.08));",
   "  color: var(--ui-text-primary, #fff);",
+  "  opacity: 1;",
   "}",
-  ".hr-icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }",
+  ".hr-icon-btn:disabled { opacity: 0.25; cursor: not-allowed; }",
   ".hr-icon-btn::before {",
   '  content: "";',
   "  display: block;",
-  "  width: 14px;",
-  "  height: 14px;",
+  "  width: 13px;",
+  "  height: 13px;",
   "  background-color: currentColor;",
   "  -webkit-mask-size: contain;",
   "  mask-size: contain;",
@@ -1393,14 +1394,20 @@ var ROUTINES_CSS = [
   "  flex-shrink: 0;",
   "}",
   ".hr-btn-back {",
+  "  display: inline-flex;",
+  "  align-items: center;",
+  "  gap: 6px;",
+  "  white-space: nowrap;",
   "  border: none;",
   "  background: transparent;",
   "  color: var(--ui-text-tertiary, #888);",
   "  font-size: 12px;",
   "  cursor: pointer;",
-  "  padding: 2px 4px;",
+  "  padding: 4px 6px;",
   "  border-radius: 4px;",
+  "  line-height: 1;",
   "}",
+  ".hr-btn-back svg { display: inline-block; flex-shrink: 0; margin: 0; }",
   ".hr-btn-back:hover { color: var(--ui-text-primary, #fff); background: var(--chrome-action-hover, rgba(255,255,255,0.06)); }",
   ".hr-inspector-header-badges { display: flex; align-items: center; gap: 8px; }",
   ".hr-badge-subtle {",
@@ -1456,6 +1463,279 @@ var ROUTINES_CSS = [
   ".hr-stale { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.1)); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; background: var(--ui-bg-tertiary, rgba(255,255,255,0.02)); color: var(--ui-text-secondary, #ccc); font-size: 12px; }",
   ".hr-muted { color: var(--ui-text-tertiary, #888); font-size: 13px; line-height: 1.4; }",
   ".hr-status { margin-top: 10px; color: var(--ui-text-tertiary, #888); font-size: 12px; }",
+  "",
+  "/* New Routine Trigger Button */",
+  ".hr-btn-new {",
+  "  display: inline-flex;",
+  "  align-items: center;",
+  "  justify-content: center;",
+  "  width: 32px;",
+  "  height: 32px;",
+  "  border-radius: 6px;",
+  "  border: none;",
+  "  background: transparent;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  cursor: pointer;",
+  "  transition: color 0.15s ease, transform 0.15s ease;",
+  "  padding: 0;",
+  "}",
+  ".hr-btn-new:hover {",
+  "  color: var(--ui-text-primary, #fff);",
+  "  background: transparent;",
+  "  transform: scale(1.1);",
+  "}",
+  ".hr-btn-new:active {",
+  "  transform: scale(0.96);",
+  "}",
+  "",
+  "/* Create Routine Composer Panel */",
+  ".hr-create-title {",
+  "  font-size: 16px;",
+  "  font-weight: 700;",
+  "  color: var(--ui-text-primary, #fff);",
+  "  margin: 0 0 16px 0;",
+  "}",
+  ".hr-create-active-card {",
+  "  display: flex;",
+  "  align-items: center;",
+  "  justify-content: space-between;",
+  "  gap: 12px;",
+  "  padding: 4px 0 16px 0;",
+  "  background: transparent;",
+  "  border: none;",
+  "  margin-bottom: 14px;",
+  "}",
+  ".hr-create-active-info {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  gap: 2px;",
+  "}",
+  ".hr-create-active-title {",
+  "  font-size: 14px;",
+  "  font-weight: 600;",
+  "  color: var(--ui-text-primary, #fff);",
+  "}",
+  ".hr-create-active-subtitle {",
+  "  font-size: 12px;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "}",
+  ".hr-switch-pill {",
+  "  width: 44px;",
+  "  height: 24px;",
+  "  border-radius: 12px;",
+  "  border: none;",
+  "  background: #21262d;",
+  "  cursor: pointer;",
+  "  position: relative;",
+  "  padding: 2px;",
+  "  display: inline-flex;",
+  "  align-items: center;",
+  "  transition: background 0.2s ease;",
+  "  flex-shrink: 0;",
+  "}",
+  ".hr-switch-active {",
+  "  background: #f0f6fc;",
+  "}",
+  ".hr-switch-thumb {",
+  "  width: 20px;",
+  "  height: 20px;",
+  "  border-radius: 50%;",
+  "  background: #8b949e;",
+  "  display: block;",
+  "  transition: transform 0.2s ease, background 0.2s ease;",
+  "  transform: translateX(0);",
+  "}",
+  ".hr-switch-active .hr-switch-thumb {",
+  "  background: #0d1117;",
+  "  transform: translateX(20px);",
+  "}",
+  "/* Field labels */",
+  ".hr-field-label, .hr-select-label {",
+  "  display: block;",
+  "  font-size: 12px;",
+  "  font-weight: 500;",
+  "  color: var(--ui-text-secondary, #a1a1aa);",
+  "  margin-bottom: 6px;",
+  "  line-height: 1.2;",
+  "}",
+  ".hr-create-field {",
+  "  margin-bottom: 14px;",
+  "}",
+  ".hr-create-input, .hr-create-textarea {",
+  "  width: 100%;",
+  "  background: var(--ui-bg-card, rgba(255, 255, 255, 0.04));",
+  "  border: 1px solid var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.12));",
+  "  border-radius: 8px;",
+  "  padding: 10px 14px;",
+  "  font-size: 14px;",
+  "  color: var(--ui-text-primary, #fff);",
+  "  font-family: inherit;",
+  "  outline: none;",
+  "  transition: border-color 0.15s ease;",
+  "}",
+  ".hr-create-input:focus, .hr-create-textarea:focus {",
+  "  border-color: var(--dt-composer-ring, var(--ui-accent, #58a6ff));",
+  "}",
+  ".hr-create-input::placeholder, .hr-create-textarea::placeholder {",
+  "  color: var(--ui-text-tertiary, #6e7681);",
+  "}",
+  ".hr-create-when-section {",
+  "  margin-top: 14px;",
+  "  margin-bottom: 16px;",
+  "}",
+  ".hr-create-section-label {",
+  "  font-size: 11px;",
+  "  font-weight: 600;",
+  "  letter-spacing: 0.06em;",
+  "  text-transform: uppercase;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  margin-bottom: 12px;",
+  "}",
+  "",
+  "/* Custom Select Field */",
+  ".hr-select-container {",
+  "  position: relative;",
+  "  width: 100%;",
+  "  margin-bottom: 12px;",
+  "}",
+  ".hr-select-trigger {",
+  "  position: relative;",
+  "  width: 100%;",
+  "  background: var(--ui-bg-card, rgba(255, 255, 255, 0.04));",
+  "  border: 1px solid var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.14));",
+  "  border-radius: 8px;",
+  "  padding: 9px 12px;",
+  "  display: flex;",
+  "  justify-content: space-between;",
+  "  align-items: center;",
+  "  cursor: pointer;",
+  "  user-select: none;",
+  "  transition: border-color 0.15s ease;",
+  "  outline: none;",
+  "  min-height: 38px;",
+  "}",
+  ".hr-select-trigger:hover, .hr-select-is-open .hr-select-trigger {",
+  "  border-color: var(--ui-stroke-secondary, rgba(255, 255, 255, 0.3));",
+  "}",
+  ".hr-select-is-open .hr-select-trigger {",
+  "  border-color: #f0f6fc;",
+  "}",
+  ".hr-select-value {",
+  "  font-size: 13px;",
+  "  font-weight: 500;",
+  "  color: var(--ui-text-primary, #fff);",
+  "}",
+  ".hr-select-arrow {",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  display: flex;",
+  "  align-items: center;",
+  "  margin-left: 8px;",
+  "}",
+  ".hr-select-menu {",
+  "  position: absolute;",
+  "  top: calc(100% + 4px);",
+  "  left: 0;",
+  "  right: 0;",
+  "  max-height: 220px;",
+  "  overflow-y: auto;",
+  "  background: #1c2128;",
+  "  border: 1px solid rgba(255, 255, 255, 0.18);",
+  "  border-radius: 8px;",
+  "  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.85);",
+  "  z-index: 1000;",
+  "  padding: 4px 0;",
+  "}",
+  ".hr-select-option {",
+  "  padding: 8px 12px;",
+  "  font-size: 13px;",
+  "  color: #f0f6fc;",
+  "  cursor: pointer;",
+  "  transition: background 0.1s ease;",
+  "}",
+  ".hr-select-option:hover {",
+  "  background: rgba(255, 255, 255, 0.1);",
+  "}",
+  ".hr-select-option-active {",
+  "  background: rgba(255, 255, 255, 0.16);",
+  "  font-weight: 600;",
+  "}",
+  ".hr-create-sub-row {",
+  "  width: 100%;",
+  "  margin-top: 10px;",
+  "}",
+  ".hr-create-sub-split {",
+  "  display: flex;",
+  "  gap: 10px;",
+  "  margin-top: 10px;",
+  "}",
+  ".hr-create-sub-split .hr-select-container {",
+  "  flex: 1;",
+  "  margin-bottom: 0;",
+  "}",
+  ".hr-create-preview-sentence {",
+  "  font-size: 12px;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  margin-top: 10px;",
+  "  margin-bottom: 16px;",
+  "}",
+  ".hr-create-error {",
+  "  background: rgba(248, 81, 73, 0.1);",
+  "  border: 1px solid rgba(248, 81, 73, 0.4);",
+  "  color: var(--ui-red, #f85149);",
+  "  border-radius: 6px;",
+  "  padding: 8px 12px;",
+  "  font-size: 12px;",
+  "  margin-bottom: 12px;",
+  "}",
+  ".hr-create-actions {",
+  "  display: flex;",
+  "  gap: 10px;",
+  "  margin-top: 18px;",
+  "}",
+  ".hr-btn-back-routines {",
+  "  flex: 1;",
+  "  height: 38px;",
+  "  border-radius: 8px;",
+  "  font-size: 13px;",
+  "  font-weight: 500;",
+  "  color: var(--ui-text-secondary, #ccc);",
+  "  background: transparent;",
+  "  border: 1px solid var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.12));",
+  "  cursor: pointer;",
+  "  transition: all 0.15s ease;",
+  "  display: flex;",
+  "  align-items: center;",
+  "  justify-content: center;",
+  "}",
+  ".hr-btn-back-routines:hover {",
+  "  background: var(--chrome-action-hover, rgba(255, 255, 255, 0.06));",
+  "  color: var(--ui-text-primary, #fff);",
+  "  border-color: var(--ui-stroke-secondary, rgba(255, 255, 255, 0.22));",
+  "}",
+  ".hr-btn-create-submit {",
+  "  flex: 1;",
+  "  height: 38px;",
+  "  border-radius: 8px;",
+  "  font-size: 13px;",
+  "  font-weight: 600;",
+  "  color: #0d1117;",
+  "  background: #f0f6fc;",
+  "  border: 1px solid transparent;",
+  "  cursor: pointer;",
+  "  transition: all 0.15s ease;",
+  "  display: flex;",
+  "  align-items: center;",
+  "  justify-content: center;",
+  "}",
+  ".hr-btn-create-submit:hover:not(:disabled) {",
+  "  background: #ffffff;",
+  "}",
+  ".hr-btn-create-submit:disabled {",
+  "  background: #21262d;",
+  "  color: #6e7681;",
+  "  border-color: transparent;",
+  "  cursor: not-allowed;",
+  "}",
   "",
   "/* Responsive adaptiveness */",
   "@media (max-width: 820px) {",
@@ -1779,8 +2059,8 @@ function RoutineInspectorPanel({
           onClick: onClose,
           "aria-label": "Back to list",
           children: [
-            /* @__PURE__ */ jsx6("svg", { width: "12", height: "12", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { marginRight: 6, verticalAlign: -1 }, children: /* @__PURE__ */ jsx6("path", { fillRule: "evenodd", d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" }) }),
-            "Back to list"
+            /* @__PURE__ */ jsx6("svg", { width: "12", height: "12", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { flexShrink: 0 }, children: /* @__PURE__ */ jsx6("path", { fillRule: "evenodd", d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" }) }),
+            /* @__PURE__ */ jsx6("span", { children: "Back to list" })
           ]
         }
       ),
@@ -1916,30 +2196,512 @@ function RoutineInspectorPanel({
   ] });
 }
 
+// src/views/RoutineComposerPanel.tsx
+import { useMemo, useState as useState4 } from "react";
+
+// src/domain/routineSchedule.ts
+var TRIGGER_OPTIONS = [
+  { value: "every_hour", label: "Every Hour" },
+  { value: "every_day", label: "Every Day" },
+  { value: "weekdays", label: "Weekdays" },
+  { value: "every_week", label: "Every week" },
+  { value: "every_month", label: "Every month" },
+  { value: "interval", label: "Interval" }
+];
+var DAYS_OF_WEEK = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday"
+];
+var DAY_OF_WEEK_TO_CRON = {
+  Sunday: 0,
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6
+};
+var INTERVAL_VALUES = [2, 5, 10, 15, 20, 30, 45];
+var INTERVAL_UNITS = ["minutes", "hours", "days"];
+function generateTimeSlots() {
+  const slots = [];
+  for (let h = 0; h < 24; h++) {
+    const hh = String(h).padStart(2, "0");
+    for (const m of [0, 15, 30, 45]) {
+      const mm = String(m).padStart(2, "0");
+      slots.push(`${hh}:${mm}`);
+    }
+  }
+  return slots;
+}
+var TIME_SLOTS = generateTimeSlots();
+function toOrdinal(n) {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  const rem10 = n % 10;
+  if (rem10 === 1) return `${n}st`;
+  if (rem10 === 2) return `${n}nd`;
+  if (rem10 === 3) return `${n}rd`;
+  return `${n}th`;
+}
+var DAYS_OF_MONTH = Array.from(
+  { length: 31 },
+  (_, i) => ({ value: i + 1, label: toOrdinal(i + 1) })
+);
+var DEFAULT_SCHEDULE_CONFIG = {
+  trigger: "every_day",
+  time: "08:00",
+  dayOfWeek: "Monday",
+  dayOfMonth: 1,
+  intervalValue: 5,
+  intervalUnit: "minutes"
+};
+function parseTime(time) {
+  const parts = time.split(":");
+  const hour = Math.max(0, Math.min(23, parseInt(parts[0] || "0", 10) || 0));
+  const minute = Math.max(0, Math.min(59, parseInt(parts[1] || "0", 10) || 0));
+  return { minute, hour };
+}
+function buildCronExpression(config) {
+  const { minute, hour } = parseTime(config.time);
+  switch (config.trigger) {
+    case "every_hour":
+      return "0 * * * *";
+    case "every_day":
+      return `${minute} ${hour} * * *`;
+    case "weekdays":
+      return `${minute} ${hour} * * 1-5`;
+    case "every_week": {
+      const dow = DAY_OF_WEEK_TO_CRON[config.dayOfWeek] ?? 1;
+      return `${minute} ${hour} * * ${dow}`;
+    }
+    case "every_month": {
+      const dom = Math.max(1, Math.min(31, Math.floor(config.dayOfMonth)));
+      return `${minute} ${hour} ${dom} * *`;
+    }
+    case "interval": {
+      const val = Math.max(1, Math.floor(config.intervalValue));
+      if (config.intervalUnit === "minutes") {
+        return `*/${val} * * * *`;
+      }
+      if (config.intervalUnit === "hours") {
+        return `0 */${val} * * *`;
+      }
+      return `0 0 */${val} * *`;
+    }
+    default:
+      return `${minute} ${hour} * * *`;
+  }
+}
+function describeScheduleConfig(config) {
+  switch (config.trigger) {
+    case "every_hour":
+      return "Every hour";
+    case "every_day":
+      return `Every day at ${config.time}`;
+    case "weekdays":
+      return `Weekdays at ${config.time}`;
+    case "every_week":
+      return `Every ${config.dayOfWeek} at ${config.time}`;
+    case "every_month":
+      return `On the ${toOrdinal(config.dayOfMonth)} of every month at ${config.time}`;
+    case "interval": {
+      const unit = config.intervalValue === 1 ? config.intervalUnit.replace(/s$/, "") : config.intervalUnit;
+      return `Every ${config.intervalValue} ${unit}`;
+    }
+    default:
+      return `Every day at ${config.time}`;
+  }
+}
+
+// src/views/SelectField.tsx
+import { useEffect as useEffect2, useRef, useState as useState3 } from "react";
+import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
+function SelectField({
+  label,
+  value,
+  options,
+  onChange,
+  className = ""
+}) {
+  const [isOpen, setIsOpen] = useState3(false);
+  const containerRef = useRef(null);
+  const listRef = useRef(null);
+  const selectedOption = options.find((opt) => opt.value === value) ?? options[0];
+  const displayLabel = selectedOption ? selectedOption.label : String(value);
+  useEffect2(() => {
+    if (!isOpen) return;
+    function handleClickOutside(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+  useEffect2(() => {
+    if (isOpen && listRef.current) {
+      const activeEl = listRef.current.querySelector('[aria-selected="true"]');
+      if (activeEl && typeof activeEl.scrollIntoView === "function") {
+        activeEl.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }, [isOpen]);
+  function handleKeyDown(e) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setIsOpen((prev) => !prev);
+    } else if (e.key === "Escape") {
+      if (isOpen) {
+        e.preventDefault();
+        setIsOpen(false);
+      }
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+      } else {
+        const currentIndex = options.findIndex((opt) => opt.value === value);
+        if (currentIndex < options.length - 1) {
+          const nextOpt = options[currentIndex + 1];
+          if (nextOpt) onChange(nextOpt.value);
+        }
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+      } else {
+        const currentIndex = options.findIndex((opt) => opt.value === value);
+        if (currentIndex > 0) {
+          const prevOpt = options[currentIndex - 1];
+          if (prevOpt) onChange(prevOpt.value);
+        }
+      }
+    }
+  }
+  return /* @__PURE__ */ jsxs5(
+    "div",
+    {
+      ref: containerRef,
+      className: `hr-select-container ${className}${isOpen ? " hr-select-is-open" : ""}`,
+      children: [
+        label ? /* @__PURE__ */ jsx7("label", { className: "hr-select-label", children: label }) : null,
+        /* @__PURE__ */ jsxs5(
+          "div",
+          {
+            className: "hr-select-trigger",
+            role: "combobox",
+            tabIndex: 0,
+            "aria-expanded": isOpen,
+            "aria-haspopup": "listbox",
+            "aria-label": label,
+            onClick: () => setIsOpen((prev) => !prev),
+            onKeyDown: handleKeyDown,
+            children: [
+              /* @__PURE__ */ jsx7("span", { className: "hr-select-value", children: displayLabel }),
+              /* @__PURE__ */ jsx7("span", { className: "hr-select-arrow", "aria-hidden": "true", children: /* @__PURE__ */ jsx7("svg", { width: "10", height: "6", viewBox: "0 0 10 6", fill: "currentColor", children: /* @__PURE__ */ jsx7("path", { d: "M0 0l5 5 5-5z" }) }) })
+            ]
+          }
+        ),
+        isOpen ? /* @__PURE__ */ jsx7("div", { ref: listRef, className: "hr-select-menu", role: "listbox", "aria-label": label, children: options.map((opt) => {
+          const isSelected = opt.value === value;
+          return /* @__PURE__ */ jsx7(
+            "div",
+            {
+              role: "option",
+              "aria-selected": isSelected,
+              className: `hr-select-option${isSelected ? " hr-select-option-active" : ""}`,
+              onClick: (e) => {
+                e.stopPropagation();
+                onChange(opt.value);
+                setIsOpen(false);
+              },
+              children: opt.label
+            },
+            String(opt.value)
+          );
+        }) }) : null
+      ]
+    }
+  );
+}
+
+// src/views/RoutineComposerPanel.tsx
+import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
+function RoutineComposerPanel({
+  disabled,
+  onClose,
+  onSubmit
+}) {
+  const [name, setName] = useState4("");
+  const [prompt, setPrompt] = useState4("");
+  const [active, setActive] = useState4(true);
+  const [scheduleConfig, setScheduleConfig] = useState4(DEFAULT_SCHEDULE_CONFIG);
+  const [submitting, setSubmitting] = useState4(false);
+  const [error, setError] = useState4(null);
+  const timeOptions = useMemo(
+    () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
+    []
+  );
+  const dayOfWeekOptions = useMemo(
+    () => DAYS_OF_WEEK.map((d) => ({ value: d, label: d })),
+    []
+  );
+  const intervalValueOptions = useMemo(
+    () => INTERVAL_VALUES.map((v) => ({ value: v, label: String(v) })),
+    []
+  );
+  const intervalUnitOptions = useMemo(
+    () => INTERVAL_UNITS.map((u) => ({ value: u, label: u })),
+    []
+  );
+  const cronExpr = useMemo(() => buildCronExpression(scheduleConfig), [scheduleConfig]);
+  const humanSentence = useMemo(() => describeScheduleConfig(scheduleConfig), [scheduleConfig]);
+  async function handleSubmit() {
+    const trimmedName = name.trim();
+    if (!trimmedName || submitting || disabled) return;
+    let jobId = trimmedName.replace(/\s+/g, "-").replace(/[^A-Za-z0-9._:-]/g, "");
+    if (!jobId) jobId = "routine";
+    const payload = {};
+    if (prompt.trim()) {
+      payload.prompt = prompt.trim();
+    }
+    if (trimmedName !== jobId) {
+      payload.title = trimmedName;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const ok = await onSubmit(jobId, cronExpr, payload, active);
+      if (!ok) {
+        setError("Failed to create routine. Please verify parameters.");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create routine.";
+      setError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+  return /* @__PURE__ */ jsxs6("aside", { className: "hr-inspector hr-create-inspector", "aria-label": "Create Routine", children: [
+    /* @__PURE__ */ jsx8("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs6(
+      "button",
+      {
+        type: "button",
+        className: "hr-btn-action hr-btn-back",
+        onClick: onClose,
+        "aria-label": "Back to routines",
+        children: [
+          /* @__PURE__ */ jsx8(
+            "svg",
+            {
+              width: "12",
+              height: "12",
+              viewBox: "0 0 16 16",
+              fill: "currentColor",
+              "aria-hidden": "true",
+              style: { flexShrink: 0 },
+              children: /* @__PURE__ */ jsx8(
+                "path",
+                {
+                  fillRule: "evenodd",
+                  d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"
+                }
+              )
+            }
+          ),
+          /* @__PURE__ */ jsx8("span", { children: "Back to routines" })
+        ]
+      }
+    ) }),
+    /* @__PURE__ */ jsxs6("div", { className: "hr-inspector-body", children: [
+      /* @__PURE__ */ jsx8("h3", { className: "hr-create-title", children: "Create Routine" }),
+      /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
+        /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
+          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-title", children: "Active" }),
+          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-subtitle", children: "This routine will run on the schedule below." })
+        ] }),
+        /* @__PURE__ */ jsx8(
+          "button",
+          {
+            type: "button",
+            role: "switch",
+            "aria-checked": active,
+            "aria-label": "Toggle routine active state",
+            className: `hr-switch-pill ${active ? "hr-switch-active" : ""}`,
+            onClick: () => setActive(!active),
+            children: /* @__PURE__ */ jsx8("span", { className: "hr-switch-thumb" })
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "Name" }),
+        /* @__PURE__ */ jsx8(
+          "input",
+          {
+            type: "text",
+            className: "hr-create-input",
+            placeholder: "Name this Routine",
+            value: name,
+            onChange: (e) => setName(e.target.value),
+            "aria-label": "Name this Routine"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "What should this routine do?" }),
+        /* @__PURE__ */ jsx8(
+          "textarea",
+          {
+            className: "hr-create-textarea",
+            placeholder: "e.g. Check server health and notify #ops channel",
+            rows: 3,
+            value: prompt,
+            onChange: (e) => setPrompt(e.target.value),
+            "aria-label": "What should this routine do?"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxs6("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx8("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
+        /* @__PURE__ */ jsx8(
+          SelectField,
+          {
+            label: "Trigger",
+            value: scheduleConfig.trigger,
+            options: TRIGGER_OPTIONS,
+            onChange: (val) => setScheduleConfig((prev) => ({ ...prev, trigger: val }))
+          }
+        ),
+        scheduleConfig.trigger === "every_day" || scheduleConfig.trigger === "weekdays" ? /* @__PURE__ */ jsx8("div", { className: "hr-create-sub-row", children: /* @__PURE__ */ jsx8(
+          SelectField,
+          {
+            label: "at",
+            value: scheduleConfig.time,
+            options: timeOptions,
+            onChange: (val) => setScheduleConfig((prev) => ({ ...prev, time: val }))
+          }
+        ) }) : null,
+        scheduleConfig.trigger === "every_week" ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-sub-split", children: [
+          /* @__PURE__ */ jsx8(
+            SelectField,
+            {
+              label: "on",
+              value: scheduleConfig.dayOfWeek,
+              options: dayOfWeekOptions,
+              onChange: (val) => setScheduleConfig((prev) => ({ ...prev, dayOfWeek: val }))
+            }
+          ),
+          /* @__PURE__ */ jsx8(
+            SelectField,
+            {
+              label: "at",
+              value: scheduleConfig.time,
+              options: timeOptions,
+              onChange: (val) => setScheduleConfig((prev) => ({ ...prev, time: val }))
+            }
+          )
+        ] }) : null,
+        scheduleConfig.trigger === "every_month" ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-sub-split", children: [
+          /* @__PURE__ */ jsx8(
+            SelectField,
+            {
+              label: "on the",
+              value: scheduleConfig.dayOfMonth,
+              options: DAYS_OF_MONTH,
+              onChange: (val) => setScheduleConfig((prev) => ({ ...prev, dayOfMonth: val }))
+            }
+          ),
+          /* @__PURE__ */ jsx8(
+            SelectField,
+            {
+              label: "at",
+              value: scheduleConfig.time,
+              options: timeOptions,
+              onChange: (val) => setScheduleConfig((prev) => ({ ...prev, time: val }))
+            }
+          )
+        ] }) : null,
+        scheduleConfig.trigger === "interval" ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-sub-split", children: [
+          /* @__PURE__ */ jsx8(
+            SelectField,
+            {
+              label: "every",
+              value: scheduleConfig.intervalValue,
+              options: intervalValueOptions,
+              onChange: (val) => setScheduleConfig((prev) => ({ ...prev, intervalValue: val }))
+            }
+          ),
+          /* @__PURE__ */ jsx8(
+            SelectField,
+            {
+              label: "unit",
+              value: scheduleConfig.intervalUnit,
+              options: intervalUnitOptions,
+              onChange: (val) => setScheduleConfig((prev) => ({ ...prev, intervalUnit: val }))
+            }
+          )
+        ] }) : null,
+        /* @__PURE__ */ jsx8("div", { className: "hr-create-preview-sentence", children: humanSentence })
+      ] }),
+      error ? /* @__PURE__ */ jsx8("div", { className: "hr-create-error", role: "alert", children: error }) : null,
+      /* @__PURE__ */ jsxs6("div", { className: "hr-create-actions", children: [
+        /* @__PURE__ */ jsx8(
+          "button",
+          {
+            type: "button",
+            className: "hr-btn hr-btn-back-routines",
+            onClick: onClose,
+            children: "Cancel"
+          }
+        ),
+        /* @__PURE__ */ jsx8(
+          "button",
+          {
+            type: "button",
+            className: "hr-btn hr-btn-create-submit",
+            disabled: !name.trim() || submitting || disabled,
+            onClick: handleSubmit,
+            children: submitting ? "Creating\u2026" : "Create Routine"
+          }
+        )
+      ] })
+    ] })
+  ] });
+}
+
 // src/views/panels.tsx
-import { Fragment as Fragment3, jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
+import { Fragment as Fragment3, jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
 function StatusLine({ text, statusRef }) {
-  return /* @__PURE__ */ jsx7("p", { ref: statusRef, tabIndex: -1, className: "hr-status", role: "status", "aria-live": "polite", children: text || "Routines ready." });
+  return /* @__PURE__ */ jsx9("p", { ref: statusRef, tabIndex: -1, className: "hr-status", role: "status", "aria-live": "polite", children: text || "Routines ready." });
 }
 
 // src/views/RoutineStates.tsx
-import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
+import { jsx as jsx10, jsxs as jsxs8 } from "react/jsx-runtime";
 function LoadingState({ text }) {
-  return /* @__PURE__ */ jsxs6("div", { className: "hr-state", role: "status", "aria-live": "polite", "aria-busy": "true", children: [
-    /* @__PURE__ */ jsx8("span", { className: "hr-spinner", "aria-hidden": "true" }),
-    /* @__PURE__ */ jsx8("p", { className: "hr-state-text", children: text })
+  return /* @__PURE__ */ jsxs8("div", { className: "hr-state", role: "status", "aria-live": "polite", "aria-busy": "true", children: [
+    /* @__PURE__ */ jsx10("span", { className: "hr-spinner", "aria-hidden": "true" }),
+    /* @__PURE__ */ jsx10("p", { className: "hr-state-text", children: text })
   ] });
 }
 function EmptyState() {
-  return /* @__PURE__ */ jsxs6("div", { className: "hr-state", children: [
-    /* @__PURE__ */ jsx8("p", { className: "hr-state-title", children: "No routines yet" }),
-    /* @__PURE__ */ jsx8("p", { className: "hr-state-text", children: "Scheduled jobs for this profile will appear here." })
+  return /* @__PURE__ */ jsxs8("div", { className: "hr-state", children: [
+    /* @__PURE__ */ jsx10("p", { className: "hr-state-title", children: "No routines yet" }),
+    /* @__PURE__ */ jsx10("p", { className: "hr-state-text", children: "Scheduled jobs for this profile will appear here." })
   ] });
 }
 function EmptyFilterState() {
-  return /* @__PURE__ */ jsxs6("div", { className: "hr-state", children: [
-    /* @__PURE__ */ jsx8("p", { className: "hr-state-title", children: "No routines match this filter" }),
-    /* @__PURE__ */ jsx8("p", { className: "hr-state-text", children: "Try a different filter to see more routines." })
+  return /* @__PURE__ */ jsxs8("div", { className: "hr-state", children: [
+    /* @__PURE__ */ jsx10("p", { className: "hr-state-title", children: "No routines match this filter" }),
+    /* @__PURE__ */ jsx10("p", { className: "hr-state-text", children: "Try a different filter to see more routines." })
   ] });
 }
 function ErrorState({
@@ -1947,42 +2709,42 @@ function ErrorState({
   message,
   onRetry
 }) {
-  return /* @__PURE__ */ jsxs6("div", { className: "hr-error", role: "alert", children: [
-    /* @__PURE__ */ jsx8("strong", { children: title }),
-    /* @__PURE__ */ jsx8("p", { className: "hr-row-meta", children: message }),
-    /* @__PURE__ */ jsx8("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
+  return /* @__PURE__ */ jsxs8("div", { className: "hr-error", role: "alert", children: [
+    /* @__PURE__ */ jsx10("strong", { children: title }),
+    /* @__PURE__ */ jsx10("p", { className: "hr-row-meta", children: message }),
+    /* @__PURE__ */ jsx10("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
   ] });
 }
 function UnavailableState({
   profile,
   onRetry
 }) {
-  return /* @__PURE__ */ jsxs6("div", { className: "hr-error", role: "alert", children: [
-    /* @__PURE__ */ jsx8("strong", { children: "Routines unavailable for this profile." }),
-    /* @__PURE__ */ jsx8("p", { className: "hr-row-meta", children: profile ? `The Desktop profile \u201C${profile}\u201D has no routines route right now. Connect the profile, then retry.` : "The active Desktop profile has no routines route right now. Select a profile, then retry." }),
-    /* @__PURE__ */ jsx8("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
+  return /* @__PURE__ */ jsxs8("div", { className: "hr-error", role: "alert", children: [
+    /* @__PURE__ */ jsx10("strong", { children: "Routines unavailable for this profile." }),
+    /* @__PURE__ */ jsx10("p", { className: "hr-row-meta", children: profile ? `The Desktop profile \u201C${profile}\u201D has no routines route right now. Connect the profile, then retry.` : "The active Desktop profile has no routines route right now. Select a profile, then retry." }),
+    /* @__PURE__ */ jsx10("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
   ] });
 }
 function StaleBanner({ onRetry }) {
-  return /* @__PURE__ */ jsxs6("div", { className: "hr-stale", role: "status", children: [
-    /* @__PURE__ */ jsx8("span", { children: "Showing last loaded jobs." }),
-    /* @__PURE__ */ jsx8("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
+  return /* @__PURE__ */ jsxs8("div", { className: "hr-stale", role: "status", children: [
+    /* @__PURE__ */ jsx10("span", { children: "Showing last loaded jobs." }),
+    /* @__PURE__ */ jsx10("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
   ] });
 }
 
 // src/views/RoutinesPage.tsx
-import { Fragment as Fragment4, jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
+import { Fragment as Fragment4, jsx as jsx11, jsxs as jsxs9 } from "react/jsx-runtime";
 function pastTense(kind) {
   if (kind === "pause") return "paused";
   if (kind === "resume") return "resumed";
   return "saved";
 }
 function RoutinesPage() {
-  const [state, setState] = useState3(initialRoutinesState);
-  const [routesNonce, setRoutesNonce] = useState3(0);
-  const headingRef = useRef(null);
-  const statusRef = useRef(null);
-  const generationRef = useRef(0);
+  const [state, setState] = useState5(initialRoutinesState);
+  const [routesNonce, setRoutesNonce] = useState5(0);
+  const headingRef = useRef2(null);
+  const statusRef = useRef2(null);
+  const generationRef = useRef2(0);
   const activeProfile = useValue(host2.state.profile);
   const activeConnectionId = useValue(host2.state.connectionId);
   const dispatch = useCallback((event) => {
@@ -1992,16 +2754,17 @@ function RoutinesPage() {
   const locked = state.pending.length !== 0;
   const shown = visibleJobs(state.jobs, state.filter);
   const S = ROUTINES_VIEW_STATUS;
-  const [searchQuery, setSearchQuery] = useState3("");
-  const [selectedJobName, setSelectedJobName] = useState3(null);
-  useEffect2(() => {
+  const [searchQuery, setSearchQuery] = useState5("");
+  const [selectedJobName, setSelectedJobName] = useState5(null);
+  const [isCreating, setIsCreating] = useState5(false);
+  useEffect3(() => {
     if (selectedJobName === null) return;
     const stillThere = state.jobs.some(
       (job, index) => (jobIdOf(job) || `routine ${index + 1}`) === selectedJobName
     );
     if (!stillThere) setSelectedJobName(null);
   }, [state.jobs, selectedJobName]);
-  const filteredJobs = useMemo(() => {
+  const filteredJobs = useMemo2(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return shown;
     return shown.filter((job) => {
@@ -2010,13 +2773,13 @@ function RoutinesPage() {
       return name.includes(q) || schedule.includes(q);
     });
   }, [shown, searchQuery]);
-  const selectedJob = useMemo(() => {
+  const selectedJob = useMemo2(() => {
     if (!selectedJobName) return null;
     return state.jobs.find(
       (j, index) => (jobIdOf(j) || `routine ${index + 1}`) === selectedJobName
     ) ?? null;
   }, [state.jobs, selectedJobName]);
-  useEffect2(() => {
+  useEffect3(() => {
     let cancelled = false;
     dispatch({ type: "routes-loading" });
     void (async () => {
@@ -2039,12 +2802,12 @@ function RoutinesPage() {
       cancelled = true;
     };
   }, [routesNonce, dispatch]);
-  useEffect2(() => {
+  useEffect3(() => {
     if (state.status === S.ROUTES_LOADING || state.status === S.ROUTES_ERROR) return;
     if (state.routes.length === 0 && state.status !== S.ROUTE_UNAVAILABLE) return;
     dispatch({ type: "active-changed", profile: activeProfile, connectionId: activeConnectionId });
   }, [activeProfile, activeConnectionId, state.status, state.routes.length, dispatch, S.ROUTES_LOADING, S.ROUTES_ERROR, S.ROUTE_UNAVAILABLE]);
-  useEffect2(() => {
+  useEffect3(() => {
     if (state.status !== S.LIST_LOADING) return void 0;
     if (!state.activeKey) return void 0;
     const key = state.activeKey;
@@ -2077,7 +2840,7 @@ function RoutinesPage() {
       cancelled = true;
     };
   }, [state.status, state.routes, state.activeKey, dispatch, S.LIST_LOADING]);
-  useEffect2(() => {
+  useEffect3(() => {
     if (state.status === S.ROUTES_ERROR || state.status === S.LIST_ERROR) statusRef.current?.focus();
   }, [state.status, S.ROUTES_ERROR, S.LIST_ERROR]);
   function handleRetryRoutes() {
@@ -2122,15 +2885,40 @@ function RoutinesPage() {
     const route = activeRoute;
     void runMutation("resume", name, () => buildResumeParams(route, name));
   }
+  async function handleCreateRoutine(name, schedule, payload, active) {
+    if (!activeRoute) {
+      dispatch({ type: "mutation-error", error: "the active profile route is no longer available" });
+      return false;
+    }
+    const route = activeRoute;
+    try {
+      const addParams = buildAddParams(route, { job_id: name, schedule, payload });
+      dispatch({ type: "mutate-start", name });
+      await requestCronForRoute(route, "cron.manage", addParams);
+      if (!active) {
+        const pauseParams = buildPauseParams(route, name);
+        await requestCronForRoute(route, "cron.manage", pauseParams);
+      }
+      dispatch({ type: "mutate-end", name });
+      dispatch({ type: "notice", notice: "routine " + name + " created" });
+      dispatch({ type: "retry-list" });
+      setIsCreating(false);
+      return true;
+    } catch (err) {
+      dispatch({ type: "mutate-end", name });
+      dispatch({ type: "mutation-error", error: wrapHostError(err, "failed to create routine").message });
+      return false;
+    }
+  }
   function renderList() {
     const totalCount = state.jobs.length;
     const shownCount = filteredJobs.length;
     const isReduced = shownCount < totalCount;
     const countText = isReduced ? `Showing ${shownCount} of ${totalCount} routines.` : `Showing all ${totalCount} routines.`;
-    return /* @__PURE__ */ jsxs7(Fragment4, { children: [
-      /* @__PURE__ */ jsxs7("div", { className: "hr-toolbar", children: [
-        /* @__PURE__ */ jsxs7("div", { className: "hr-search-wrap", children: [
-          /* @__PURE__ */ jsx9(
+    return /* @__PURE__ */ jsxs9(Fragment4, { children: [
+      /* @__PURE__ */ jsxs9("div", { className: "hr-toolbar", children: [
+        /* @__PURE__ */ jsxs9("div", { className: "hr-search-wrap", children: [
+          /* @__PURE__ */ jsx11(
             "input",
             {
               type: "text",
@@ -2141,19 +2929,19 @@ function RoutinesPage() {
               "aria-label": "Search routines"
             }
           ),
-          searchQuery ? /* @__PURE__ */ jsx9(
+          searchQuery ? /* @__PURE__ */ jsx11(
             "button",
             {
               type: "button",
               className: "hr-search-clear",
               onClick: () => setSearchQuery(""),
               "aria-label": "Clear search",
-              children: /* @__PURE__ */ jsx9("svg", { width: "10", height: "10", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", children: /* @__PURE__ */ jsx9("path", { d: "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" }) })
+              children: /* @__PURE__ */ jsx11("svg", { width: "10", height: "10", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", children: /* @__PURE__ */ jsx11("path", { d: "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" }) })
             }
           ) : null
         ] }),
-        /* @__PURE__ */ jsxs7("div", { className: "hr-filters-col", children: [
-          /* @__PURE__ */ jsx9(
+        /* @__PURE__ */ jsxs9("div", { className: "hr-filters-col", children: [
+          /* @__PURE__ */ jsx11(
             FilterNav,
             {
               filter: state.filter,
@@ -2161,17 +2949,20 @@ function RoutinesPage() {
               onSelect: (value) => dispatch({ type: "filter-changed", filter: value })
             }
           ),
-          state.status === S.READY && totalCount > 0 ? /* @__PURE__ */ jsx9("span", { className: "hr-count-right", children: countText }) : null
+          state.status === S.READY && totalCount > 0 ? /* @__PURE__ */ jsx11("span", { className: "hr-count-right", children: countText }) : null
         ] })
       ] }),
-      filteredJobs.length === 0 ? state.jobs.length === 0 ? /* @__PURE__ */ jsx9(EmptyState, {}) : /* @__PURE__ */ jsx9(EmptyFilterState, {}) : /* @__PURE__ */ jsx9(
+      filteredJobs.length === 0 ? state.jobs.length === 0 ? /* @__PURE__ */ jsx11(EmptyState, {}) : /* @__PURE__ */ jsx11(EmptyFilterState, {}) : /* @__PURE__ */ jsx11(
         RoutineList,
         {
           jobs: filteredJobs,
           pending: state.pending,
           locked,
           inspectedId: selectedJobName,
-          onInspect: setSelectedJobName,
+          onInspect: (name) => {
+            setSelectedJobName(name);
+            if (name) setIsCreating(false);
+          },
           onPause: handlePause,
           onResume: handleResume
         }
@@ -2190,10 +2981,10 @@ function RoutinesPage() {
   }
   const body = [];
   if (state.status === S.ROUTES_LOADING) {
-    body.push(/* @__PURE__ */ jsx9(LoadingState, { text: "Loading routines." }, "routes-loading"));
+    body.push(/* @__PURE__ */ jsx11(LoadingState, { text: "Loading routines." }, "routes-loading"));
   } else if (state.status === S.ROUTES_ERROR) {
     body.push(
-      /* @__PURE__ */ jsx9(
+      /* @__PURE__ */ jsx11(
         ErrorState,
         {
           title: "Could not list routines.",
@@ -2205,7 +2996,7 @@ function RoutinesPage() {
     );
   } else if (state.status === S.ROUTE_UNAVAILABLE) {
     body.push(
-      /* @__PURE__ */ jsx9(
+      /* @__PURE__ */ jsx11(
         UnavailableState,
         {
           profile: state.activeProfile ?? (typeof activeProfile === "string" ? activeProfile : null),
@@ -2217,21 +3008,21 @@ function RoutinesPage() {
   } else if (state.status === S.LIST_LOADING) {
     if (state.jobs.length > 0) {
       body.push(
-        /* @__PURE__ */ jsx9(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-loading")
+        /* @__PURE__ */ jsx11(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-loading")
       );
-      body.push(/* @__PURE__ */ jsx9("div", { children: renderList() }, "stale-list"));
+      body.push(/* @__PURE__ */ jsx11("div", { children: renderList() }, "stale-list"));
     } else {
-      body.push(/* @__PURE__ */ jsx9(LoadingState, { text: "Loading routines." }, "list-loading"));
+      body.push(/* @__PURE__ */ jsx11(LoadingState, { text: "Loading routines." }, "list-loading"));
     }
   } else if (state.status === S.LIST_ERROR) {
     if (state.jobs.length > 0) {
       body.push(
-        /* @__PURE__ */ jsx9(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-error")
+        /* @__PURE__ */ jsx11(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-error")
       );
-      body.push(/* @__PURE__ */ jsx9("div", { children: renderList() }, "stale-list-error"));
+      body.push(/* @__PURE__ */ jsx11("div", { children: renderList() }, "stale-list-error"));
     }
     body.push(
-      /* @__PURE__ */ jsx9(
+      /* @__PURE__ */ jsx11(
         ErrorState,
         {
           title: "Could not load routines.",
@@ -2242,26 +3033,57 @@ function RoutinesPage() {
       )
     );
   } else if (state.status === S.READY) {
-    body.push(/* @__PURE__ */ jsx9("div", { children: renderList() }, "ready-list"));
+    body.push(/* @__PURE__ */ jsx11("div", { children: renderList() }, "ready-list"));
   }
   const profileLabel = typeof activeProfile === "string" && activeProfile ? activeProfile : "\u2014";
-  return /* @__PURE__ */ jsxs7("section", { id: "hermes-routines-root", className: "hr-root", "aria-labelledby": "hermes-routines-heading", children: [
-    /* @__PURE__ */ jsx9("style", { children: ROUTINES_CSS }),
-    /* @__PURE__ */ jsxs7("div", { className: "hr-workspace", children: [
-      /* @__PURE__ */ jsxs7("div", { className: `hr-feed-column${!selectedJob ? " hr-feed-contained" : ""}`, children: [
-        /* @__PURE__ */ jsxs7("header", { className: "hr-header", children: [
-          /* @__PURE__ */ jsxs7("div", { className: "hr-header-top", children: [
-            /* @__PURE__ */ jsx9("h2", { id: "hermes-routines-heading", ref: headingRef, tabIndex: -1, className: "hr-title", children: "Routines" }),
-            /* @__PURE__ */ jsxs7("span", { className: "hr-sr-only", children: [
+  return /* @__PURE__ */ jsxs9("section", { id: "hermes-routines-root", className: "hr-root", "aria-labelledby": "hermes-routines-heading", children: [
+    /* @__PURE__ */ jsx11("style", { children: ROUTINES_CSS }),
+    /* @__PURE__ */ jsxs9("div", { className: "hr-workspace", children: [
+      /* @__PURE__ */ jsxs9("div", { className: `hr-feed-column${!selectedJob && !isCreating ? " hr-feed-contained" : ""}`, children: [
+        /* @__PURE__ */ jsxs9("header", { className: "hr-header", children: [
+          /* @__PURE__ */ jsxs9("div", { className: "hr-header-top", children: [
+            /* @__PURE__ */ jsx11("h2", { id: "hermes-routines-heading", ref: headingRef, tabIndex: -1, className: "hr-title", children: "Routines" }),
+            /* @__PURE__ */ jsx11(
+              "button",
+              {
+                type: "button",
+                className: "hr-btn-new",
+                onClick: () => {
+                  setSelectedJobName(null);
+                  setIsCreating(true);
+                },
+                "aria-label": "New routine",
+                title: "New routine",
+                children: /* @__PURE__ */ jsxs9(
+                  "svg",
+                  {
+                    width: "18",
+                    height: "18",
+                    viewBox: "0 0 24 24",
+                    fill: "none",
+                    stroke: "currentColor",
+                    strokeWidth: "2.5",
+                    strokeLinecap: "round",
+                    strokeLinejoin: "round",
+                    "aria-hidden": "true",
+                    children: [
+                      /* @__PURE__ */ jsx11("line", { x1: "12", y1: "5", x2: "12", y2: "19" }),
+                      /* @__PURE__ */ jsx11("line", { x1: "5", y1: "12", x2: "19", y2: "12" })
+                    ]
+                  }
+                )
+              }
+            ),
+            /* @__PURE__ */ jsxs9("span", { className: "hr-sr-only", children: [
               "Profile: ",
               profileLabel
             ] })
           ] }),
-          /* @__PURE__ */ jsx9("p", { className: "hr-sub", children: "Routines are scheduled jobs this profile runs to do recurring tasks." })
+          /* @__PURE__ */ jsx11("p", { className: "hr-sub", children: "Routines are scheduled jobs this profile runs to do recurring tasks." })
         ] }),
         body
       ] }),
-      selectedJob ? /* @__PURE__ */ jsx9(
+      selectedJob ? /* @__PURE__ */ jsx11(
         RoutineInspectorPanel,
         {
           job: selectedJob,
@@ -2274,20 +3096,29 @@ function RoutinesPage() {
           onPause: () => handlePause(jobIdOf(selectedJob) || selectedJobName || ""),
           onResume: () => handleResume(jobIdOf(selectedJob) || selectedJobName || "")
         }
+      ) : isCreating ? /* @__PURE__ */ jsx11(
+        RoutineComposerPanel,
+        {
+          activeRoute,
+          activeProfile: state.activeProfile ?? (typeof activeProfile === "string" ? activeProfile : null),
+          disabled: locked,
+          onClose: () => setIsCreating(false),
+          onSubmit: handleCreateRoutine
+        }
       ) : null
     ] }),
-    /* @__PURE__ */ jsx9(StatusLine, { text: liveText, statusRef })
+    /* @__PURE__ */ jsx11(StatusLine, { text: liveText, statusRef })
   ] });
 }
 
 // src/plugin.tsx
-import { jsx as jsx10 } from "react/jsx-runtime";
+import { jsx as jsx12 } from "react/jsx-runtime";
 function register(ctx) {
   ctx.register({
     id: ROUTE_ID,
     area: ROUTES_AREA,
     data: { path: ROUTE_PATH },
-    render: () => /* @__PURE__ */ jsx10(RoutinesPage, {})
+    render: () => /* @__PURE__ */ jsx12(RoutinesPage, {})
   });
   ctx.register({
     id: SIDEBAR_ID,
@@ -2304,22 +3135,32 @@ var plugin = {
 };
 var plugin_default = plugin;
 export {
+  DAYS_OF_MONTH,
+  DAYS_OF_WEEK,
+  DEFAULT_SCHEDULE_CONFIG,
+  INTERVAL_UNITS,
+  INTERVAL_VALUES,
   PLUGIN_ID,
   PLUGIN_NAME,
   ROUTE_ID,
   ROUTE_PATH,
   ROUTINES_VIEW_STATUS,
+  RoutineComposerPanel,
   RoutinesPage,
   SIDEBAR_CODICON,
   SIDEBAR_ID,
   SIDEBAR_LABEL,
   SIDEBAR_ORDER,
+  SelectField,
+  TIME_SLOTS,
+  TRIGGER_OPTIONS,
   activeRouteKey,
   addJob,
   assertRoutingOptions,
   assertTimeoutMs,
   backendTargetProfile,
   buildAddParams,
+  buildCronExpression,
   buildListParams,
   buildPauseParams,
   buildRemoveParams,
@@ -2328,9 +3169,11 @@ export {
   collapsedSubtitleOf,
   plugin_default as default,
   describeSchedule,
+  describeScheduleConfig,
   findRouteByKey,
   formatDate,
   formatWhen,
+  generateTimeSlots,
   humanScheduleOf,
   initialRoutinesState,
   isSafeOptimistic,
@@ -2370,6 +3213,7 @@ export {
   routineTitle,
   routinesViewReducer,
   scopedCronParams,
+  toOrdinal,
   visibleJobs,
   withPausedFlag,
   wrapHostError
