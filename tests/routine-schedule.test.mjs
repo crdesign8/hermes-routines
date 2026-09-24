@@ -5,8 +5,10 @@ import {
   describeScheduleConfig,
   generateTimeSlots,
   toOrdinal,
+  validateScheduleConfig,
   TRIGGER_OPTIONS,
   DAYS_OF_WEEK,
+  DAYS_OF_MONTH,
   INTERVAL_VALUES,
   INTERVAL_UNITS,
 } from '../src/domain/routineSchedule.ts';
@@ -109,5 +111,144 @@ describe('routineSchedule', () => {
       buildCronExpression({ ...base, intervalValue: 10, intervalUnit: 'days' }),
       'every 10d',
     );
+  });
+});
+
+// Issue #2: validation is fail-closed — invalid values are rejected
+// explicitly instead of being clamped, defaulted or coerced into a
+// different schedule (no NaN, Infinity, implicit Monday, implicit 00:00).
+describe('routineSchedule fail-closed validation', () => {
+  const valid = {
+    trigger: 'every_day',
+    time: '08:00',
+    dayOfWeek: 'Monday',
+    dayOfMonth: 1,
+    intervalValue: 5,
+    intervalUnit: 'minutes',
+  };
+
+  /** Every override must be rejected by both serializers and by the
+   * exported validator, with a domain TypeError. */
+  function assertRejected(label, patch, messageRe) {
+    const config = { ...valid, ...patch };
+    for (const [name, fn] of [
+      ['validateScheduleConfig', () => validateScheduleConfig(config)],
+      ['buildCronExpression', () => buildCronExpression(config)],
+      ['describeScheduleConfig', () => describeScheduleConfig(config)],
+    ]) {
+      assert.throws(() => fn(), TypeError, `${label}: ${name} must throw TypeError`);
+      assert.throws(() => fn(), messageRe, `${label}: ${name} message must match ${messageRe}`);
+    }
+  }
+
+  it('rejects malformed or non-HH:mm time values (no clamp, no 00:00 fallback)', () => {
+    assertRejected('unpadded hour', { time: '8:00' }, /HH:mm/);
+    assertRejected('missing separator', { time: '0800' }, /HH:mm/);
+    assertRejected('hour 24', { time: '24:00' }, /HH:mm/);
+    assertRejected('minute 60', { time: '08:60' }, /HH:mm/);
+    assertRejected('unpadded minute', { time: '08:5' }, /HH:mm/);
+    assertRejected('empty', { time: '' }, /HH:mm/);
+    assertRejected('whitespace padded', { time: ' 08:00 ' }, /HH:mm/);
+    assertRejected('text', { time: 'morning' }, /HH:mm/);
+    assertRejected('non-string', { time: 800 }, /HH:mm/);
+    assertRejected('null', { time: null }, /HH:mm/);
+  });
+
+  it('rejects unknown trigger values (no daily fallback)', () => {
+    assertRejected('unknown string', { trigger: 'daily' }, /unknown trigger/);
+    assertRejected('case drift', { trigger: 'Every_Day' }, /unknown trigger/);
+    assertRejected('non-string', { trigger: 42 }, /unknown trigger/);
+    assertRejected('null', { trigger: null }, /unknown trigger/);
+  });
+
+  it('rejects unknown weekday values (no implicit Monday)', () => {
+    assertRejected('invented day', { dayOfWeek: 'Funday' }, /unknown dayOfWeek/);
+    assertRejected('case drift', { dayOfWeek: 'monday' }, /unknown dayOfWeek/);
+    assertRejected('numeric index', { dayOfWeek: 1 }, /unknown dayOfWeek/);
+    assertRejected('null', { dayOfWeek: null }, /unknown dayOfWeek/);
+  });
+
+  it('rejects invalid day-of-month values (no clamping to 1..31)', () => {
+    assertRejected('zero', { dayOfMonth: 0 }, /dayOfMonth/);
+    assertRejected('too large', { dayOfMonth: 32 }, /dayOfMonth/);
+    assertRejected('negative', { dayOfMonth: -1 }, /dayOfMonth/);
+    assertRejected('fractional', { dayOfMonth: 1.5 }, /dayOfMonth/);
+    assertRejected('NaN', { dayOfMonth: Number.NaN }, /dayOfMonth/);
+    assertRejected('Infinity', { dayOfMonth: Number.POSITIVE_INFINITY }, /dayOfMonth/);
+    assertRejected('numeric string', { dayOfMonth: '5' }, /dayOfMonth/);
+    assertRejected('null', { dayOfMonth: null }, /dayOfMonth/);
+  });
+
+  it('rejects interval values that are not finite positive integers', () => {
+    assertRejected('zero', { intervalValue: 0 }, /intervalValue/);
+    assertRejected('negative', { intervalValue: -5 }, /intervalValue/);
+    assertRejected('fractional', { intervalValue: 2.5 }, /intervalValue/);
+    assertRejected('NaN', { intervalValue: Number.NaN }, /intervalValue/);
+    assertRejected('Infinity', { intervalValue: Number.POSITIVE_INFINITY }, /intervalValue/);
+    assertRejected('-Infinity', { intervalValue: Number.NEGATIVE_INFINITY }, /intervalValue/);
+    assertRejected('numeric string', { intervalValue: '10' }, /intervalValue/);
+    assertRejected('null', { intervalValue: null }, /intervalValue/);
+  });
+
+  it('rejects unknown interval units (no fall-through to days)', () => {
+    assertRejected('plural mismatch', { intervalUnit: 'weeks' }, /unknown intervalUnit/);
+    assertRejected('singular', { intervalUnit: 'minute' }, /unknown intervalUnit/);
+    assertRejected('case drift', { intervalUnit: 'Minutes' }, /unknown intervalUnit/);
+    assertRejected('null', { intervalUnit: null }, /unknown intervalUnit/);
+  });
+
+  it('rejects non-object configs', () => {
+    for (const bad of [null, undefined, 'every_day', 42, [], () => {}]) {
+      assert.throws(() => validateScheduleConfig(bad), TypeError, `config ${String(bad)}`);
+      assert.throws(() => buildCronExpression(bad), TypeError);
+      assert.throws(() => describeScheduleConfig(bad), TypeError);
+    }
+  });
+
+  it('valid UI-generated configs still serialize exactly as before', () => {
+    assert.equal(validateScheduleConfig(valid), undefined);
+    assert.equal(buildCronExpression(valid), '0 8 * * *');
+    assert.equal(describeScheduleConfig(valid), 'Every day at 08:00');
+
+    // Every value the closed selects can produce stays accepted.
+    for (const time of generateTimeSlots()) {
+      assert.match(buildCronExpression({ ...valid, time }), /^\d{1,2} \d{1,2} \* \* \*$/);
+    }
+    for (const dayOfWeek of DAYS_OF_WEEK) {
+      assert.match(
+        buildCronExpression({ ...valid, trigger: 'every_week', dayOfWeek }),
+        /^\d{1,2} \d{1,2} \* \* \d$/,
+      );
+    }
+    for (const { value } of DAYS_OF_MONTH) {
+      assert.equal(
+        buildCronExpression({ ...valid, trigger: 'every_month', dayOfMonth: value }),
+        `0 8 ${value} * *`,
+      );
+    }
+    for (const intervalValue of INTERVAL_VALUES) {
+      for (const intervalUnit of INTERVAL_UNITS) {
+        const suffix = { minutes: 'm', hours: 'h', days: 'd' }[intervalUnit];
+        assert.equal(
+          buildCronExpression({ ...valid, trigger: 'interval', intervalValue, intervalUnit }),
+          `every ${intervalValue}${suffix}`,
+        );
+      }
+    }
+    for (const trigger of TRIGGER_OPTIONS.map((o) => o.value)) {
+      assert.equal(typeof describeScheduleConfig({ ...valid, trigger }), 'string');
+    }
+  });
+
+  it('serialized output never carries NaN, Infinity or undefined', () => {
+    const outputs = [
+      buildCronExpression(valid),
+      describeScheduleConfig(valid),
+      buildCronExpression({ ...valid, trigger: 'interval', intervalValue: 45, intervalUnit: 'minutes' }),
+      describeScheduleConfig({ ...valid, trigger: 'every_month', dayOfMonth: 31 }),
+    ];
+    for (const out of outputs) {
+      assert.doesNotMatch(out, /NaN|Infinity|undefined|null/);
+    }
   });
 });

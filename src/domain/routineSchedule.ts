@@ -61,6 +61,19 @@ const DAY_OF_WEEK_TO_CRON: Record<DayOfWeek, number> = {
 export const INTERVAL_VALUES: number[] = [2, 5, 10, 15, 20, 30, 45];
 export const INTERVAL_UNITS: IntervalUnit[] = ['minutes', 'hours', 'days'];
 
+// Closed vocabularies: validation membership tests, never coercion sources.
+const TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const TRIGGER_VALUES: Set<string> = new Set(TRIGGER_OPTIONS.map((o) => o.value));
+const DAY_OF_WEEK_VALUES: Set<string> = new Set(DAYS_OF_WEEK);
+const INTERVAL_UNIT_VALUES: Set<string> = new Set(INTERVAL_UNITS);
+
+/** Render an invalid value for an error message without letting a huge
+ * payload flood the caller (and without template-literal Symbol traps). */
+function show(value: unknown): string {
+  const text = typeof value === 'string' ? JSON.stringify(value) : String(value);
+  return text.length > 40 ? `${text.slice(0, 37)}...` : text;
+}
+
 /** Generate 15-minute time steps for 24 hours (96 slots from 00:00 to 23:45). */
 export function generateTimeSlots(): string[] {
   const slots: string[] = [];
@@ -101,19 +114,74 @@ export const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
   intervalUnit: 'minutes',
 };
 
+/**
+ * Fail-closed validation of a ScheduleConfig (issue #2).
+ *
+ * The domain layer must never turn an invalid config into a different
+ * valid-looking schedule: every value is checked against its closed
+ * vocabulary or numeric range, and anything unknown, non-finite,
+ * out-of-range or malformed throws a domain TypeError instead of being
+ * clamped, defaulted or coerced.
+ *
+ * The whole config is validated regardless of the selected trigger: an
+ * unrelated field carrying garbage is still an invalid config.
+ */
+export function validateScheduleConfig(input: unknown): void {
+  if (typeof input !== 'object' || input === null) {
+    throw new TypeError(`schedule config must be an object (got ${show(input)})`);
+  }
+  const config = input as ScheduleConfig;
+
+  if (!TRIGGER_VALUES.has(config.trigger)) {
+    throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
+  }
+  if (typeof config.time !== 'string' || !TIME_RE.test(config.time)) {
+    throw new TypeError(`time must be a valid HH:mm string (got ${show(config.time)})`);
+  }
+  if (!DAY_OF_WEEK_VALUES.has(config.dayOfWeek)) {
+    throw new TypeError(`unknown dayOfWeek value: ${show(config.dayOfWeek)}`);
+  }
+  if (
+    typeof config.dayOfMonth !== 'number' ||
+    !Number.isInteger(config.dayOfMonth) ||
+    config.dayOfMonth < 1 ||
+    config.dayOfMonth > 31
+  ) {
+    throw new TypeError(
+      `dayOfMonth must be an integer between 1 and 31 (got ${show(config.dayOfMonth)})`,
+    );
+  }
+  if (
+    typeof config.intervalValue !== 'number' ||
+    !Number.isInteger(config.intervalValue) ||
+    config.intervalValue < 1
+  ) {
+    throw new TypeError(
+      `intervalValue must be a finite positive integer (got ${show(config.intervalValue)})`,
+    );
+  }
+  if (!INTERVAL_UNIT_VALUES.has(config.intervalUnit)) {
+    throw new TypeError(`unknown intervalUnit value: ${show(config.intervalUnit)}`);
+  }
+}
+
+/** Split a validated "HH:mm" string. Callers must validate first — this
+ * parses, it never repairs. */
 function parseTime(time: string): { minute: number; hour: number } {
-  const parts = time.split(':');
-  const hour = Math.max(0, Math.min(23, parseInt(parts[0] || '0', 10) || 0));
-  const minute = Math.max(0, Math.min(59, parseInt(parts[1] || '0', 10) || 0));
-  return { minute, hour };
+  const [hourText, minuteText] = time.split(':');
+  return { hour: Number(hourText), minute: Number(minuteText) };
 }
 
 /** Translate high abstraction config to a backend schedule string.
  * Wall-clock triggers serialize as standard 5-part cron. The interval
  * trigger serializes as Hermes-native interval syntax (every Nm/Nh/Nd),
  * which the backend parse_schedule() runs as a continuous interval —
- * cron step expressions would reset at field boundaries instead. */
+ * cron step expressions would reset at field boundaries instead.
+ *
+ * Throws a TypeError on any invalid field (see validateScheduleConfig):
+ * no clamping, no fallback, no silent normalization. */
 export function buildCronExpression(config: ScheduleConfig): string {
+  validateScheduleConfig(config);
   const { minute, hour } = parseTime(config.time);
 
   switch (config.trigger) {
@@ -124,30 +192,35 @@ export function buildCronExpression(config: ScheduleConfig): string {
     case 'weekdays':
       return `${minute} ${hour} * * 1-5`;
     case 'every_week': {
-      const dow = DAY_OF_WEEK_TO_CRON[config.dayOfWeek] ?? 1;
+      const dow = DAY_OF_WEEK_TO_CRON[config.dayOfWeek];
       return `${minute} ${hour} * * ${dow}`;
     }
     case 'every_month': {
-      const dom = Math.max(1, Math.min(31, Math.floor(config.dayOfMonth)));
+      const dom = config.dayOfMonth;
       return `${minute} ${hour} ${dom} * *`;
     }
     case 'interval': {
-      const val = Math.max(1, Math.floor(config.intervalValue));
+      const val = config.intervalValue;
       if (config.intervalUnit === 'minutes') {
         return `every ${val}m`;
       }
       if (config.intervalUnit === 'hours') {
         return `every ${val}h`;
       }
-      return `every ${val}d`;
+      if (config.intervalUnit === 'days') {
+        return `every ${val}d`;
+      }
+      throw new TypeError(`unknown intervalUnit value: ${show(config.intervalUnit)}`);
     }
     default:
-      return `${minute} ${hour} * * *`;
+      throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
   }
 }
 
-/** Generate natural language subtitle matching the UI mockups. */
+/** Generate natural language subtitle matching the UI mockups.
+ * Fails closed on invalid config exactly like buildCronExpression. */
 export function describeScheduleConfig(config: ScheduleConfig): string {
+  validateScheduleConfig(config);
   switch (config.trigger) {
     case 'every_hour':
       return 'Every hour';
@@ -166,6 +239,6 @@ export function describeScheduleConfig(config: ScheduleConfig): string {
       return `Every ${config.intervalValue} ${unit}`;
     }
     default:
-      return `Every day at ${config.time}`;
+      throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
   }
 }
