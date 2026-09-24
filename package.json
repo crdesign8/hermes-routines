@@ -25,6 +25,7 @@
     "docs/",
     "src/",
     "scripts/",
+    "plugin.yaml",
     "LICENSE",
     "README.md",
     "CONTRIBUTING.md",
@@ -41,7 +42,8 @@
     "test": "node --test \"tests/*.test.mjs\"",
     "check:allowlist": "node scripts/check-allowlist.mjs",
     "check:version": "node scripts/check-version.mjs",
-    "check": "npm run typecheck && node scripts/check-allowlist.mjs && node scripts/check-version.mjs && node scripts/build.mjs --check"
+    "check:manifest": "node scripts/check-manifest.mjs",
+    "check": "npm run typecheck && node scripts/check-allowlist.mjs && node scripts/check-version.mjs && node scripts/check-manifest.mjs && node scripts/build.mjs --check"
   },
   "devDependencies": {
     "@types/node": "24.13.6",
