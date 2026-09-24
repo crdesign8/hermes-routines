@@ -1,0 +1,165 @@
+# hermes-routines issue triage policy (SSOT, repo side).
+#
+# Deterministic projection only: the triage script computes the desired set
+# from this file plus trusted GitHub facts (title/body) and applies a
+# compute-and-diff. Labels are derived state. Title and body are untrusted
+# input: label names never interpolate user text, only names declared in
+# `managed_labels` may be projected.
+#
+# Dual-run note: the VPS profile `issue-labelizer` overlay `hermes-routines`
+# is the long-term owner. While both executors exist, any policy change must
+# be synced to the overlay before activation, or the old executor re-adds
+# removed labels. See docs/LABELIZER.md.
+#
+# Parser note: scripts/issue-triage.mjs implements a strict YAML subset
+# (2-space indent, `- ` sequences, `key: value` mappings, quoted or plain
+# scalars, integer version). Keep this file inside that subset. Quote every
+# conventional-commit prefix: a bare `fix:` parses as a mapping, not a string.
+version: 1
+
+managed_labels:
+  - name: type:bug
+    color: d73a4a
+    description: Defeito confirmado ou comportamento existente quebrado
+  - name: type:feature
+    color: a2eeef
+    description: Capacidade de produto solicitada
+  - name: type:chore
+    color: 0366d6
+    description: Manutencao e governanca do repositorio
+  - name: type:docs
+    color: 0075ca
+    description: Documentacao e metadados publicos
+  - name: type:security
+    color: 0a3069
+    description: Seguranca e vulnerabilidades
+  - name: type:ci
+    color: 218bff
+    description: Integracao continua e validacao
+  - name: type:release
+    color: 0550ae
+    description: Release e versionamento
+  - name: type:automation
+    color: 54aeff
+    description: Automacao interna do fluxo
+  - name: area:repository
+    color: 0e5938
+    description: "Escopo: repositorio e governanca"
+  - name: area:distribution
+    color: 2da44e
+    description: "Escopo: distribuicao e instalacao"
+  - name: area:plugin
+    color: 18794e
+    description: "Escopo: plugin Desktop"
+  - name: area:automation
+    color: 1a7f37
+    description: "Escopo: automacoes internas"
+  - name: area:release
+    color: "116329"
+    description: "Escopo: release e catalogo"
+  - name: area:ci
+    color: 3fb950
+    description: "Escopo: CI e runners"
+  - name: source:human
+    color: 7057ff
+    description: "Origem: solicitacao humana"
+
+exclusive_groups:
+  type:
+    precedence: [type:bug, type:feature, type:security, type:ci, type:release, type:automation, type:chore, type:docs]
+
+issue:
+  defaults: [source:human]
+  title_rules:
+    - prefixes: ["fix:", "fix("]
+      labels: [type:bug]
+    - prefixes: ["feat:", "feat("]
+      labels: [type:feature]
+    - prefixes: ["docs:", "docs("]
+      labels: [type:docs]
+    - prefixes: ["sec:", "sec(", "security:", "vuln:"]
+      labels: [type:security]
+    - prefixes: ["ci:", "ci("]
+      labels: [type:ci]
+    - prefixes: ["release:", "release("]
+      labels: [type:release]
+    - prefixes: ["auto:", "auto(", "bot:", "labelizer:"]
+      labels: [type:automation]
+    - prefixes: ["chore:", "chore(", "refactor:", "refactor(", "perf:", "perf(", "test:", "test("]
+      labels: [type:chore]
+  title_scope_rules:
+    - contains: "(plugin)"
+      labels: [area:plugin]
+    - contains: "(routines)"
+      labels: [area:plugin]
+    - contains: "(desktop)"
+      labels: [area:plugin]
+    - contains: "(ui)"
+      labels: [area:plugin]
+    - contains: "(distribution)"
+      labels: [area:distribution]
+    - contains: "(install)"
+      labels: [area:distribution]
+    - contains: "(installer)"
+      labels: [area:distribution]
+    - contains: "(ci)"
+      labels: [area:ci]
+    - contains: "(runner)"
+      labels: [area:ci]
+    - contains: "(workflows)"
+      labels: [area:ci]
+    - contains: "(.github)"
+      labels: [area:ci]
+    - contains: "(automation)"
+      labels: [area:automation]
+    - contains: "(labelizer)"
+      labels: [area:automation]
+    - contains: "(triage)"
+      labels: [area:automation]
+    - contains: "(release)"
+      labels: [area:release]
+    - contains: "(catalog)"
+      labels: [area:release]
+    - contains: "(version)"
+      labels: [area:release]
+    - contains: "(repo)"
+      labels: [area:repository]
+    - contains: "(repository)"
+      labels: [area:repository]
+    - contains: "(governance)"
+      labels: [area:repository]
+    - contains: "(docs)"
+      labels: [area:repository]
+    - contains: "(branch-protection)"
+      labels: [area:repository]
+  body_rules:
+    - contains: "labelizer"
+      labels: [type:automation, area:automation]
+    - contains: "reviewer"
+      labels: [type:automation, area:automation]
+    - contains: "webhook"
+      labels: [area:automation]
+    - contains: "cron"
+      labels: [area:automation]
+    - contains: "runner"
+      labels: [type:ci, area:ci]
+    - contains: "CHANGELOG"
+      labels: [type:release, area:release]
+    - contains: "catalog"
+      labels: [area:release]
+    - contains: "src/"
+      labels: [area:plugin]
+    - contains: "desktop/plugin.js"
+      labels: [area:plugin]
+    - contains: "/routines"
+      labels: [area:plugin]
+    - contains: "scripts/install"
+      labels: [area:distribution]
+    - contains: "desktop-plugins"
+      labels: [area:distribution]
+    - contains: ".github/workflows"
+      labels: [area:ci]
+    - contains: "SECURITY.md"
+      labels: [type:security]
+    - contains: "vulnerab"
+      labels: [type:security]

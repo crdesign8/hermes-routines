@@ -1,0 +1,45 @@
+name: issue-triage
+# Deterministic issue triage (issue #16). Reacts to issue activity and applies
+# the projection in .github/label-policy.yml via scripts/issue-triage.mjs.
+# Compute-and-diff only: adds desired managed labels, removes stale managed
+# labels, never touches unmanaged labels, never edits code, never merges.
+# Manual reprocessing: Actions -> issue-triage -> Run workflow (optional
+# issue_number; empty reprocesses every open issue, cap 30).
+on:
+  issues:
+    types: [opened, edited, reopened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Single issue to reprocess (empty = all open issues)'
+        required: false
+        type: string
+permissions:
+  issues: write
+  contents: read
+concurrency:
+  group: issue-triage-${{ github.event.issue.number || inputs.issue_number || 'all' }}
+  cancel-in-progress: true
+jobs:
+  triage:
+    # Same self-hosted runner as ci (issue #19 keeps PR builds off
+    # GitHub-hosted until the quota renewal; this job checks out the base
+    # commit only, never PR head code, so it is safe for third-party issues).
+    runs-on: [self-hosted, Linux, X64, local-server]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate policy (fail-closed)
+        run: node scripts/issue-triage.mjs --validate
+      - name: Triage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISSUE='${{ github.event.issue.number }}${{ inputs.issue_number }}'
+          if [ -n "$ISSUE" ]; then
+            node scripts/issue-triage.mjs --repo '${{ github.repository }}' --issue "$ISSUE" --apply
+          else
+            node scripts/issue-triage.mjs --repo '${{ github.repository }}' --all-open --apply
+          fi
