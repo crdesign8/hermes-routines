@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a behavior change or new capability.
+title: "feat: "
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep the plugin small and auditable. Substantial changes need a
+        user-facing outcome and a compatibility note.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User-facing outcome
+      description: What should the user be able to do after this change?
+      placeholder: As a Routines user I want to ...
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and scope
+      description: Host and plugin-sdk impact, profile-routing boundary, out of scope.
+      placeholder: "Compatible with ... / Out of scope ..."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: "None"
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and PRs for duplicates.
+          required: true

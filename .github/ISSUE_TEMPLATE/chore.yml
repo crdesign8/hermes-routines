@@ -1,0 +1,33 @@
+name: Chore
+description: Repository maintenance, docs, CI, or governance work.
+title: "chore: "
+labels: ["type:chore"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use for maintenance that is not a user-facing bug or feature
+        (docs, CI, governance, refactors without behavior change).
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and motivation
+      description: What needs maintenance and why now?
+      placeholder: "Update ... because ..."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: How do we know it is done?
+      placeholder: "Done when ..."
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and PRs for duplicates.
+          required: true

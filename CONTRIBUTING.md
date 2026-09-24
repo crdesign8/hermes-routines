@@ -59,7 +59,8 @@ checked in, but it is never the source of truth. Do not edit it manually.
 3. Run the verification commands above.
 4. Commit with a concise Conventional Commit subject, for example
    `fix(routing): reject incomplete profile routes`.
-5. Open a pull request against `main` and include:
+5. Open a pull request against `main` using the repository PR template
+   (`.github/pull_request_template.md`) and include:
    - the problem and intended behavior;
    - tests and commands run;
    - compatibility, security, or privacy impact;
@@ -69,6 +70,11 @@ checked in, but it is never the source of truth. Do not edit it manually.
 
 CI must be green before merge. The repository currently uses a self-hosted
 runner, so a local green run does not replace the remote CI result.
+Direct pushes to `main` are not allowed: all changes enter via PR under
+the rules in [`docs/BRANCH-PROTECTION.md`](docs/BRANCH-PROTECTION.md).
+Review coverage is owned by [`CODEOWNERS`](CODEOWNERS) (`* @crdesign8`).
+Use the issue forms in [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)
+for bug reports, feature requests, and chores.
 
 ## Scope and safety
 
