@@ -2175,6 +2175,19 @@ var DAY_OF_WEEK_TO_CRON = {
 };
 var INTERVAL_VALUES = [2, 5, 10, 15, 20, 30, 45];
 var INTERVAL_UNITS = ["minutes", "hours", "days"];
+var TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+var TRIGGER_VALUES = new Set(TRIGGER_OPTIONS.map((o) => o.value));
+var DAY_OF_WEEK_VALUES = new Set(DAYS_OF_WEEK);
+var INTERVAL_UNIT_VALUES = new Set(INTERVAL_UNITS);
+function show(value) {
+  let text;
+  try {
+    text = typeof value === "string" ? JSON.stringify(value) : String(value);
+  } catch {
+    text = Object.prototype.toString.call(value);
+  }
+  return text.length > 40 ? `${text.slice(0, 37)}...` : text;
+}
 function generateTimeSlots() {
   const slots = [];
   for (let h = 0; h < 24; h++) {
@@ -2208,13 +2221,40 @@ var DEFAULT_SCHEDULE_CONFIG = {
   intervalValue: 5,
   intervalUnit: "minutes"
 };
+function validateScheduleConfig(input) {
+  if (typeof input !== "object" || input === null) {
+    throw new TypeError(`schedule config must be an object (got ${show(input)})`);
+  }
+  const config = input;
+  if (!TRIGGER_VALUES.has(config.trigger)) {
+    throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
+  }
+  if (typeof config.time !== "string" || !TIME_RE.test(config.time)) {
+    throw new TypeError(`time must be a valid HH:mm string (got ${show(config.time)})`);
+  }
+  if (!DAY_OF_WEEK_VALUES.has(config.dayOfWeek)) {
+    throw new TypeError(`unknown dayOfWeek value: ${show(config.dayOfWeek)}`);
+  }
+  if (typeof config.dayOfMonth !== "number" || !Number.isInteger(config.dayOfMonth) || config.dayOfMonth < 1 || config.dayOfMonth > 31) {
+    throw new TypeError(
+      `dayOfMonth must be an integer between 1 and 31 (got ${show(config.dayOfMonth)})`
+    );
+  }
+  if (typeof config.intervalValue !== "number" || !Number.isInteger(config.intervalValue) || config.intervalValue < 1) {
+    throw new TypeError(
+      `intervalValue must be a finite positive integer (got ${show(config.intervalValue)})`
+    );
+  }
+  if (!INTERVAL_UNIT_VALUES.has(config.intervalUnit)) {
+    throw new TypeError(`unknown intervalUnit value: ${show(config.intervalUnit)}`);
+  }
+}
 function parseTime(time) {
-  const parts = time.split(":");
-  const hour = Math.max(0, Math.min(23, parseInt(parts[0] || "0", 10) || 0));
-  const minute = Math.max(0, Math.min(59, parseInt(parts[1] || "0", 10) || 0));
-  return { minute, hour };
+  const [hourText, minuteText] = time.split(":");
+  return { hour: Number(hourText), minute: Number(minuteText) };
 }
 function buildCronExpression(config) {
+  validateScheduleConfig(config);
   const { minute, hour } = parseTime(config.time);
   switch (config.trigger) {
     case "every_hour":
@@ -2224,28 +2264,32 @@ function buildCronExpression(config) {
     case "weekdays":
       return `${minute} ${hour} * * 1-5`;
     case "every_week": {
-      const dow = DAY_OF_WEEK_TO_CRON[config.dayOfWeek] ?? 1;
+      const dow = DAY_OF_WEEK_TO_CRON[config.dayOfWeek];
       return `${minute} ${hour} * * ${dow}`;
     }
     case "every_month": {
-      const dom = Math.max(1, Math.min(31, Math.floor(config.dayOfMonth)));
+      const dom = config.dayOfMonth;
       return `${minute} ${hour} ${dom} * *`;
     }
     case "interval": {
-      const val = Math.max(1, Math.floor(config.intervalValue));
+      const val = config.intervalValue;
       if (config.intervalUnit === "minutes") {
         return `every ${val}m`;
       }
       if (config.intervalUnit === "hours") {
         return `every ${val}h`;
       }
-      return `every ${val}d`;
+      if (config.intervalUnit === "days") {
+        return `every ${val}d`;
+      }
+      throw new TypeError(`unknown intervalUnit value: ${show(config.intervalUnit)}`);
     }
     default:
-      return `${minute} ${hour} * * *`;
+      throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
   }
 }
 function describeScheduleConfig(config) {
+  validateScheduleConfig(config);
   switch (config.trigger) {
     case "every_hour":
       return "Every hour";
@@ -2262,7 +2306,7 @@ function describeScheduleConfig(config) {
       return `Every ${config.intervalValue} ${unit}`;
     }
     default:
-      return `Every day at ${config.time}`;
+      throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
   }
 }
 
@@ -3162,6 +3206,7 @@ export {
   routinesViewReducer,
   scopedCronParams,
   toOrdinal,
+  validateScheduleConfig,
   visibleJobs,
   withPausedFlag,
   wrapHostError
