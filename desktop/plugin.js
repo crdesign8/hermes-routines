@@ -452,6 +452,18 @@ function routineTitle(job, fallback) {
 function routineKey(job, fallback) {
   return jobIdOf(job ?? void 0) || fallback;
 }
+function routineStableIdOf(job, fallback) {
+  const row = asRecord(job);
+  const id = optionalString(row?.job_id);
+  if (id !== null) return id;
+  return routineKey(job, fallback);
+}
+function routinePromptOf(job) {
+  const row = asRecord(job);
+  if (row === null) return null;
+  const nested = asRecord(row.payload);
+  return firstString(row.prompt, row.prompt_preview, row.promptPreview, nested?.prompt);
+}
 function scheduleTexts(job) {
   const row = asRecord(job);
   if (row === null) return { display: null, expr: null };
@@ -1565,6 +1577,10 @@ var ROUTINES_CSS = [
   "  background: var(--dt-background, var(--ui-bg-chrome, #121212));",
   "  transform: translateX(19px);",
   "}",
+  ".hr-switch-pill:disabled {",
+  "  opacity: 0.65;",
+  "  cursor: not-allowed;",
+  "}",
   "/* Field labels */",
   ".hr-field-label, .hr-select-label {",
   "  display: block;",
@@ -1597,6 +1613,10 @@ var ROUTINES_CSS = [
   "}",
   ".hr-create-input::placeholder, .hr-create-textarea::placeholder {",
   "  color: var(--ui-text-tertiary, var(--dt-muted-foreground, rgba(255, 255, 255, 0.4)));",
+  "}",
+  ".hr-create-input:disabled, .hr-create-textarea:disabled {",
+  "  opacity: 0.75;",
+  "  cursor: not-allowed;",
   "}",
   ".hr-create-when-section {",
   "  margin-top: 14px;",
@@ -2060,7 +2080,7 @@ function RoutineInspectorPanel({
   const [copiedId, setCopiedId] = useState2(false);
   const [copiedCron, setCopiedCron] = useState2(false);
   const title = routineTitle(job, fallback);
-  const id = jobIdOf(job) || fallback;
+  const id = routineStableIdOf(job, fallback);
   const paused = jobPaused(job);
   const terminal = routineTerminal(job);
   const schedule = humanScheduleOf(job) || "\u2014";
@@ -2069,7 +2089,6 @@ function RoutineInspectorPanel({
   const lastIso = lastRunIso(job);
   const result = lastResultOf(job);
   const showRuns = routineActive(job);
-  const payload = job.payload && typeof job.payload === "object" ? job.payload : null;
   function copyText(text, setCopied) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(() => {
@@ -2100,28 +2119,89 @@ function RoutineInspectorPanel({
       ] })
     ] }),
     /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-body", children: [
-      /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-ident", children: [
-        /* @__PURE__ */ jsx6("h3", { className: "hr-inspector-title", children: title }),
-        /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-id-row", children: [
-          /* @__PURE__ */ jsx6("span", { className: "hr-inspector-id-label", children: "ID:" }),
-          /* @__PURE__ */ jsx6("code", { className: "hr-inspector-id-code", children: id }),
-          /* @__PURE__ */ jsx6(
-            "button",
-            {
-              type: "button",
-              className: "hr-btn-mini",
-              onClick: () => copyText(id, setCopiedId),
-              "aria-label": "Copy routine ID",
-              children: copiedId ? "Copied" : "Copy"
-            }
-          )
-        ] })
+      /* @__PURE__ */ jsx6("h3", { className: "hr-create-title", children: title }),
+      /* @__PURE__ */ jsxs4("div", { className: "hr-create-active-card", children: [
+        /* @__PURE__ */ jsxs4("div", { className: "hr-create-active-info", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-create-active-title", children: "Active" }),
+          /* @__PURE__ */ jsx6("span", { className: "hr-create-active-subtitle", children: "This routine will run on the schedule below." })
+        ] }),
+        /* @__PURE__ */ jsx6(
+          "button",
+          {
+            type: "button",
+            role: "switch",
+            "aria-checked": routineActive(job),
+            "aria-label": "Routine active state",
+            disabled: true,
+            className: `hr-switch-pill ${routineActive(job) ? "hr-switch-active" : ""}`,
+            children: /* @__PURE__ */ jsx6("span", { className: "hr-switch-thumb" })
+          }
+        )
       ] }),
-      /* @__PURE__ */ jsxs4("section", { className: "hr-inspector-section", children: [
-        /* @__PURE__ */ jsx6("h4", { className: "hr-section-title", children: "Cadence & Timing" }),
+      /* @__PURE__ */ jsxs4("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "Name" }),
+        /* @__PURE__ */ jsx6(
+          "input",
+          {
+            type: "text",
+            className: "hr-create-input",
+            value: title,
+            disabled: true,
+            readOnly: true,
+            "aria-label": "Routine name"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxs4("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "What should this routine do?" }),
+        /* @__PURE__ */ jsx6(
+          "textarea",
+          {
+            className: "hr-create-textarea",
+            rows: 3,
+            value: routinePromptOf(job) ?? "",
+            disabled: true,
+            readOnly: true,
+            "aria-label": "What this routine does",
+            placeholder: "No instruction stored for this routine."
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxs4("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
+        /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: schedule }),
+        rawCron ? /* @__PURE__ */ jsxs4("div", { className: "hr-tech-entry", children: [
+          /* @__PURE__ */ jsxs4("div", { className: "hr-tech-entry-head", children: [
+            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Cron Expression" }),
+            /* @__PURE__ */ jsx6(
+              "button",
+              {
+                type: "button",
+                className: "hr-btn-mini",
+                onClick: () => copyText(rawCron, setCopiedCron),
+                "aria-label": "Copy cron expression",
+                children: copiedCron ? "Copied" : "Copy"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsx6("code", { className: "hr-code-block", children: rawCron })
+        ] }) : null,
         /* @__PURE__ */ jsxs4("div", { className: "hr-kv-grid", children: [
-          /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Schedule" }),
-          /* @__PURE__ */ jsx6("span", { className: "hr-kv-value hr-kv-highlight", children: schedule }),
+          /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Routine ID" }),
+          /* @__PURE__ */ jsxs4("span", { className: "hr-kv-value hr-code-inline", children: [
+            id,
+            " ",
+            /* @__PURE__ */ jsx6(
+              "button",
+              {
+                type: "button",
+                className: "hr-btn-mini",
+                onClick: () => copyText(id, setCopiedId),
+                "aria-label": "Copy routine ID",
+                children: copiedId ? "Copied" : "Copy"
+              }
+            )
+          ] }),
           showRuns && nextIso !== null && formatWhen(nextIso) !== null ? /* @__PURE__ */ jsxs4(Fragment2, { children: [
             /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Next Run" }),
             /* @__PURE__ */ jsxs4("span", { className: "hr-kv-value hr-next", children: [
@@ -2168,29 +2248,6 @@ function RoutineInspectorPanel({
             /* @__PURE__ */ jsx6("span", { className: "hr-kv-value hr-code-inline", children: activeRoute.targetProfile })
           ] }) : null
         ] })
-      ] }),
-      /* @__PURE__ */ jsxs4("section", { className: "hr-inspector-section", children: [
-        /* @__PURE__ */ jsx6("h4", { className: "hr-section-title", children: "Technical Details" }),
-        rawCron ? /* @__PURE__ */ jsxs4("div", { className: "hr-tech-entry", children: [
-          /* @__PURE__ */ jsxs4("div", { className: "hr-tech-entry-head", children: [
-            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Cron Expression" }),
-            /* @__PURE__ */ jsx6(
-              "button",
-              {
-                type: "button",
-                className: "hr-btn-mini",
-                onClick: () => copyText(rawCron, setCopiedCron),
-                "aria-label": "Copy cron expression",
-                children: copiedCron ? "Copied" : "Copy"
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsx6("code", { className: "hr-code-block", children: rawCron })
-        ] }) : null,
-        payload && Object.keys(payload).length > 0 ? /* @__PURE__ */ jsxs4("div", { className: "hr-tech-entry", children: [
-          /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Payload Parameters" }),
-          /* @__PURE__ */ jsx6("pre", { className: "hr-code-block", children: JSON.stringify(payload, null, 2) })
-        ] }) : null
       ] }),
       !terminal ? /* @__PURE__ */ jsxs4("section", { className: "hr-inspector-section hr-inspector-actions-section", children: [
         /* @__PURE__ */ jsx6("h4", { className: "hr-section-title", children: "Actions" }),
@@ -3174,6 +3231,7 @@ export {
   ROUTE_PATH,
   ROUTINES_VIEW_STATUS,
   RoutineComposerPanel,
+  RoutineInspectorPanel,
   RoutinesPage,
   SIDEBAR_CODICON,
   SIDEBAR_ID,
@@ -3236,6 +3294,8 @@ export {
   routineErrored,
   routineKey,
   routinePausedOf,
+  routinePromptOf,
+  routineStableIdOf,
   routineStateOf,
   routineTerminal,
   routineTitle,

@@ -91,6 +91,30 @@ export function routineKey(job: RoutineJob | null | undefined, fallback: string)
   return jobIdOf(job ?? undefined) || fallback;
 }
 
+/**
+ * Stable backend id for display and future edits: `job_id` when the row
+ * carries one, else the key fallback. Mutations keep using routineKey
+ * (the backend resolves names); this reader never drives a mutation.
+ */
+export function routineStableIdOf(job: RoutineJob | null | undefined, fallback: string): string {
+  const row = asRecord(job);
+  const id = optionalString(row?.job_id);
+  if (id !== null) return id;
+  return routineKey(job, fallback);
+}
+
+/**
+ * Run instruction for display: full `prompt`, else the `prompt_preview`
+ * the list may carry, else a legacy nested `payload.prompt`. Null when the
+ * row carries no instruction (callers render their own fallback).
+ */
+export function routinePromptOf(job: RoutineJob | null | undefined): string | null {
+  const row = asRecord(job);
+  if (row === null) return null;
+  const nested = asRecord(row.payload);
+  return firstString(row.prompt, row.prompt_preview, row.promptPreview, nested?.prompt);
+}
+
 interface ScheduleTexts {
   display: string | null;
   expr: string | null;

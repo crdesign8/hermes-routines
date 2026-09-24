@@ -67,4 +67,5 @@ export * from './lib/errors';
 export * from './state/routinesState';
 export * from './domain/routineSchedule';
 export * from './views/RoutineComposerPanel';
+export * from './views/RoutineInspectorPanel';
 export * from './views/SelectField';

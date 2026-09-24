@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import type { RoutineJob } from '../domain/jobs';
-import { jobIdOf, jobPaused } from '../domain/jobs';
+import { jobPaused } from '../domain/jobs';
 import {
   formatDate,
   formatWhen,
@@ -11,6 +11,8 @@ import {
   nextRunIso,
   rawScheduleOf,
   routineActive,
+  routinePromptOf,
+  routineStableIdOf,
   routineTerminal,
   routineTitle,
 } from '../domain/present';
@@ -43,7 +45,7 @@ export function RoutineInspectorPanel({
   const [copiedCron, setCopiedCron] = useState(false);
 
   const title = routineTitle(job, fallback);
-  const id = jobIdOf(job) || fallback;
+  const id = routineStableIdOf(job, fallback);
   const paused = jobPaused(job);
   const terminal = routineTerminal(job);
   const schedule = humanScheduleOf(job) || '—';
@@ -52,7 +54,6 @@ export function RoutineInspectorPanel({
   const lastIso = lastRunIso(job);
   const result = lastResultOf(job);
   const showRuns = routineActive(job);
-  const payload = job.payload && typeof job.payload === 'object' ? job.payload : null;
 
   function copyText(text: string, setCopied: (v: boolean) => void): void {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -88,29 +89,91 @@ export function RoutineInspectorPanel({
       </header>
 
       <div className="hr-inspector-body">
-        {/* Title & Identity */}
-        <div className="hr-inspector-ident">
-          <h3 className="hr-inspector-title">{title}</h3>
-          <div className="hr-inspector-id-row">
-            <span className="hr-inspector-id-label">ID:</span>
-            <code className="hr-inspector-id-code">{id}</code>
-            <button
-              type="button"
-              className="hr-btn-mini"
-              onClick={() => copyText(id, setCopiedId)}
-              aria-label="Copy routine ID"
-            >
-              {copiedId ? 'Copied' : 'Copy'}
-            </button>
+        {/* Read-only mirror of the composer: the same sections and classes
+            as RoutineComposerPanel with every control disabled, populated
+            from the stored row. EDIT SEAM — when the backend exposes an
+            update action, this panel gains editable/onSave props and these
+            fields flip to enabled; the layout already matches the form. */}
+        <h3 className="hr-create-title">{title}</h3>
+
+        {/* Active Toggle Card (disabled mirror) */}
+        <div className="hr-create-active-card">
+          <div className="hr-create-active-info">
+            <span className="hr-create-active-title">Active</span>
+            <span className="hr-create-active-subtitle">This routine will run on the schedule below.</span>
           </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={routineActive(job)}
+            aria-label="Routine active state"
+            disabled
+            className={`hr-switch-pill ${routineActive(job) ? 'hr-switch-active' : ''}`}
+          >
+            <span className="hr-switch-thumb" />
+          </button>
         </div>
 
-        {/* Section: Cadence & Timing */}
-        <section className="hr-inspector-section">
-          <h4 className="hr-section-title">Cadence & Timing</h4>
+        {/* Name (disabled mirror) */}
+        <div className="hr-create-field">
+          <label className="hr-field-label">Name</label>
+          <input
+            type="text"
+            className="hr-create-input"
+            value={title}
+            disabled
+            readOnly
+            aria-label="Routine name"
+          />
+        </div>
+
+        {/* Instruction (disabled mirror) */}
+        <div className="hr-create-field">
+          <label className="hr-field-label">What should this routine do?</label>
+          <textarea
+            className="hr-create-textarea"
+            rows={3}
+            value={routinePromptOf(job) ?? ''}
+            disabled
+            readOnly
+            aria-label="What this routine does"
+            placeholder="No instruction stored for this routine."
+          />
+        </div>
+
+        {/* WHEN TO RUN (disabled mirror: sentence + stored expression) */}
+        <div className="hr-create-when-section">
+          <div className="hr-create-section-label">WHEN TO RUN</div>
+          <div className="hr-create-preview-sentence">{schedule}</div>
+          {rawCron ? (
+            <div className="hr-tech-entry">
+              <div className="hr-tech-entry-head">
+                <span className="hr-kv-label">Cron Expression</span>
+                <button
+                  type="button"
+                  className="hr-btn-mini"
+                  onClick={() => copyText(rawCron, setCopiedCron)}
+                  aria-label="Copy cron expression"
+                >
+                  {copiedCron ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <code className="hr-code-block">{rawCron}</code>
+            </div>
+          ) : null}
           <div className="hr-kv-grid">
-            <span className="hr-kv-label">Schedule</span>
-            <span className="hr-kv-value hr-kv-highlight">{schedule}</span>
+            <span className="hr-kv-label">Routine ID</span>
+            <span className="hr-kv-value hr-code-inline">
+              {id}{' '}
+              <button
+                type="button"
+                className="hr-btn-mini"
+                onClick={() => copyText(id, setCopiedId)}
+                aria-label="Copy routine ID"
+              >
+                {copiedId ? 'Copied' : 'Copy'}
+              </button>
+            </span>
 
             {showRuns && nextIso !== null && formatWhen(nextIso) !== null ? (
               <>
@@ -146,7 +209,7 @@ export function RoutineInspectorPanel({
               {result.text}
             </span>
           </div>
-        </section>
+        </div>
 
         {/* Section: Route & Scope */}
         <section className="hr-inspector-section">
@@ -165,34 +228,6 @@ export function RoutineInspectorPanel({
               </>
             ) : null}
           </div>
-        </section>
-
-        {/* Section: Technical Details */}
-        <section className="hr-inspector-section">
-          <h4 className="hr-section-title">Technical Details</h4>
-          {rawCron ? (
-            <div className="hr-tech-entry">
-              <div className="hr-tech-entry-head">
-                <span className="hr-kv-label">Cron Expression</span>
-                <button
-                  type="button"
-                  className="hr-btn-mini"
-                  onClick={() => copyText(rawCron, setCopiedCron)}
-                  aria-label="Copy cron expression"
-                >
-                  {copiedCron ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-              <code className="hr-code-block">{rawCron}</code>
-            </div>
-          ) : null}
-
-          {payload && Object.keys(payload).length > 0 ? (
-            <div className="hr-tech-entry">
-              <span className="hr-kv-label">Payload Parameters</span>
-              <pre className="hr-code-block">{JSON.stringify(payload, null, 2)}</pre>
-            </div>
-          ) : null}
         </section>
 
         {/* Section: Actions */}
