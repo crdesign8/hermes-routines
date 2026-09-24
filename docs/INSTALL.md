@@ -141,10 +141,9 @@ active-door opt-in.
 - Pause / resume: optimistic single-flag flip with snapshot rollback
   on host failure (idempotent, reversible). `isSafeOptimistic` pins
   this: only `pause`/`resume` return true.
-- Remove: two-step inline confirmation (`Remove` → `Confirm remove` /
-  `Cancel`, focus moves to Confirm). Never optimistic: the row stays
-  visible and busy until the host confirms; focus returns to the
-  heading on success, to the status region on failure.
+- The current view has no delete, edit, or run-now control. The domain
+  still exposes a `remove` request builder for backend compatibility, but
+  the page does not expose a destructive action.
 - While any mutation is in flight the other mutation buttons stay
   disabled, so optimistic snapshots never overlap.
 - Errors are wrapped (`context: message`, original as `cause`); the

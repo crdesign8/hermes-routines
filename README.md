@@ -1,41 +1,202 @@
 # hermes-routines
 
-Standalone Hermes Desktop plugin: a **Routines** page (`/routines` + sidebar row)
-backed by per-profile `cron.manage` routing. Zero runtime dependencies.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange.svg)](https://github.com/crdesign8/hermes-routines/issues/18)
 
-## Layout
+A standalone Hermes Desktop plugin for managing scheduled routines from the
+Desktop UI. It adds a **Routines** page at `/routines` and a matching sidebar
+entry, backed by the host's per-profile `cron.manage` API.
 
-- `src/` — TypeScript source of truth (edit here):
-  - `src/plugin.tsx` — plugin descriptor + `register` (routes + sidebar contributions).
-  - `src/views/` — `RoutinesPage` and its view components (React/TSX).
-  - `src/state/`, `src/domain/`, `src/gateway/`, `src/lib/` — reducer, pure
-    shapes/routing, host gateway, error wrapping.
-  - `src/types/plugin-sdk.d.ts` — local shim for `@hermes/plugin-sdk`
-    (unpublished — npm 404; verified against the Desktop loader).
-- `desktop/plugin.js` — **generated** artifact (`AUTO-GENERATED — DO NOT EDIT`),
-  installed byte-identical as `plugin.js`. Produced by `scripts/build.mjs`
-  (esbuild; externals: `@hermes/plugin-sdk`, `react`, `react/jsx-runtime`;
-  non-minified and deterministic).
-- `scripts/build.mjs` — build + `--check` freshness gate (fails if the
-  artifact drifted from `src/`).
-- `scripts/install.mjs` — atomic installer with sha256 verification.
-- `scripts/check-allowlist.mjs` — import allowlist + `require`/`eval` ban
-  over `src/` + `desktop/`.
-- `scripts/check-version.mjs` — `package.json` version == descriptor
-  version in `desktop/plugin.js`.
-- `docs/INSTALL.md` — mapping, profile resolution, checks, troubleshooting.
+The plugin keeps routine data in the Hermes host rather than in this package.
+It does not include a separate service, database, or update mechanism.
 
-`typescript` and `esbuild` live in `devDependencies` (build/typecheck only);
-the shipped plugin imports nothing beyond the SDK/React externals.
+## Features
 
-## Quick start
+- View routines for the active Hermes profile.
+- Search and filter the routine list.
+- Inspect the schedule and stored run instruction for each routine.
+- Create a routine from a name, schedule, and prompt.
+- Pause and resume existing routines.
+- Use fail-closed profile routing: calls without a resolved profile route are
+  rejected instead of being sent to an unintended gateway.
+- Build a deterministic, auditable `desktop/plugin.js` artifact with no
+  bundled runtime dependencies.
+
+The current page intentionally does not provide delete, edit, or run-now
+controls. Those actions are not exposed by this view.
+
+## Screenshots
+
+No screenshot is currently included. The plugin is installed into an existing
+Hermes Desktop profile and renders inside that host; the host version is not
+bundled with this repository.
+
+## Requirements
+
+- Hermes Desktop with a profile that exposes the plugin host and `cron.manage`.
+- Node.js `>=20` for building and testing the repository.
+- Node.js `22.18+` or `24` is recommended for running the test suite. The CI
+  workflow uses Node.js `24` because the tests import TypeScript source files
+  using native type stripping.
+- npm (included with supported Node.js distributions).
+
+The repository does not declare a separate minimum Hermes Desktop release.
+Verify that the Desktop host implements the plugin descriptor and
+`@hermes/plugin-sdk` surface used by the local type shim before installing.
+
+## Installation
+
+The supported installation path is from a checkout. The installer copies the
+generated artifact into the selected Hermes profile home and verifies its
+SHA-256 before and after publishing it.
 
 ```sh
-npm install          # dev tooling only (no runtime deps)
-npm run build        # regenerate desktop/plugin.js from src/
-npm test
-npm run check        # typecheck + allowlist + version + freshness
+git clone https://github.com/crdesign8/hermes-routines.git
+cd hermes-routines
+npm ci
+npm run build
 node scripts/install.mjs --profile=default
 ```
 
-Requires Node `>=20` (see `engines`).
+For a non-standard profile directory, pass an explicit home:
+
+```sh
+node scripts/install.mjs \
+  --profile-home="$HOME/.hermes/profiles/my-profile"
+```
+
+`--profile` accepts only a single safe profile name. Use `--profile-home` for
+an arbitrary path. The profile-name precedence is documented in
+[`docs/INSTALL.md`](docs/INSTALL.md).
+
+After installation, reload the Desktop profile (or restart the Desktop app).
+The Routines page is then available at `/routines`.
+
+### Verify the installed artifact
+
+```sh
+sha256sum desktop/plugin.js \
+  "$HOME/.hermes/profiles/default/plugins/routines/plugin.js"
+```
+
+The two hashes must match.
+
+## Usage
+
+1. Install the plugin and reload the profile.
+2. Open **Routines** from the sidebar, or navigate to `/routines`.
+3. The page follows the active Desktop profile. It requires the host to expose
+   a complete route for that profile; there is no profile picker in this view.
+4. Use the list to inspect routines, then use the plus control to submit a name,
+   schedule, and prompt. The prompt is the instruction that the host will
+   execute when the routine runs.
+5. Use the pause/resume controls to change a routine's active state.
+
+All list and mutation requests are scoped to the active profile. The plugin
+requires a resolved route with a backend profile and fails closed when that
+route is unavailable. It does not fall back to the active gateway.
+
+## Upgrade
+
+```sh
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+npm ci
+npm run build
+node scripts/install.mjs --profile=default
+```
+
+Then reload the Desktop profile. The plugin has no local migration step;
+routine state remains in the host's `cron.manage` backend.
+
+## Uninstall
+
+The installer creates or updates exactly:
+
+```text
+<profile-home>/plugins/routines/plugin.js
+```
+
+Remove that file and its directory, then reload the profile:
+
+```sh
+rm "$HOME/.hermes/profiles/default/plugins/routines/plugin.js"
+rmdir "$HOME/.hermes/profiles/default/plugins/routines" 2>/dev/null || true
+```
+
+Do not remove the shared `plugins` directory. Uninstalling this plugin does
+not delete routines stored by the Hermes host; manage those through the host's
+own cron interface if you need to remove them.
+
+## Security and privacy
+
+- The shipped artifact imports only the host-provided `@hermes/plugin-sdk`
+  and React externals. Build and test tooling is kept in `devDependencies`.
+- The plugin has no standalone network client, telemetry, analytics, updater,
+  or credential storage of its own.
+- It reads and sends routine operations through the Desktop host's
+  `cron.manage` API. The host remains responsible for authentication,
+  authorization, and the data-retention policy for those routines.
+- Routed requests fail closed when a profile route is missing or incomplete;
+  the view never opts into the active-gateway fallback.
+- Prompt and schedule values are sent to the host as part of the routine
+  operation. Review them before creating a routine, especially when the host
+  is connected to a shared or remote profile.
+- The repository is MIT-licensed. See [`LICENSE`](LICENSE) and
+  [`SECURITY.md`](SECURITY.md) for reporting instructions.
+
+For installation details, profile-path resolution, hash verification, and
+edge cases, see [`docs/INSTALL.md`](docs/INSTALL.md).
+
+## Troubleshooting
+
+- **`npm ci` or the build reports a Node version error:** use Node.js `24`,
+  or another version satisfying both `engines.node` and the test runner's
+  native TypeScript requirements.
+- **`desktop/plugin.js is stale`:** run `npm run build`; never edit the
+  generated file by hand.
+- **`sha256 mismatch`:** re-run the installer and compare the two hashes
+  again. The installer removes its temporary file on failure and uses an
+  exclusive temporary name for concurrent installs.
+- **`invalid profile`:** use a profile name matching
+  `[A-Za-z0-9._-]{1,64}`, or pass `--profile-home` for another path.
+- **The page is unavailable after install:** reload the Desktop profile and
+  confirm that the target profile has a usable route and the required
+  `cron.manage` tool.
+- **The route is present but operations fail closed:** the host did not
+  provide a complete profile route. Check the host's profile configuration;
+  do not bypass the route guard.
+
+## Development
+
+The editable source is `src/**/*.ts(x)`. `desktop/plugin.js` is generated and
+must not be edited directly.
+
+```sh
+npm ci
+npm run typecheck
+npm test
+npm run check
+npm run build
+```
+
+`npm run check` runs the typecheck, import/allowlist and dynamic-evaluation
+checks, version synchronization check, and generated-artifact freshness
+check. Before opening a pull request, run all commands above and review the
+staged diff. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the contribution
+workflow and [`docs/INSTALL.md`](docs/INSTALL.md) for the deeper install
+reference.
+
+## Project layout
+
+- `src/` — TypeScript source of truth.
+- `desktop/plugin.js` — deterministic generated Desktop artifact.
+- `scripts/` — build, checks, and atomic installer.
+- `tests/` — Node test suite and SDK/host stubs.
+- `docs/INSTALL.md` — installation, upgrade, uninstall, and troubleshooting
+  reference.
+
+## License
+
+Copyright (c) 2026 Hermes contributors. Released under the MIT License.
