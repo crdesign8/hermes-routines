@@ -80,6 +80,8 @@ export function routineTitle(job: RoutineJob | null | undefined, fallback: strin
   const raw = firstString(row?.name, row?.job_id, row?.id) ?? '';
   const title = raw
     .replace(/^\[bot:[a-z0-9][a-z0-9_-]*\]\s*/i, '')
+    .replace(/\p{Extended_Pictographic}|\p{Emoji_Presentation}|\uFE0F|\u200D/gu, '')
+    .replace(/\s{2,}/g, ' ')
     .trim();
   return title || fallback;
 }

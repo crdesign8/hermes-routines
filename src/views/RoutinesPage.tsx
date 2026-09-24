@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { host, useValue, type PluginProfileRoute } from '@hermes/plugin-sdk';
 import {
   ROUTINES_VIEW_STATUS,
@@ -8,7 +8,8 @@ import {
   type RoutinesState,
 } from '../state/routinesState';
 import { findRouteByKey } from '../domain/routing';
-import { visibleJobs } from '../domain/jobs';
+import { jobIdOf, visibleJobs } from '../domain/jobs';
+import { humanScheduleOf, routineTitle } from '../domain/present';
 import { wrapHostError } from '../lib/errors';
 import {
   buildListParams,
@@ -20,6 +21,7 @@ import { listProfileRoutes, listRoutines, requestCronForRoute } from '../gateway
 import { ROUTINES_CSS } from './routinesStyles';
 import { FilterNav } from './FilterNav';
 import { RoutineList } from './RoutineList';
+import { RoutineInspectorPanel } from './RoutineInspectorPanel';
 import { StatusLine } from './panels';
 import {
   EmptyFilterState,
@@ -82,6 +84,37 @@ export function RoutinesPage() {
   const locked = state.pending.length !== 0;
   const shown = visibleJobs(state.jobs, state.filter);
   const S = ROUTINES_VIEW_STATUS;
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedJobName, setSelectedJobName] = useState<string | null>(null);
+
+  // Clear selected job if it is no longer present in the jobs inventory
+  useEffect(() => {
+    if (selectedJobName === null) return;
+    const stillThere = state.jobs.some(
+      (job, index) => (jobIdOf(job) || `routine ${index + 1}`) === selectedJobName,
+    );
+    if (!stillThere) setSelectedJobName(null);
+  }, [state.jobs, selectedJobName]);
+
+  const filteredJobs = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return shown;
+    return shown.filter((job) => {
+      const name = (routineTitle(job, '') || jobIdOf(job)).toLowerCase();
+      const schedule = (humanScheduleOf(job) || '').toLowerCase();
+      return name.includes(q) || schedule.includes(q);
+    });
+  }, [shown, searchQuery]);
+
+  const selectedJob = useMemo(() => {
+    if (!selectedJobName) return null;
+    return (
+      state.jobs.find(
+        (j, index) => (jobIdOf(j) || `routine ${index + 1}`) === selectedJobName,
+      ) ?? null
+    );
+  }, [state.jobs, selectedJobName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,14 +242,52 @@ export function RoutinesPage() {
   }
 
   function renderList(): ReactNode {
+    const totalCount = state.jobs.length;
+    const shownCount = filteredJobs.length;
+    const isReduced = shownCount < totalCount;
+    const countText = isReduced
+      ? `Showing ${shownCount} of ${totalCount} routines.`
+      : `Showing all ${totalCount} routines.`;
+
     return (
       <>
-        <FilterNav
-          filter={state.filter}
-          disabled={locked}
-          onSelect={(value) => dispatch({ type: 'filter-changed', filter: value })}
-        />
-        {shown.length === 0 ? (
+        <div className="hr-toolbar">
+          <div className="hr-search-wrap">
+            <input
+              type="text"
+              className="hr-search-input"
+              placeholder="Search routines…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Search routines"
+            />
+            {searchQuery ? (
+              <button
+                type="button"
+                className="hr-search-clear"
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+              >
+                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
+                </svg>
+              </button>
+            ) : null}
+          </div>
+          <div className="hr-filters-col">
+            <FilterNav
+              filter={state.filter}
+              disabled={locked}
+              onSelect={(value) => dispatch({ type: 'filter-changed', filter: value })}
+            />
+            {state.status === S.READY && totalCount > 0 ? (
+              <span className="hr-count-right">
+                {countText}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        {filteredJobs.length === 0 ? (
           state.jobs.length === 0 ? (
             <EmptyState />
           ) : (
@@ -224,9 +295,11 @@ export function RoutinesPage() {
           )
         ) : (
           <RoutineList
-            jobs={shown}
+            jobs={filteredJobs}
             pending={state.pending}
             locked={locked}
+            inspectedId={selectedJobName}
+            onInspect={setSelectedJobName}
             onPause={handlePause}
             onResume={handleResume}
           />
@@ -299,21 +372,36 @@ export function RoutinesPage() {
   return (
     <section id="hermes-routines-root" className="hr-root" aria-labelledby="hermes-routines-heading">
       <style>{ROUTINES_CSS}</style>
-      <h2 id="hermes-routines-heading" ref={headingRef} tabIndex={-1} className="hr-title">
-        Routines
-      </h2>
-      <p className="hr-sub">
-        Routines are scheduled jobs this profile runs to do recurring tasks.
-      </p>
-      <p className="hr-profile" aria-live="polite">
-        Profile: <strong>{profileLabel}</strong>
-      </p>
-      {state.status === S.READY && state.jobs.length > 0 ? (
-        <p className="hr-count">
-          Showing {shown.length} of {state.jobs.length} routines.
-        </p>
-      ) : null}
-      {body}
+      <div className="hr-workspace">
+        <div className={`hr-feed-column${!selectedJob ? ' hr-feed-contained' : ''}`}>
+          <header className="hr-header">
+            <div className="hr-header-top">
+              <h2 id="hermes-routines-heading" ref={headingRef} tabIndex={-1} className="hr-title">
+                Routines
+              </h2>
+              <span className="hr-sr-only">Profile: {profileLabel}</span>
+            </div>
+            <p className="hr-sub">
+              Routines are scheduled jobs this profile runs to do recurring tasks.
+            </p>
+          </header>
+          {body}
+        </div>
+        {selectedJob ? (
+          <RoutineInspectorPanel
+            job={selectedJob}
+            fallback={selectedJobName || 'Routine'}
+            activeRoute={activeRoute}
+            activeProfile={state.activeProfile ?? (typeof activeProfile === 'string' ? activeProfile : null)}
+            busy={state.pending.indexOf(selectedJobName || '') !== -1}
+            disabled={locked}
+            onClose={() => setSelectedJobName(null)}
+            onPause={() => handlePause(jobIdOf(selectedJob) || selectedJobName || '')}
+            onResume={() => handleResume(jobIdOf(selectedJob) || selectedJobName || '')}
+          />
+        ) : null}
+      </div>
+
       <StatusLine text={liveText} statusRef={statusRef} />
     </section>
   );

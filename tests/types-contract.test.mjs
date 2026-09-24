@@ -114,12 +114,14 @@ describe('types-contract', () => {
   });
 
   it('typecheck gate passes (tsc --noEmit)', () => {
-    const tsc = path.join(root, 'node_modules', '.bin', 'tsc');
+    const tscName = process.platform === 'win32' ? 'tsc.cmd' : 'tsc';
+    const tsc = path.join(root, 'node_modules', '.bin', tscName);
     assert.equal(existsSync(tsc), true, 'typescript must be installed as a devDependency');
     execFileSync(tsc, ['--noEmit', '-p', 'tsconfig.json'], {
       cwd: root,
       encoding: 'utf8',
       timeout: 240000,
+      shell: process.platform === 'win32',
     });
   });
 });

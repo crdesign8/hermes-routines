@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import type { RoutineFilter } from '../domain/jobs';
 
 // In-view filter navigation. Pure: filter in, one callback out. The
@@ -16,14 +17,14 @@ export interface FilterNavProps {
   onSelect: (value: RoutineFilter) => void;
 }
 
-export function FilterNav({ filter, disabled, onSelect }: FilterNavProps) {
+export function FilterNav({ filter, disabled, onSelect }: FilterNavProps): ReactElement {
   return (
     <nav className="hr-filters" aria-label="Filter routines by status">
       {FILTER_OPTIONS.map((entry) => (
         <button
           key={entry.value}
           type="button"
-          className={'hr-btn' + (filter === entry.value ? ' hr-btn-current' : '')}
+          className={'hr-filter-chip' + (filter === entry.value ? ' hr-filter-chip-current' : '')}
           aria-current={filter === entry.value ? 'true' : undefined}
           disabled={disabled}
           onClick={() => onSelect(entry.value)}

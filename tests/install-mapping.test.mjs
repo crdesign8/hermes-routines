@@ -18,10 +18,11 @@ describe('install-mapping', () => {
   it('maps desktop/plugin.js to <profile-home>/plugins/routines/plugin.js (folder name equals id routines)', () => {
     assert.equal(install.PLUGIN_DIR_NAME, 'routines', 'plugin dir name must equal id routines');
     assert.equal(install.PLUGIN_FILE_NAME, 'plugin.js');
-    const paths = install.resolveInstallPaths(path.join('/tmp', 'prof-home'), root);
+    const testHome = path.resolve('/tmp', 'prof-home');
+    const paths = install.resolveInstallPaths(testHome, root);
     assert.equal(paths.src, path.join(root, 'desktop', 'plugin.js'));
-    assert.equal(paths.destDir, path.join('/tmp', 'prof-home', 'plugins', 'routines'));
-    assert.equal(paths.dest, path.join('/tmp', 'prof-home', 'plugins', 'routines', 'plugin.js'));
+    assert.equal(paths.destDir, path.join(testHome, 'plugins', 'routines'));
+    assert.equal(paths.dest, path.join(testHome, 'plugins', 'routines', 'plugin.js'));
   });
 
   it('install copies byte-identical with sha256 verify', () => {

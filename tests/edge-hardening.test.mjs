@@ -131,8 +131,9 @@ describe('edge-hardening', () => {
     const ok = install.resolveProfileHome({ profile: 'code-reviewer' });
     assert.match(ok, /code-reviewer$/);
     // explicit absolute home is honored (resolved)
-    const abs = install.resolveProfileHome({ profileHome: '/tmp/prof-home' });
-    assert.equal(abs, '/tmp/prof-home');
+    const testAbs = path.resolve('/tmp/prof-home');
+    const abs = install.resolveProfileHome({ profileHome: testAbs });
+    assert.equal(abs, testAbs);
   });
 
   it('install fails when source is missing and leaves no temp files', async () => {

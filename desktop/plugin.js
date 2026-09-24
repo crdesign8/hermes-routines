@@ -16,7 +16,7 @@ var SIDEBAR_LABEL = "Routines";
 var SIDEBAR_CODICON = "history";
 
 // src/views/RoutinesPage.tsx
-import { useCallback, useEffect as useEffect2, useRef, useState as useState2 } from "react";
+import { useCallback, useEffect as useEffect2, useMemo, useRef, useState as useState3 } from "react";
 import { host as host2, useValue } from "@hermes/plugin-sdk";
 
 // src/domain/routing.ts
@@ -396,246 +396,6 @@ function routinesViewReducer(state, event) {
   }
 }
 
-// src/domain/cronShapes.ts
-var MAX_JOB_ID_LENGTH = 128;
-var JOB_ID_RE = /^[A-Za-z0-9._:-]+$/;
-var MAX_SCHEDULE_LENGTH = 256;
-var CONTROL_CHARS_RE = /[\x00-\x1F\x7F]/;
-function assertJobId(jobId) {
-  if (typeof jobId !== "string") {
-    throw new TypeError("job_id must be a non-empty string");
-  }
-  const id = jobId.trim();
-  if (!id) {
-    throw new TypeError("job_id must be a non-empty string");
-  }
-  if (id.length > MAX_JOB_ID_LENGTH || !JOB_ID_RE.test(id)) {
-    throw new TypeError("job_id must match /^[A-Za-z0-9._:-]+$/ with max 128 chars");
-  }
-  return id;
-}
-function assertSchedule(schedule) {
-  if (typeof schedule !== "string") {
-    throw new TypeError("schedule must be a non-empty string");
-  }
-  const trimmed = schedule.trim();
-  if (!trimmed) {
-    throw new TypeError("schedule must be a non-empty string");
-  }
-  if (trimmed.length > MAX_SCHEDULE_LENGTH) {
-    throw new TypeError("schedule must be at most 256 chars");
-  }
-  if (CONTROL_CHARS_RE.test(trimmed)) {
-    throw new TypeError("schedule must not contain control characters");
-  }
-  return trimmed;
-}
-function assertPayload(payload) {
-  if (payload === void 0) return {};
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new TypeError("payload must be a plain object");
-  }
-  return payload;
-}
-function cloneValue(value) {
-  try {
-    return structuredClone(value);
-  } catch (err) {
-    if (err instanceof Error && err.name === "DataCloneError") {
-      throw new TypeError(`uncloneable value: ${err.message || "DataCloneError"}`, { cause: err });
-    }
-    throw err;
-  }
-}
-function listJobs(jobs = []) {
-  const items = Array.isArray(jobs) ? jobs.map((job) => cloneValue(job)) : [];
-  return { action: "list", jobs: items };
-}
-function addJob(input = {}) {
-  const name = assertJobId(input.job_id);
-  const schedule = assertSchedule(input.schedule);
-  const payload = cloneValue(assertPayload(input.payload));
-  return { action: "add", name, schedule, payload };
-}
-function removeJob(jobId) {
-  return { action: "remove", name: assertJobId(jobId) };
-}
-function pauseJob(jobId) {
-  return { action: "pause", name: assertJobId(jobId) };
-}
-function resumeJob(jobId) {
-  return { action: "resume", name: assertJobId(jobId) };
-}
-
-// src/gateway/cronParams.ts
-function targetProfileOf(route) {
-  if (!route || typeof route.connectionId !== "string" || !route.connectionId) {
-    throw new Error("routine mutation requires a resolved profile route");
-  }
-  const target = backendTargetProfile(route, "");
-  if (!target) {
-    throw new Error("routine mutation requires a route with profile/targetProfile");
-  }
-  return target;
-}
-function buildListParams(route) {
-  return { action: "list", include_disabled: true, profile: targetProfileOf(route) };
-}
-function buildAddParams(route, input) {
-  const target = targetProfileOf(route);
-  const shaped = addJob(input || {});
-  return { ...shaped, profile: target };
-}
-function buildPauseParams(route, jobId) {
-  return { ...pauseJob(jobId), profile: targetProfileOf(route) };
-}
-function buildResumeParams(route, jobId) {
-  return { ...resumeJob(jobId), profile: targetProfileOf(route) };
-}
-function buildRemoveParams(route, jobId) {
-  return { ...removeJob(jobId), profile: targetProfileOf(route) };
-}
-function isSafeOptimistic(action) {
-  return action === "pause" || action === "resume";
-}
-
-// src/gateway/cronGateway.ts
-import { host } from "@hermes/plugin-sdk";
-function isRouteTarget(target) {
-  if (typeof target !== "object" || target === null) return false;
-  const connectionId = target.connectionId;
-  return typeof connectionId === "string" && connectionId !== "";
-}
-async function requestCronForRoute(target, method, params = {}, timeoutMs, options = {}) {
-  assertTimeoutMs(timeoutMs);
-  assertRoutingOptions(options);
-  const route = isRouteTarget(target) ? target : profileRoute(target);
-  if (route) {
-    if (typeof host.requestProfile !== "function") {
-      throw new Error(`Cannot route ${method} for ${route.connectionId}::${route.profile}`);
-    }
-    const scoped = scopedCronParams(route, params, { allowUnscoped: options.allowUnscoped });
-    return timeoutMs === void 0 ? host.requestProfile(route, method, scoped) : host.requestProfile(route, method, scoped, timeoutMs);
-  }
-  if (options.allowActiveDoor !== true) {
-    throw new Error(
-      `Cannot dispatch ${method} without a resolved profile route (active gateway door is opt-in via { allowActiveDoor: true })`
-    );
-  }
-  if (typeof host.request !== "function") {
-    throw new Error(`Cannot dispatch ${method}: host.request is not a function`);
-  }
-  return timeoutMs === void 0 ? host.request(method, params) : host.request(method, params, timeoutMs);
-}
-async function listProfileRoutes() {
-  try {
-    return await host.profileRoutes();
-  } catch (err) {
-    throw new Error(`failed to list profile routes: ${messageOf(err)}`, { cause: err });
-  }
-}
-async function listRoutines(route) {
-  if (!route?.connectionId) {
-    throw new Error("listRoutines requires a resolved profile route");
-  }
-  const target = backendTargetProfile(route, "");
-  if (!target) {
-    throw new Error("listRoutines requires a route with profile/targetProfile");
-  }
-  return requestCronForRoute(route, "cron.manage", {
-    action: "list",
-    include_disabled: true,
-    profile: target
-  });
-}
-
-// src/views/routinesStyles.ts
-var ROUTINES_CSS = [
-  ".hr-root{box-sizing:border-box;max-width:1040px;margin:0 auto;padding:28px 28px 40px;font-family:inherit;color:var(--ui-text-primary,#161616);background:transparent;}",
-  ".hr-title{font-size:22px;line-height:1.3;margin:0 0 6px;color:var(--ui-text-primary,#161616);letter-spacing:-0.01em;}",
-  ".hr-sub{margin:0 0 4px;color:var(--ui-text-tertiary,#595959);font-size:14px;line-height:1.5;max-width:72ch;}",
-  ".hr-profile{display:inline-flex;align-items:center;gap:8px;margin:12px 0 0;padding:4px 10px;border:1px solid var(--ui-stroke-secondary,#d9d9d9);border-radius:999px;background:var(--ui-bg-tertiary,rgba(0,0,0,0.03));color:var(--ui-text-secondary,#404040);font-size:13px;line-height:1.5;}",
-  ".hr-profile strong{font-weight:600;color:var(--ui-text-primary,#161616);overflow-wrap:anywhere;}",
-  ".hr-count{margin:12px 0 0;color:var(--ui-text-tertiary,#595959);font-size:13px;}",
-  ".hr-label{display:block;font-weight:600;margin:16px 0 6px;color:var(--ui-text-primary,#161616);}",
-  ".hr-btn{display:inline-block;padding:8px 14px;font-size:14px;font-weight:600;color:var(--ui-text-primary,#161616);background:var(--ui-bg-elevated,#ffffff);border:1px solid var(--ui-stroke-secondary,#6e6e6e);border-radius:6px;cursor:pointer;line-height:1.3;}",
-  ".hr-btn:disabled{opacity:0.55;cursor:not-allowed;}",
-  ".hr-btn-small{padding:4px 10px;font-size:13px;}",
-  ".hr-btn-current{outline:2px solid var(--ui-accent,#0b5fff);outline-offset:2px;}",
-  ".hr-filters{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 4px;}",
-  ".hr-list{list-style:none;margin:12px 0;padding:0;display:grid;gap:10px;}",
-  ".hr-card{border:1px solid var(--ui-stroke-secondary,#d9d9d9);border-radius:10px;padding:14px 16px;background:var(--ui-bg-elevated,#ffffff);}",
-  ".hr-card-paused{border-left-width:4px;border-left-color:var(--ui-stroke-tertiary,#8a8a8a);background:var(--ui-bg-tertiary,rgba(0,0,0,0.02));}",
-  ".hr-card-head{display:flex;gap:10px;align-items:flex-start;}",
-  ".hr-card-toggle{flex:none;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--ui-text-tertiary,#595959);cursor:pointer;font-size:14px;}",
-  ".hr-card-toggle:hover{border-color:var(--ui-stroke-secondary,#d9d9d9);color:var(--ui-text-primary,#161616);}",
-  ".hr-caret{display:inline-block;transition:transform 120ms ease;}",
-  ".hr-caret-open{transform:rotate(90deg);}",
-  ".hr-card-title{flex:1 1 auto;min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}",
-  ".hr-row-id{font-weight:600;font-size:15px;color:var(--ui-text-primary,#161616);overflow-wrap:anywhere;}",
-  ".hr-subtitle{margin:6px 0 0 38px;color:var(--ui-text-tertiary,#595959);font-size:13px;line-height:1.5;}",
-  ".hr-row-meta{color:var(--ui-text-tertiary,#595959);font-size:13px;line-height:1.5;}",
-  ".hr-row-actions{flex:none;display:flex;gap:8px;flex-wrap:wrap;}",
-  ".hr-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap;}",
-  ".hr-badge-dot{width:7px;height:7px;border-radius:999px;background:currentColor;flex:none;}",
-  ".hr-badge-active{background:color-mix(in srgb,var(--ui-green,#166534) 12%,transparent);color:var(--ui-green,#166534);border:1px solid color-mix(in srgb,var(--ui-green,#166534) 35%,transparent);}",
-  ".hr-badge-paused{background:var(--ui-bg-tertiary,rgba(0,0,0,0.05));color:var(--ui-text-secondary,#404040);border:1px solid var(--ui-stroke-secondary,#6e6e6e);}",
-  ".hr-badge-completed{background:color-mix(in srgb,var(--ui-green,#166534) 12%,transparent);color:var(--ui-green,#166534);border:1px solid color-mix(in srgb,var(--ui-green,#166534) 35%,transparent);}",
-  ".hr-badge-error{background:color-mix(in srgb,var(--ui-red,#b42318) 10%,transparent);color:var(--ui-red,#b42318);border:1px solid color-mix(in srgb,var(--ui-red,#b42318) 40%,transparent);}",
-  ".hr-details{display:grid;grid-template-columns:1fr 1fr;gap:8px 28px;margin:12px 0 0 38px;padding-top:12px;border-top:1px solid var(--ui-stroke-tertiary,#e4e4e4);}",
-  ".hr-detail{display:grid;grid-template-columns:96px 1fr;gap:10px;align-items:start;}",
-  ".hr-detail-label{color:var(--ui-text-tertiary,#595959);font-size:12px;line-height:1.6;text-transform:uppercase;letter-spacing:0.04em;}",
-  ".hr-detail-value{color:var(--ui-text-secondary,#404040);font-size:14px;line-height:1.5;overflow-wrap:anywhere;}",
-  ".hr-next{font-weight:600;color:var(--ui-text-primary,#161616);}",
-  ".hr-date{color:var(--ui-text-tertiary,#595959);font-weight:400;}",
-  ".hr-result{font-size:14px;line-height:1.5;}",
-  ".hr-result-success{color:var(--ui-green,#166534);font-weight:600;}",
-  ".hr-result-error{color:var(--ui-red,#b42318);font-weight:600;}",
-  ".hr-result-neutral{color:var(--ui-text-secondary,#404040);}",
-  ".hr-tech{grid-column:1 / -1;margin-top:4px;}",
-  ".hr-tech-summary{cursor:pointer;color:var(--ui-text-tertiary,#595959);font-size:13px;}",
-  ".hr-tech-body{display:grid;grid-template-columns:96px 1fr;gap:6px 10px;margin-top:8px;}",
-  ".hr-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ui-text-secondary,#404040);overflow-wrap:anywhere;}",
-  ".hr-state{border:1px dashed var(--ui-stroke-secondary,#6e6e6e);border-radius:10px;padding:28px 20px;margin:16px 0;text-align:center;}",
-  ".hr-state-title{margin:0 0 6px;font-size:15px;font-weight:600;color:var(--ui-text-primary,#161616);}",
-  ".hr-state-text{margin:0;color:var(--ui-text-tertiary,#595959);font-size:14px;line-height:1.5;}",
-  ".hr-spinner{display:inline-block;width:18px;height:18px;border-radius:999px;border:2px solid var(--ui-stroke-secondary,#d9d9d9);border-top-color:var(--ui-accent,#0b5fff);animation:hr-spin 0.9s linear infinite;margin-bottom:8px;}",
-  "@keyframes hr-spin{to{transform:rotate(360deg);}}",
-  "@media (prefers-reduced-motion:reduce){.hr-spinner{animation:none;}.hr-caret{transition:none;}}",
-  ".hr-error{border:1px solid color-mix(in srgb,var(--ui-red,#b42318) 55%,transparent);border-left-width:6px;border-radius:10px;padding:14px 16px;background:var(--ui-bg-elevated,#ffffff);color:var(--ui-text-primary,#161616);margin:16px 0;}",
-  ".hr-error strong{color:var(--ui-red,#b42318);}",
-  ".hr-stale{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;border:1px solid var(--ui-stroke-secondary,#d9d9d9);border-radius:10px;padding:10px 14px;margin:12px 0 0;background:var(--ui-bg-tertiary,rgba(0,0,0,0.03));color:var(--ui-text-secondary,#404040);font-size:13px;}",
-  ".hr-muted{color:var(--ui-text-tertiary,#595959);font-size:14px;line-height:1.5;}",
-  ".hr-status{margin-top:16px;color:var(--ui-text-tertiary,#595959);font-size:13px;}",
-  ".hr-root :focus-visible{outline:2px solid var(--ui-accent,#0b5fff);outline-offset:2px;}",
-  "@media (max-width:720px){.hr-root{padding:20px 16px 32px;}.hr-details{grid-template-columns:1fr;margin-left:0;}.hr-subtitle{margin-left:0;}.hr-card-head{flex-wrap:wrap;}.hr-row-actions{width:100%;}.hr-row-actions .hr-btn{flex:1 1 auto;}}"
-].join("\n");
-
-// src/views/FilterNav.tsx
-import { jsx } from "react/jsx-runtime";
-var FILTER_OPTIONS = [
-  { value: "all", label: "All" },
-  { value: "active", label: "Active" },
-  { value: "paused", label: "Paused" }
-];
-function FilterNav({ filter, disabled, onSelect }) {
-  return /* @__PURE__ */ jsx("nav", { className: "hr-filters", "aria-label": "Filter routines by status", children: FILTER_OPTIONS.map((entry) => /* @__PURE__ */ jsx(
-    "button",
-    {
-      type: "button",
-      className: "hr-btn" + (filter === entry.value ? " hr-btn-current" : ""),
-      "aria-current": filter === entry.value ? "true" : void 0,
-      disabled,
-      onClick: () => onSelect(entry.value),
-      children: entry.label
-    },
-    entry.value
-  )) });
-}
-
-// src/views/RoutineList.tsx
-import { useEffect, useState } from "react";
-
 // src/domain/present.ts
 function asRecord(value) {
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
@@ -686,7 +446,7 @@ function routineActive(job) {
 function routineTitle(job, fallback) {
   const row = asRecord(job);
   const raw = firstString(row?.name, row?.job_id, row?.id) ?? "";
-  const title = raw.replace(/^\[bot:[a-z0-9][a-z0-9_-]*\]\s*/i, "").trim();
+  const title = raw.replace(/^\[bot:[a-z0-9][a-z0-9_-]*\]\s*/i, "").replace(/\p{Extended_Pictographic}|\p{Emoji_Presentation}|\uFE0F|\u200D/gu, "").replace(/\s{2,}/g, " ").trim();
   return title || fallback;
 }
 function routineKey(job, fallback) {
@@ -1104,18 +864,641 @@ function isContiguousRange(values) {
   return true;
 }
 
+// src/domain/cronShapes.ts
+var MAX_JOB_ID_LENGTH = 128;
+var JOB_ID_RE = /^[A-Za-z0-9._:-]+$/;
+var MAX_SCHEDULE_LENGTH = 256;
+var CONTROL_CHARS_RE = /[\x00-\x1F\x7F]/;
+function assertJobId(jobId) {
+  if (typeof jobId !== "string") {
+    throw new TypeError("job_id must be a non-empty string");
+  }
+  const id = jobId.trim();
+  if (!id) {
+    throw new TypeError("job_id must be a non-empty string");
+  }
+  if (id.length > MAX_JOB_ID_LENGTH || !JOB_ID_RE.test(id)) {
+    throw new TypeError("job_id must match /^[A-Za-z0-9._:-]+$/ with max 128 chars");
+  }
+  return id;
+}
+function assertSchedule(schedule) {
+  if (typeof schedule !== "string") {
+    throw new TypeError("schedule must be a non-empty string");
+  }
+  const trimmed = schedule.trim();
+  if (!trimmed) {
+    throw new TypeError("schedule must be a non-empty string");
+  }
+  if (trimmed.length > MAX_SCHEDULE_LENGTH) {
+    throw new TypeError("schedule must be at most 256 chars");
+  }
+  if (CONTROL_CHARS_RE.test(trimmed)) {
+    throw new TypeError("schedule must not contain control characters");
+  }
+  return trimmed;
+}
+function assertPayload(payload) {
+  if (payload === void 0) return {};
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new TypeError("payload must be a plain object");
+  }
+  return payload;
+}
+function cloneValue(value) {
+  try {
+    return structuredClone(value);
+  } catch (err) {
+    if (err instanceof Error && err.name === "DataCloneError") {
+      throw new TypeError(`uncloneable value: ${err.message || "DataCloneError"}`, { cause: err });
+    }
+    throw err;
+  }
+}
+function listJobs(jobs = []) {
+  const items = Array.isArray(jobs) ? jobs.map((job) => cloneValue(job)) : [];
+  return { action: "list", jobs: items };
+}
+function addJob(input = {}) {
+  const name = assertJobId(input.job_id);
+  const schedule = assertSchedule(input.schedule);
+  const payload = cloneValue(assertPayload(input.payload));
+  return { action: "add", name, schedule, payload };
+}
+function removeJob(jobId) {
+  return { action: "remove", name: assertJobId(jobId) };
+}
+function pauseJob(jobId) {
+  return { action: "pause", name: assertJobId(jobId) };
+}
+function resumeJob(jobId) {
+  return { action: "resume", name: assertJobId(jobId) };
+}
+
+// src/gateway/cronParams.ts
+function targetProfileOf(route) {
+  if (!route || typeof route.connectionId !== "string" || !route.connectionId) {
+    throw new Error("routine mutation requires a resolved profile route");
+  }
+  const target = backendTargetProfile(route, "");
+  if (!target) {
+    throw new Error("routine mutation requires a route with profile/targetProfile");
+  }
+  return target;
+}
+function buildListParams(route) {
+  return { action: "list", include_disabled: true, profile: targetProfileOf(route) };
+}
+function buildAddParams(route, input) {
+  const target = targetProfileOf(route);
+  const shaped = addJob(input || {});
+  return { ...shaped, profile: target };
+}
+function buildPauseParams(route, jobId) {
+  return { ...pauseJob(jobId), profile: targetProfileOf(route) };
+}
+function buildResumeParams(route, jobId) {
+  return { ...resumeJob(jobId), profile: targetProfileOf(route) };
+}
+function buildRemoveParams(route, jobId) {
+  return { ...removeJob(jobId), profile: targetProfileOf(route) };
+}
+function isSafeOptimistic(action) {
+  return action === "pause" || action === "resume";
+}
+
+// src/gateway/cronGateway.ts
+import { host } from "@hermes/plugin-sdk";
+function isRouteTarget(target) {
+  if (typeof target !== "object" || target === null) return false;
+  const connectionId = target.connectionId;
+  return typeof connectionId === "string" && connectionId !== "";
+}
+async function requestCronForRoute(target, method, params = {}, timeoutMs, options = {}) {
+  assertTimeoutMs(timeoutMs);
+  assertRoutingOptions(options);
+  const route = isRouteTarget(target) ? target : profileRoute(target);
+  if (route) {
+    if (typeof host.requestProfile !== "function") {
+      throw new Error(`Cannot route ${method} for ${route.connectionId}::${route.profile}`);
+    }
+    const scoped = scopedCronParams(route, params, { allowUnscoped: options.allowUnscoped });
+    return timeoutMs === void 0 ? host.requestProfile(route, method, scoped) : host.requestProfile(route, method, scoped, timeoutMs);
+  }
+  if (options.allowActiveDoor !== true) {
+    throw new Error(
+      `Cannot dispatch ${method} without a resolved profile route (active gateway door is opt-in via { allowActiveDoor: true })`
+    );
+  }
+  if (typeof host.request !== "function") {
+    throw new Error(`Cannot dispatch ${method}: host.request is not a function`);
+  }
+  return timeoutMs === void 0 ? host.request(method, params) : host.request(method, params, timeoutMs);
+}
+async function listProfileRoutes() {
+  try {
+    return await host.profileRoutes();
+  } catch (err) {
+    throw new Error(`failed to list profile routes: ${messageOf(err)}`, { cause: err });
+  }
+}
+async function listRoutines(route) {
+  if (!route?.connectionId) {
+    throw new Error("listRoutines requires a resolved profile route");
+  }
+  const target = backendTargetProfile(route, "");
+  if (!target) {
+    throw new Error("listRoutines requires a route with profile/targetProfile");
+  }
+  return requestCronForRoute(route, "cron.manage", {
+    action: "list",
+    include_disabled: true,
+    profile: target
+  });
+}
+
+// src/views/routinesStyles.ts
+var ROUTINES_CSS = [
+  "/* Base Root & Reset */",
+  ".hr-root {",
+  "  box-sizing: border-box;",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  height: 100%;",
+  "  min-height: 0;",
+  "  min-width: 0;",
+  "  margin: 0;",
+  "  padding: 0;",
+  "  font-family: inherit;",
+  "  color: var(--ui-text-primary, var(--dt-foreground, #161616));",
+  "  background: transparent;",
+  "  overflow: hidden;",
+  "}",
+  ".hr-root *, .hr-root *::before, .hr-root *::after { box-sizing: border-box; }",
+  ".hr-root :focus-visible { outline: 2px solid var(--dt-composer-ring, var(--ui-accent, #0053fd)); outline-offset: 2px; }",
+  "",
+  "/* Screen reader only utility */",
+  ".hr-sr-only {",
+  "  position: absolute;",
+  "  width: 1px;",
+  "  height: 1px;",
+  "  padding: 0;",
+  "  margin: -1px;",
+  "  overflow: hidden;",
+  "  clip: rect(0, 0, 0, 0);",
+  "  white-space: nowrap;",
+  "  border: 0;",
+  "}",
+  "",
+  "/* Top Header Area (Minimalist) */",
+  ".hr-header {",
+  "  flex-shrink: 0;",
+  "  padding: 4px 0 16px;",
+  "  border-bottom: 1px solid var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.06));",
+  "  margin-bottom: 18px;",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  gap: 6px;",
+  "}",
+  ".hr-header-top {",
+  "  display: flex;",
+  "  align-items: center;",
+  "  justify-content: space-between;",
+  "  gap: 16px;",
+  "}",
+  ".hr-header-titles {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  gap: 2px;",
+  "}",
+  ".hr-title {",
+  "  font-size: 20px;",
+  "  font-weight: 700;",
+  "  line-height: 1.2;",
+  "  margin: 0;",
+  "  color: var(--ui-text-primary, #fff);",
+  "  letter-spacing: -0.01em;",
+  "}",
+  ".hr-sub {",
+  "  margin: 0;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  font-size: 13px;",
+  "  line-height: 1.4;",
+  "}",
+  ".hr-profile {",
+  "  display: inline-flex;",
+  "  align-items: center;",
+  "  gap: 6px;",
+  "  padding: 3px 10px;",
+  "  border-radius: 999px;",
+  "  font-size: 11px;",
+  "  font-weight: 500;",
+  "  background: var(--ui-bg-tertiary, rgba(255,255,255,0.04));",
+  "  border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.1));",
+  "  color: var(--ui-text-secondary, #ccc);",
+  "  margin: 0;",
+  "}",
+  ".hr-profile strong { font-weight: 600; color: var(--ui-text-primary, #fff); }",
+  ".hr-count { margin: 0; color: var(--ui-text-tertiary, #888); font-size: 12px; }",
+  "",
+  "/* Controls & Toolbar (Minimalist) */",
+  ".hr-toolbar {",
+  "  display: flex;",
+  "  align-items: flex-start;",
+  "  justify-content: space-between;",
+  "  gap: 16px;",
+  "  margin-bottom: 14px;",
+  "  flex-wrap: wrap;",
+  "}",
+  ".hr-search-wrap {",
+  "  position: relative;",
+  "  display: flex;",
+  "  align-items: center;",
+  "  flex: 0 1 260px;",
+  "  width: 100%;",
+  "  max-width: 280px;",
+  "}",
+  ".hr-filters-col {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  align-items: flex-end;",
+  "  gap: 4px;",
+  "  margin-left: auto;",
+  "}",
+  ".hr-filters {",
+  "  display: inline-flex;",
+  "  align-items: center;",
+  "  gap: 14px;",
+  "}",
+  ".hr-filter-chip {",
+  "  display: inline-flex;",
+  "  align-items: center;",
+  "  height: 24px;",
+  "  padding: 0 2px 2px;",
+  "  border: none;",
+  "  border-bottom: 2px solid transparent;",
+  "  background: transparent;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  font-size: 13px;",
+  "  font-weight: 500;",
+  "  cursor: pointer;",
+  "  transition: all 0.15s ease;",
+  "  border-radius: 0;",
+  "}",
+  ".hr-filter-chip:hover {",
+  "  background: transparent;",
+  "  color: var(--ui-text-primary, #fff);",
+  "}",
+  '.hr-filter-chip[aria-current="true"], .hr-filter-chip-current {',
+  "  border: none;",
+  "  border-bottom: 2px solid var(--dt-composer-ring, var(--ui-accent, #0053fd));",
+  "  background: transparent;",
+  "  color: var(--ui-text-primary, #fff);",
+  "  font-weight: 600;",
+  "}",
+  ".hr-count-right {",
+  "  font-size: 11px;",
+  "  color: var(--ui-text-quaternary, #666);",
+  "  text-align: right;",
+  "  padding-right: 2px;",
+  "  user-select: none;",
+  "}",
+  ".hr-search-input {",
+  "  width: 100%;",
+  "  height: 26px;",
+  "  padding: 0 24px 0 10px;",
+  "  border-radius: 6px;",
+  "  font-size: 12px;",
+  "  background: var(--ui-bg-card, rgba(255,255,255,0.03));",
+  "  border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.1));",
+  "  color: var(--ui-text-primary, #fff);",
+  "  outline: none;",
+  "  transition: border-color 0.15s;",
+  "}",
+  ".hr-search-input:focus {",
+  "  border-color: var(--dt-composer-ring, var(--ui-accent, #0053fd));",
+  "}",
+  ".hr-search-clear {",
+  "  position: absolute;",
+  "  right: 6px;",
+  "  width: 16px;",
+  "  height: 16px;",
+  "  display: flex;",
+  "  align-items: center;",
+  "  justify-content: center;",
+  "  border: none;",
+  "  background: transparent;",
+  "  color: var(--ui-text-quaternary, #666);",
+  "  cursor: pointer;",
+  "  font-size: 10px;",
+  "}",
+  ".hr-search-clear:hover { color: var(--ui-text-primary, #fff); }",
+  "",
+  "/* Master-Detail Split Workspace */",
+  ".hr-workspace {",
+  "  display: flex;",
+  "  flex: 1 1 0;",
+  "  min-height: 0;",
+  "  min-width: 0;",
+  "  overflow: hidden;",
+  "}",
+  ".hr-feed-column {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  flex: 1 1 0;",
+  "  min-height: 0;",
+  "  min-width: 0;",
+  "  overflow-y: auto;",
+  "  padding: 16px 24px 32px;",
+  "}",
+  ".hr-feed-contained {",
+  "  max-width: 860px;",
+  "  margin: 0 auto;",
+  "  width: 100%;",
+  "}",
+  ".hr-list {",
+  "  list-style: none;",
+  "  margin: 0;",
+  "  padding: 0;",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "}",
+  "",
+  "/* Minimalist Row Item (Matching hermes-crew) */",
+  ".hr-row {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  padding: 14px 6px;",
+  "  border-bottom: 1px solid var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.07));",
+  "  transition: background 0.15s ease;",
+  "  position: relative;",
+  "  cursor: pointer;",
+  "  background: transparent;",
+  "}",
+  ".hr-row:hover {",
+  "  background: color-mix(in srgb, var(--chrome-action-hover, rgba(255, 255, 255, 0.04)) 40%, transparent);",
+  "  border-radius: 6px;",
+  "}",
+  ".hr-row-top {",
+  "  display: flex;",
+  "  align-items: center;",
+  "  justify-content: space-between;",
+  "  gap: 12px;",
+  "}",
+  ".hr-row-left {",
+  "  display: flex;",
+  "  align-items: center;",
+  "  gap: 10px;",
+  "  min-width: 0;",
+  "  flex: 1 1 auto;",
+  "}",
+  ".hr-status-indicator {",
+  "  display: inline-flex;",
+  "  align-items: center;",
+  "  justify-content: center;",
+  "  width: 18px;",
+  "  height: 18px;",
+  "  flex-shrink: 0;",
+  "}",
+  ".hr-status-svg { flex-shrink: 0; }",
+  ".hr-status-svg-active { color: var(--ui-green, #34d399); }",
+  ".hr-status-svg-paused { color: var(--ui-text-tertiary, #888); }",
+  ".hr-row-title {",
+  "  font-size: 14px;",
+  "  font-weight: 600;",
+  "  color: var(--ui-text-primary, #fff);",
+  "  cursor: pointer;",
+  "  overflow: hidden;",
+  "  text-overflow: ellipsis;",
+  "  white-space: nowrap;",
+  "}",
+  ".hr-row-title:hover { color: var(--ui-accent, #4a84fe); }",
+  ".hr-row-actions {",
+  "  display: flex;",
+  "  align-items: center;",
+  "  gap: 6px;",
+  "  flex-shrink: 0;",
+  "}",
+  "",
+  "/* Icon-Only Action Buttons */",
+  ".hr-icon-btn {",
+  "  display: inline-flex;",
+  "  align-items: center;",
+  "  justify-content: center;",
+  "  width: 26px;",
+  "  height: 26px;",
+  "  border: none;",
+  "  background: transparent;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  border-radius: 4px;",
+  "  cursor: pointer;",
+  "  font-size: 0;",
+  "  line-height: 0;",
+  "  position: relative;",
+  "  transition: all 0.15s ease;",
+  "  padding: 0;",
+  "}",
+  ".hr-icon-btn:hover {",
+  "  background: var(--chrome-action-hover, rgba(255, 255, 255, 0.08));",
+  "  color: var(--ui-text-primary, #fff);",
+  "}",
+  ".hr-icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }",
+  ".hr-icon-btn::before {",
+  '  content: "";',
+  "  display: block;",
+  "  width: 14px;",
+  "  height: 14px;",
+  "  background-color: currentColor;",
+  "  -webkit-mask-size: contain;",
+  "  mask-size: contain;",
+  "  -webkit-mask-repeat: no-repeat;",
+  "  mask-repeat: no-repeat;",
+  "  -webkit-mask-position: center;",
+  "  mask-position: center;",
+  "}",
+  ".hr-icon-btn-pause::before {",
+  `  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M6 4h4v16H6V4zm8 0h4v16h-4V4z'/%3E%3C/svg%3E");`,
+  `  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M6 4h4v16H6V4zm8 0h4v16h-4V4z'/%3E%3C/svg%3E");`,
+  "}",
+  ".hr-icon-btn-resume::before {",
+  `  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M8 5v14l11-7z'/%3E%3C/svg%3E");`,
+  `  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M8 5v14l11-7z'/%3E%3C/svg%3E");`,
+  "}",
+  ".hr-icon-btn-edit::before {",
+  `  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z'/%3E%3C/svg%3E");`,
+  `  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z'/%3E%3C/svg%3E");`,
+  "}",
+  ".hr-icon-btn-active { color: var(--ui-accent, #4a84fe) !important; }",
+  "",
+  "/* Subtitle & In-Place Details */",
+  ".hr-row-sub {",
+  "  margin-left: 28px;",
+  "  margin-top: 3px;",
+  "}",
+  ".hr-row-subtitle {",
+  "  font-size: 12px;",
+  "  line-height: 1.4;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  display: flex;",
+  "  align-items: center;",
+  "  flex-wrap: wrap;",
+  "}",
+  ".hr-sub-paused { color: var(--ui-text-tertiary, #888); }",
+  ".hr-sub-schedule { color: var(--ui-text-tertiary, #999); }",
+  ".hr-sub-sep { margin: 0 6px; color: var(--ui-stroke-tertiary, rgba(255,255,255,0.2)); font-size: 11px; }",
+  ".hr-sub-next { color: var(--ui-text-tertiary, #888); }",
+  "",
+  "/* Expanded In-Place Details (media_1790206808519.png) */",
+  ".hr-details {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  gap: 4px;",
+  "  margin-top: 8px;",
+  "  padding-top: 6px;",
+  "}",
+  ".hr-detail {",
+  "  display: grid;",
+  "  grid-template-columns: 110px 1fr;",
+  "  gap: 12px;",
+  "  font-size: 12px;",
+  "  line-height: 1.5;",
+  "  align-items: baseline;",
+  "}",
+  ".hr-detail-label { color: var(--ui-text-tertiary, #888); }",
+  ".hr-detail-value { color: var(--ui-text-secondary, #ccc); }",
+  ".hr-next { font-weight: 500; color: var(--ui-text-primary, #fff); }",
+  ".hr-date { color: var(--ui-text-tertiary, #888); font-weight: 400; }",
+  ".hr-result { font-size: 12px; font-weight: 500; }",
+  ".hr-result-success { color: var(--ui-green, #34d399); }",
+  ".hr-result-error { color: var(--ui-red, #f87171); }",
+  ".hr-result-neutral { color: var(--ui-text-secondary, #ccc); }",
+  "",
+  "/* Lateral Inspector (Minimalist) */",
+  ".hr-inspector {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  width: 26rem;",
+  "  flex-shrink: 0;",
+  "  min-height: 0;",
+  "  border-left: 1px solid var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.08));",
+  "  background: var(--ui-bg-elevated, #161618);",
+  "}",
+  ".hr-inspector-header {",
+  "  display: flex;",
+  "  align-items: center;",
+  "  justify-content: space-between;",
+  "  gap: 10px;",
+  "  padding: 14px 18px;",
+  "  border-bottom: 1px solid var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.06));",
+  "  flex-shrink: 0;",
+  "}",
+  ".hr-btn-back {",
+  "  border: none;",
+  "  background: transparent;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  font-size: 12px;",
+  "  cursor: pointer;",
+  "  padding: 2px 4px;",
+  "  border-radius: 4px;",
+  "}",
+  ".hr-btn-back:hover { color: var(--ui-text-primary, #fff); background: var(--chrome-action-hover, rgba(255,255,255,0.06)); }",
+  ".hr-inspector-header-badges { display: flex; align-items: center; gap: 8px; }",
+  ".hr-badge-subtle {",
+  "  font-size: 10px;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  background: var(--ui-bg-quinary, rgba(255,255,255,0.05));",
+  "  padding: 1px 6px;",
+  "  border-radius: 4px;",
+  "}",
+  ".hr-inspector-body {",
+  "  flex: 1 1 0;",
+  "  min-height: 0;",
+  "  overflow-y: auto;",
+  "  padding: 18px;",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  gap: 18px;",
+  "}",
+  ".hr-inspector-ident { display: flex; flex-direction: column; gap: 4px; }",
+  ".hr-inspector-title { font-size: 16px; font-weight: 700; margin: 0; color: var(--ui-text-primary, #fff); word-break: break-word; }",
+  ".hr-inspector-id-row { display: flex; align-items: center; gap: 6px; font-size: 11px; }",
+  ".hr-inspector-id-label { color: var(--ui-text-tertiary, #888); }",
+  ".hr-inspector-id-code { font-family: var(--dt-font-mono, monospace); font-size: 10px; color: var(--ui-text-secondary, #ccc); background: var(--ui-bg-quinary, rgba(255,255,255,0.04)); padding: 1px 5px; border-radius: 4px; }",
+  ".hr-btn-mini { padding: 1px 6px; font-size: 10px; border-radius: 4px; border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.1)); background: transparent; color: var(--ui-text-tertiary, #888); cursor: pointer; }",
+  ".hr-btn-mini:hover { color: var(--ui-text-primary, #fff); }",
+  ".hr-inspector-section { display: flex; flex-direction: column; gap: 8px; }",
+  ".hr-section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ui-text-tertiary, #888); margin: 0; }",
+  ".hr-kv-grid { display: grid; grid-template-columns: 86px 1fr; gap: 6px 10px; font-size: 12px; align-items: baseline; }",
+  ".hr-kv-label { color: var(--ui-text-tertiary, #888); font-size: 11px; }",
+  ".hr-kv-value { color: var(--ui-text-secondary, #ddd); overflow-wrap: anywhere; }",
+  ".hr-kv-highlight { font-weight: 600; color: var(--ui-text-primary, #fff); }",
+  ".hr-code-inline { font-family: var(--dt-font-mono, monospace); font-size: 11px; }",
+  ".hr-tech-entry { display: flex; flex-direction: column; gap: 4px; }",
+  ".hr-tech-entry-head { display: flex; align-items: center; justify-content: space-between; }",
+  ".hr-code-block { font-family: var(--dt-font-mono, monospace); font-size: 11px; padding: 8px 10px; border-radius: 6px; background: var(--ui-bg-quinary, rgba(0,0,0,0.2)); border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.06)); color: var(--ui-text-secondary, #ccc); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0; }",
+  ".hr-inspector-actions-section { margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.06)); }",
+  ".hr-inspector-actions-bar { display: flex; gap: 8px; }",
+  ".hr-btn { display: inline-flex; align-items: center; justify-content: center; padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--ui-text-primary, #fff); background: var(--ui-bg-card, #222); border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.12)); border-radius: 6px; cursor: pointer; transition: all 0.15s ease; }",
+  ".hr-btn:hover { background: var(--chrome-action-hover, rgba(255,255,255,0.08)); }",
+  ".hr-btn:disabled { opacity: 0.5; cursor: not-allowed; }",
+  ".hr-btn-pause { border-color: color-mix(in srgb, var(--ui-yellow, #fbbf24) 40%, transparent); color: var(--ui-yellow, #fbbf24); background: color-mix(in srgb, var(--ui-yellow, #fbbf24) 8%, transparent); }",
+  ".hr-btn-resume { border-color: color-mix(in srgb, var(--ui-green, #34d399) 40%, transparent); color: var(--ui-green, #34d399); background: color-mix(in srgb, var(--ui-green, #34d399) 8%, transparent); }",
+  "",
+  "/* States (Loading, Error, Empty) */",
+  ".hr-state { border: 1px dashed var(--ui-stroke-tertiary, rgba(255,255,255,0.12)); border-radius: 8px; padding: 32px 20px; margin: 16px 0; text-align: center; }",
+  ".hr-state-title { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--ui-text-primary, #fff); }",
+  ".hr-state-text { margin: 0; color: var(--ui-text-tertiary, #888); font-size: 13px; line-height: 1.5; }",
+  ".hr-spinner { display: inline-block; width: 20px; height: 20px; border-radius: 999px; border: 2px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.2)); border-top-color: var(--dt-composer-ring, var(--ui-accent, #0053fd)); animation: hr-spin 0.8s linear infinite; margin-bottom: 10px; }",
+  "@keyframes hr-spin { to { transform: rotate(360deg); } }",
+  "@media (prefers-reduced-motion: reduce) { .hr-spinner { animation: none; } }",
+  ".hr-error { border: 1px solid color-mix(in srgb, var(--ui-red, #f87171) 40%, transparent); border-left-width: 4px; border-radius: 8px; padding: 14px 16px; background: var(--ui-bg-elevated, rgba(255,255,255,0.02)); color: var(--ui-text-primary, #fff); margin: 16px 0; }",
+  ".hr-error strong { color: var(--ui-red, #f87171); }",
+  ".hr-stale { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.1)); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; background: var(--ui-bg-tertiary, rgba(255,255,255,0.02)); color: var(--ui-text-secondary, #ccc); font-size: 12px; }",
+  ".hr-muted { color: var(--ui-text-tertiary, #888); font-size: 13px; line-height: 1.4; }",
+  ".hr-status { margin-top: 10px; color: var(--ui-text-tertiary, #888); font-size: 12px; }",
+  "",
+  "/* Responsive adaptiveness */",
+  "@media (max-width: 820px) {",
+  "  .hr-workspace { flex-direction: column; }",
+  "  .hr-inspector { width: 100%; border-left: none; border-top: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.08)); }",
+  "  .hr-feed-column { padding: 12px; }",
+  "}"
+].join("\n");
+
+// src/views/FilterNav.tsx
+import { jsx } from "react/jsx-runtime";
+var FILTER_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "paused", label: "Paused" }
+];
+function FilterNav({ filter, disabled, onSelect }) {
+  return /* @__PURE__ */ jsx("nav", { className: "hr-filters", "aria-label": "Filter routines by status", children: FILTER_OPTIONS.map((entry) => /* @__PURE__ */ jsx(
+    "button",
+    {
+      type: "button",
+      className: "hr-filter-chip" + (filter === entry.value ? " hr-filter-chip-current" : ""),
+      "aria-current": filter === entry.value ? "true" : void 0,
+      disabled,
+      onClick: () => onSelect(entry.value),
+      children: entry.label
+    },
+    entry.value
+  )) });
+}
+
+// src/views/RoutineList.tsx
+import { useEffect, useState } from "react";
+
 // src/views/RoutineDetails.tsx
 import { jsx as jsx2, jsxs } from "react/jsx-runtime";
 function RoutineDetails({
-  job,
-  fallback
+  job
 }) {
   const schedule = humanScheduleOf(job) || "\u2014";
   const nextIso = nextRunIso(job);
   const lastIso = lastRunIso(job);
   const result = lastResultOf(job);
-  const raw = rawScheduleOf(job);
-  const title = routineTitle(job, fallback);
   const showRuns = routineActive(job);
   return /* @__PURE__ */ jsxs("div", { className: "hr-details", children: [
     /* @__PURE__ */ jsxs("div", { className: "hr-detail", children: [
@@ -1132,17 +1515,11 @@ function RoutineDetails({
     ] }) : null,
     /* @__PURE__ */ jsxs("div", { className: "hr-detail", children: [
       /* @__PURE__ */ jsx2("span", { className: "hr-detail-label", children: "Last result" }),
-      /* @__PURE__ */ jsx2("span", { className: `hr-result hr-result-${result.kind}`, children: result.text })
-    ] }),
-    raw !== null && raw !== schedule ? /* @__PURE__ */ jsxs("details", { className: "hr-tech", children: [
-      /* @__PURE__ */ jsx2("summary", { className: "hr-tech-summary", children: "Technical details" }),
-      /* @__PURE__ */ jsxs("div", { className: "hr-tech-body", children: [
-        /* @__PURE__ */ jsx2("span", { className: "hr-detail-label", children: "Routine" }),
-        /* @__PURE__ */ jsx2("code", { className: "hr-code", children: title }),
-        /* @__PURE__ */ jsx2("span", { className: "hr-detail-label", children: "Cron" }),
-        /* @__PURE__ */ jsx2("code", { className: "hr-code", children: raw })
+      /* @__PURE__ */ jsxs("span", { className: `hr-result hr-result-${result.kind}`, children: [
+        result.kind === "success" ? /* @__PURE__ */ jsx2("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { display: "inline-block", verticalAlign: -2, marginRight: 6 }, children: /* @__PURE__ */ jsx2("path", { fillRule: "evenodd", d: "M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.854-8.646a.5.5 0 0 0-.708-.708L7.5 9.293 5.854 7.646a.5.5 0 1 0-.708.708l2 2a.5.5 0 0 0 .708 0l4-4z" }) }) : result.kind === "error" ? /* @__PURE__ */ jsx2("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { display: "inline-block", verticalAlign: -2, marginRight: 6 }, children: /* @__PURE__ */ jsx2("path", { fillRule: "evenodd", d: "M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.354-9.354a.5.5 0 0 0-.708-.708L8 7.293 5.354 4.646a.5.5 0 1 0-.708.708L7.293 8l-2.647 2.646a.5.5 0 0 0 .708.708L8 8.707l2.646 2.647a.5.5 0 0 0 .708-.708L8.707 8l2.647-2.646z" }) }) : null,
+        result.text
       ] })
-    ] }) : null
+    ] })
   ] });
 }
 function RunValue({ iso, strong }) {
@@ -1169,75 +1546,170 @@ function statusOf(job) {
 }
 function RoutineStatus({ job }) {
   const { label, tone } = statusOf(job);
-  return /* @__PURE__ */ jsxs2("span", { className: `hr-badge hr-badge-${tone}`, children: [
-    /* @__PURE__ */ jsx3("span", { className: "hr-badge-dot", "aria-hidden": "true" }),
-    label
+  return /* @__PURE__ */ jsxs2("span", { className: `hr-status-indicator hr-status-${tone}`, title: label, "aria-label": label, children: [
+    tone === "active" ? /* @__PURE__ */ jsxs2("svg", { className: "hr-status-svg hr-status-svg-active", viewBox: "0 0 16 16", width: "16", height: "16", fill: "none", stroke: "currentColor", strokeWidth: "1.8", "aria-hidden": "true", children: [
+      /* @__PURE__ */ jsx3("circle", { cx: "8", cy: "8", r: "6.5" }),
+      /* @__PURE__ */ jsx3("polyline", { points: "8 4.2 8 8 10.8 8" })
+    ] }) : tone === "paused" ? /* @__PURE__ */ jsxs2("svg", { className: "hr-status-svg hr-status-svg-paused", viewBox: "0 0 16 16", width: "16", height: "16", fill: "none", stroke: "currentColor", strokeWidth: "1.8", "aria-hidden": "true", children: [
+      /* @__PURE__ */ jsx3("circle", { cx: "8", cy: "8", r: "6.5" }),
+      /* @__PURE__ */ jsx3("line", { x1: "6.5", y1: "5.5", x2: "6.5", y2: "10.5" }),
+      /* @__PURE__ */ jsx3("line", { x1: "9.5", y1: "5.5", x2: "9.5", y2: "10.5" })
+    ] }) : /* @__PURE__ */ jsxs2("svg", { className: "hr-status-svg", viewBox: "0 0 16 16", width: "16", height: "16", fill: "none", stroke: "currentColor", strokeWidth: "1.8", "aria-hidden": "true", children: [
+      /* @__PURE__ */ jsx3("circle", { cx: "8", cy: "8", r: "6.5" }),
+      /* @__PURE__ */ jsx3("circle", { cx: "8", cy: "8", r: "2", fill: "currentColor" })
+    ] }),
+    /* @__PURE__ */ jsx3("span", { className: "hr-sr-only", children: label })
   ] });
 }
 
 // src/views/RoutineCard.tsx
-import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
+import { Fragment, jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
 function RoutineCard(props) {
-  const { job, fallback, expanded, busy, disabled } = props;
+  const { job, fallback, expanded, inspected = false, busy, disabled } = props;
   const title = routineTitle(job, fallback);
   const paused = routinePausedOf(job);
   const terminal = routineTerminal(job);
-  const subtitle = collapsedSubtitleOf(job);
+  const { tone } = statusOf(job);
+  const schedule = humanScheduleOf(job) || "\u2014";
+  const nextIso = nextRunIso(job);
+  const nextDistance = nextIso ? formatWhen(nextIso) : null;
   const controlsId = `hr-details-${fallback.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
-  return /* @__PURE__ */ jsxs3("li", { className: "hr-card" + (paused && !terminal ? " hr-card-paused" : ""), children: [
-    /* @__PURE__ */ jsxs3("div", { className: "hr-card-head", children: [
-      /* @__PURE__ */ jsx4(
-        "button",
-        {
-          type: "button",
-          className: "hr-card-toggle",
-          "aria-expanded": expanded,
-          "aria-controls": controlsId,
-          "aria-label": `${expanded ? "Collapse" : "Expand"} details for ${title}`,
-          onClick: props.onToggleExpand,
-          children: /* @__PURE__ */ jsx4("span", { className: "hr-caret" + (expanded ? " hr-caret-open" : ""), "aria-hidden": "true", children: "\u25B8" })
-        }
-      ),
-      /* @__PURE__ */ jsxs3("div", { className: "hr-card-title", children: [
-        /* @__PURE__ */ jsx4("strong", { className: "hr-row-id", children: title }),
-        /* @__PURE__ */ jsx4(RoutineStatus, { job })
-      ] }),
-      /* @__PURE__ */ jsx4("div", { className: "hr-row-actions", children: !terminal ? paused ? /* @__PURE__ */ jsx4(
-        "button",
-        {
-          type: "button",
-          className: "hr-btn",
-          disabled,
-          onClick: props.onResume,
-          "aria-label": `Resume ${title}`,
-          children: busy ? "Resuming\u2026" : "Resume"
-        }
-      ) : /* @__PURE__ */ jsx4(
-        "button",
-        {
-          type: "button",
-          className: "hr-btn",
-          disabled,
-          onClick: props.onPause,
-          "aria-label": `Pause ${title}`,
-          children: busy ? "Pausing\u2026" : "Pause"
-        }
-      ) : null })
-    ] }),
-    !expanded ? /* @__PURE__ */ jsx4("p", { className: "hr-subtitle", children: subtitle }) : null,
-    expanded ? /* @__PURE__ */ jsx4("div", { id: controlsId, children: /* @__PURE__ */ jsx4(RoutineDetails, { job, fallback }) }) : null
-  ] });
+  return /* @__PURE__ */ jsxs3(
+    "li",
+    {
+      className: `hr-row hr-row-${tone}${expanded ? " hr-row-expanded" : ""}${inspected ? " hr-row-selected" : ""}`,
+      onClick: (e) => {
+        if (e.target.closest("button, .hr-row-actions")) return;
+        props.onToggleExpand();
+      },
+      style: { cursor: "pointer" },
+      children: [
+        /* @__PURE__ */ jsxs3("div", { className: "hr-row-top", children: [
+          /* @__PURE__ */ jsxs3("div", { className: "hr-row-left", children: [
+            /* @__PURE__ */ jsx4(RoutineStatus, { job }),
+            /* @__PURE__ */ jsx4(
+              "span",
+              {
+                className: "hr-row-title",
+                role: "button",
+                tabIndex: 0,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  props.onToggleExpand();
+                },
+                onKeyDown: (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    props.onToggleExpand();
+                  }
+                },
+                children: title
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxs3("div", { className: "hr-row-actions", children: [
+            !terminal ? paused ? /* @__PURE__ */ jsx4(
+              "button",
+              {
+                type: "button",
+                className: "hr-icon-btn hr-icon-btn-resume",
+                disabled: disabled || busy,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  props.onResume();
+                },
+                "aria-label": `Resume ${title}`,
+                title: "Resume routine",
+                children: "Resume"
+              }
+            ) : /* @__PURE__ */ jsx4(
+              "button",
+              {
+                type: "button",
+                className: "hr-icon-btn hr-icon-btn-pause",
+                disabled: disabled || busy,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  props.onPause();
+                },
+                "aria-label": `Pause ${title}`,
+                title: "Pause routine",
+                children: "Pause"
+              }
+            ) : null,
+            /* @__PURE__ */ jsx4(
+              "button",
+              {
+                type: "button",
+                className: `hr-icon-btn hr-icon-btn-edit${inspected ? " hr-icon-btn-active" : ""}`,
+                "aria-expanded": expanded,
+                "aria-controls": controlsId,
+                "aria-label": `${inspected ? "Close inspector" : "Edit"} details for ${title}`,
+                onClick: (e) => {
+                  e.stopPropagation();
+                  if (props.onEdit) props.onEdit();
+                  else props.onToggleExpand();
+                },
+                title: "Edit routine",
+                children: "Edit"
+              }
+            )
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx4("div", { className: "hr-row-sub", children: !expanded ? /* @__PURE__ */ jsx4("div", { className: "hr-row-subtitle", children: paused ? /* @__PURE__ */ jsx4("span", { className: "hr-sub-paused", children: "Paused" }) : /* @__PURE__ */ jsxs3(Fragment, { children: [
+          /* @__PURE__ */ jsx4("span", { className: "hr-sub-schedule", children: schedule }),
+          nextDistance ? /* @__PURE__ */ jsxs3(Fragment, { children: [
+            /* @__PURE__ */ jsx4("span", { className: "hr-sub-sep", children: "|" }),
+            /* @__PURE__ */ jsxs3("span", { className: "hr-sub-next", children: [
+              "Next in ",
+              nextDistance
+            ] })
+          ] }) : null
+        ] }) }) : /* @__PURE__ */ jsx4("div", { id: controlsId, className: "hr-row-details", children: /* @__PURE__ */ jsx4(RoutineDetails, { job, fallback }) }) })
+      ]
+    }
+  );
 }
 
 // src/views/RoutineList.tsx
 import { jsx as jsx5 } from "react/jsx-runtime";
-function RoutineList({ jobs, pending, locked, onPause, onResume }) {
-  const [expanded, setExpanded] = useState(null);
+function RoutineList({
+  jobs,
+  pending,
+  locked,
+  selectedId,
+  onSelect,
+  inspectedId,
+  onInspect,
+  onPause,
+  onResume
+}) {
+  const [expandedNames, setExpandedNames] = useState(() => /* @__PURE__ */ new Set());
+  const activeInspectorId = inspectedId !== void 0 ? inspectedId : selectedId ?? null;
+  const handleInspect = onInspect ?? onSelect;
   useEffect(() => {
-    if (expanded === null) return;
-    const stillThere = jobs.some((job, index) => (jobIdOf(job) || `routine ${index + 1}`) === expanded);
-    if (!stillThere) setExpanded(null);
-  }, [jobs, expanded]);
+    if (activeInspectorId === null) return;
+    const stillThere = jobs.some((job, index) => (jobIdOf(job) || `routine ${index + 1}`) === activeInspectorId);
+    if (!stillThere && handleInspect) {
+      handleInspect(null);
+    }
+  }, [jobs, activeInspectorId, handleInspect]);
+  function handleToggleExpand(name) {
+    setExpandedNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  }
+  function handleEdit(name) {
+    if (handleInspect) {
+      handleInspect(activeInspectorId === name ? null : name);
+    }
+  }
   return /* @__PURE__ */ jsx5("ul", { className: "hr-list", "aria-label": "Routines", children: jobs.map((job, index) => {
     const fallback = `routine ${index + 1}`;
     const name = jobIdOf(job) || fallback;
@@ -1247,10 +1719,12 @@ function RoutineList({ jobs, pending, locked, onPause, onResume }) {
       {
         job,
         fallback,
-        expanded: expanded === name,
+        expanded: expandedNames.has(name),
+        inspected: activeInspectorId === name,
         busy,
         disabled: locked,
-        onToggleExpand: () => setExpanded((current) => current === name ? null : name),
+        onToggleExpand: () => handleToggleExpand(name),
+        onEdit: () => handleEdit(name),
         onPause: () => onPause(name),
         onResume: () => onResume(name)
       },
@@ -1259,30 +1733,213 @@ function RoutineList({ jobs, pending, locked, onPause, onResume }) {
   }) });
 }
 
+// src/views/RoutineInspectorPanel.tsx
+import { useState as useState2 } from "react";
+import { Fragment as Fragment2, jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
+function RoutineInspectorPanel({
+  job,
+  fallback,
+  activeRoute,
+  activeProfile,
+  busy,
+  disabled,
+  onClose,
+  onPause,
+  onResume
+}) {
+  const [copiedId, setCopiedId] = useState2(false);
+  const [copiedCron, setCopiedCron] = useState2(false);
+  const title = routineTitle(job, fallback);
+  const id = jobIdOf(job) || fallback;
+  const paused = jobPaused(job);
+  const terminal = routineTerminal(job);
+  const schedule = humanScheduleOf(job) || "\u2014";
+  const rawCron = rawScheduleOf(job);
+  const nextIso = nextRunIso(job);
+  const lastIso = lastRunIso(job);
+  const result = lastResultOf(job);
+  const showRuns = routineActive(job);
+  const payload = job.payload && typeof job.payload === "object" ? job.payload : null;
+  function copyText(text, setCopied) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2e3);
+      }).catch(() => {
+      });
+    }
+  }
+  return /* @__PURE__ */ jsxs4("aside", { className: "hr-inspector", "aria-label": `Details for ${title}`, children: [
+    /* @__PURE__ */ jsxs4("header", { className: "hr-inspector-header", children: [
+      /* @__PURE__ */ jsxs4(
+        "button",
+        {
+          type: "button",
+          className: "hr-btn-action hr-btn-back",
+          onClick: onClose,
+          "aria-label": "Back to list",
+          children: [
+            /* @__PURE__ */ jsx6("svg", { width: "12", height: "12", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { marginRight: 6, verticalAlign: -1 }, children: /* @__PURE__ */ jsx6("path", { fillRule: "evenodd", d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" }) }),
+            "Back to list"
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-header-badges", children: [
+        activeRoute?.mode ? /* @__PURE__ */ jsx6("span", { className: "hr-badge-subtle", children: activeRoute.mode === "remote" ? "VPS" : "Local" }) : null,
+        /* @__PURE__ */ jsx6(RoutineStatus, { job })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-body", children: [
+      /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-ident", children: [
+        /* @__PURE__ */ jsx6("h3", { className: "hr-inspector-title", children: title }),
+        /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-id-row", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-inspector-id-label", children: "ID:" }),
+          /* @__PURE__ */ jsx6("code", { className: "hr-inspector-id-code", children: id }),
+          /* @__PURE__ */ jsx6(
+            "button",
+            {
+              type: "button",
+              className: "hr-btn-mini",
+              onClick: () => copyText(id, setCopiedId),
+              "aria-label": "Copy routine ID",
+              children: copiedId ? "Copied" : "Copy"
+            }
+          )
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs4("section", { className: "hr-inspector-section", children: [
+        /* @__PURE__ */ jsx6("h4", { className: "hr-section-title", children: "Cadence & Timing" }),
+        /* @__PURE__ */ jsxs4("div", { className: "hr-kv-grid", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Schedule" }),
+          /* @__PURE__ */ jsx6("span", { className: "hr-kv-value hr-kv-highlight", children: schedule }),
+          showRuns && nextIso !== null && formatWhen(nextIso) !== null ? /* @__PURE__ */ jsxs4(Fragment2, { children: [
+            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Next Run" }),
+            /* @__PURE__ */ jsxs4("span", { className: "hr-kv-value hr-next", children: [
+              formatWhen(nextIso),
+              formatDate(nextIso) ? /* @__PURE__ */ jsxs4("span", { className: "hr-date", children: [
+                " (",
+                formatDate(nextIso),
+                ")"
+              ] }) : null
+            ] })
+          ] }) : null,
+          showRuns && lastIso !== null && formatWhen(lastIso) !== null ? /* @__PURE__ */ jsxs4(Fragment2, { children: [
+            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Last Run" }),
+            /* @__PURE__ */ jsxs4("span", { className: "hr-kv-value", children: [
+              formatWhen(lastIso),
+              formatDate(lastIso) ? /* @__PURE__ */ jsxs4("span", { className: "hr-date", children: [
+                " (",
+                formatDate(lastIso),
+                ")"
+              ] }) : null
+            ] })
+          ] }) : null,
+          /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Last Result" }),
+          /* @__PURE__ */ jsxs4("span", { className: `hr-kv-value hr-result hr-result-${result.kind}`, children: [
+            result.kind === "success" ? /* @__PURE__ */ jsx6("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { display: "inline-block", verticalAlign: -2, marginRight: 6 }, children: /* @__PURE__ */ jsx6("path", { fillRule: "evenodd", d: "M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.854-8.646a.5.5 0 0 0-.708-.708L7.5 9.293 5.854 7.646a.5.5 0 1 0-.708.708l2 2a.5.5 0 0 0 .708 0l4-4z" }) }) : result.kind === "error" ? /* @__PURE__ */ jsx6("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { display: "inline-block", verticalAlign: -2, marginRight: 6 }, children: /* @__PURE__ */ jsx6("path", { fillRule: "evenodd", d: "M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.354-9.354a.5.5 0 0 0-.708-.708L8 7.293 5.354 4.646a.5.5 0 1 0-.708.708L7.293 8l-2.647 2.646a.5.5 0 0 0 .708.708L8 8.707l2.646 2.647a.5.5 0 0 0 .708-.708L8.707 8l2.647-2.646z" }) }) : null,
+            result.text
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs4("section", { className: "hr-inspector-section", children: [
+        /* @__PURE__ */ jsx6("h4", { className: "hr-section-title", children: "Route & Target" }),
+        /* @__PURE__ */ jsxs4("div", { className: "hr-kv-grid", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Profile" }),
+          /* @__PURE__ */ jsx6("span", { className: "hr-kv-value", children: activeProfile || "\u2014" }),
+          activeRoute ? /* @__PURE__ */ jsxs4(Fragment2, { children: [
+            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Connection" }),
+            /* @__PURE__ */ jsxs4("span", { className: "hr-kv-value hr-code-inline", children: [
+              activeRoute.connectionId,
+              " (",
+              activeRoute.mode,
+              ")"
+            ] }),
+            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Target" }),
+            /* @__PURE__ */ jsx6("span", { className: "hr-kv-value hr-code-inline", children: activeRoute.targetProfile })
+          ] }) : null
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxs4("section", { className: "hr-inspector-section", children: [
+        /* @__PURE__ */ jsx6("h4", { className: "hr-section-title", children: "Technical Details" }),
+        rawCron ? /* @__PURE__ */ jsxs4("div", { className: "hr-tech-entry", children: [
+          /* @__PURE__ */ jsxs4("div", { className: "hr-tech-entry-head", children: [
+            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Cron Expression" }),
+            /* @__PURE__ */ jsx6(
+              "button",
+              {
+                type: "button",
+                className: "hr-btn-mini",
+                onClick: () => copyText(rawCron, setCopiedCron),
+                "aria-label": "Copy cron expression",
+                children: copiedCron ? "Copied" : "Copy"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsx6("code", { className: "hr-code-block", children: rawCron })
+        ] }) : null,
+        payload && Object.keys(payload).length > 0 ? /* @__PURE__ */ jsxs4("div", { className: "hr-tech-entry", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Payload Parameters" }),
+          /* @__PURE__ */ jsx6("pre", { className: "hr-code-block", children: JSON.stringify(payload, null, 2) })
+        ] }) : null
+      ] }),
+      !terminal ? /* @__PURE__ */ jsxs4("section", { className: "hr-inspector-section hr-inspector-actions-section", children: [
+        /* @__PURE__ */ jsx6("h4", { className: "hr-section-title", children: "Actions" }),
+        /* @__PURE__ */ jsx6("div", { className: "hr-inspector-actions-bar", children: paused ? /* @__PURE__ */ jsxs4(
+          "button",
+          {
+            type: "button",
+            className: "hr-btn hr-btn-resume",
+            disabled: disabled || busy,
+            onClick: onResume,
+            "aria-label": `Resume ${title}`,
+            children: [
+              /* @__PURE__ */ jsx6("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "currentColor", "aria-hidden": "true", style: { marginRight: 6 }, children: /* @__PURE__ */ jsx6("path", { d: "M8 5v14l11-7z" }) }),
+              busy ? "Resuming\u2026" : "Resume Routine"
+            ]
+          }
+        ) : /* @__PURE__ */ jsxs4(
+          "button",
+          {
+            type: "button",
+            className: "hr-btn hr-btn-pause",
+            disabled: disabled || busy,
+            onClick: onPause,
+            "aria-label": `Pause ${title}`,
+            children: [
+              /* @__PURE__ */ jsx6("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "currentColor", "aria-hidden": "true", style: { marginRight: 6 }, children: /* @__PURE__ */ jsx6("path", { d: "M6 4h4v16H6V4zm8 0h4v16h-4V4z" }) }),
+              busy ? "Pausing\u2026" : "Pause Routine"
+            ]
+          }
+        ) })
+      ] }) : null
+    ] })
+  ] });
+}
+
 // src/views/panels.tsx
-import { Fragment, jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
+import { Fragment as Fragment3, jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
 function StatusLine({ text, statusRef }) {
-  return /* @__PURE__ */ jsx6("p", { ref: statusRef, tabIndex: -1, className: "hr-status", role: "status", "aria-live": "polite", children: text || "Routines ready." });
+  return /* @__PURE__ */ jsx7("p", { ref: statusRef, tabIndex: -1, className: "hr-status", role: "status", "aria-live": "polite", children: text || "Routines ready." });
 }
 
 // src/views/RoutineStates.tsx
-import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
+import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
 function LoadingState({ text }) {
-  return /* @__PURE__ */ jsxs5("div", { className: "hr-state", role: "status", "aria-live": "polite", "aria-busy": "true", children: [
-    /* @__PURE__ */ jsx7("span", { className: "hr-spinner", "aria-hidden": "true" }),
-    /* @__PURE__ */ jsx7("p", { className: "hr-state-text", children: text })
+  return /* @__PURE__ */ jsxs6("div", { className: "hr-state", role: "status", "aria-live": "polite", "aria-busy": "true", children: [
+    /* @__PURE__ */ jsx8("span", { className: "hr-spinner", "aria-hidden": "true" }),
+    /* @__PURE__ */ jsx8("p", { className: "hr-state-text", children: text })
   ] });
 }
 function EmptyState() {
-  return /* @__PURE__ */ jsxs5("div", { className: "hr-state", children: [
-    /* @__PURE__ */ jsx7("p", { className: "hr-state-title", children: "No routines yet" }),
-    /* @__PURE__ */ jsx7("p", { className: "hr-state-text", children: "Scheduled jobs for this profile will appear here." })
+  return /* @__PURE__ */ jsxs6("div", { className: "hr-state", children: [
+    /* @__PURE__ */ jsx8("p", { className: "hr-state-title", children: "No routines yet" }),
+    /* @__PURE__ */ jsx8("p", { className: "hr-state-text", children: "Scheduled jobs for this profile will appear here." })
   ] });
 }
 function EmptyFilterState() {
-  return /* @__PURE__ */ jsxs5("div", { className: "hr-state", children: [
-    /* @__PURE__ */ jsx7("p", { className: "hr-state-title", children: "No routines match this filter" }),
-    /* @__PURE__ */ jsx7("p", { className: "hr-state-text", children: "Try a different filter to see more routines." })
+  return /* @__PURE__ */ jsxs6("div", { className: "hr-state", children: [
+    /* @__PURE__ */ jsx8("p", { className: "hr-state-title", children: "No routines match this filter" }),
+    /* @__PURE__ */ jsx8("p", { className: "hr-state-text", children: "Try a different filter to see more routines." })
   ] });
 }
 function ErrorState({
@@ -1290,39 +1947,39 @@ function ErrorState({
   message,
   onRetry
 }) {
-  return /* @__PURE__ */ jsxs5("div", { className: "hr-error", role: "alert", children: [
-    /* @__PURE__ */ jsx7("strong", { children: title }),
-    /* @__PURE__ */ jsx7("p", { className: "hr-row-meta", children: message }),
-    /* @__PURE__ */ jsx7("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
+  return /* @__PURE__ */ jsxs6("div", { className: "hr-error", role: "alert", children: [
+    /* @__PURE__ */ jsx8("strong", { children: title }),
+    /* @__PURE__ */ jsx8("p", { className: "hr-row-meta", children: message }),
+    /* @__PURE__ */ jsx8("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
   ] });
 }
 function UnavailableState({
   profile,
   onRetry
 }) {
-  return /* @__PURE__ */ jsxs5("div", { className: "hr-error", role: "alert", children: [
-    /* @__PURE__ */ jsx7("strong", { children: "Routines unavailable for this profile." }),
-    /* @__PURE__ */ jsx7("p", { className: "hr-row-meta", children: profile ? `The Desktop profile \u201C${profile}\u201D has no routines route right now. Connect the profile, then retry.` : "The active Desktop profile has no routines route right now. Select a profile, then retry." }),
-    /* @__PURE__ */ jsx7("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
+  return /* @__PURE__ */ jsxs6("div", { className: "hr-error", role: "alert", children: [
+    /* @__PURE__ */ jsx8("strong", { children: "Routines unavailable for this profile." }),
+    /* @__PURE__ */ jsx8("p", { className: "hr-row-meta", children: profile ? `The Desktop profile \u201C${profile}\u201D has no routines route right now. Connect the profile, then retry.` : "The active Desktop profile has no routines route right now. Select a profile, then retry." }),
+    /* @__PURE__ */ jsx8("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
   ] });
 }
 function StaleBanner({ onRetry }) {
-  return /* @__PURE__ */ jsxs5("div", { className: "hr-stale", role: "status", children: [
-    /* @__PURE__ */ jsx7("span", { children: "Showing last loaded jobs." }),
-    /* @__PURE__ */ jsx7("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
+  return /* @__PURE__ */ jsxs6("div", { className: "hr-stale", role: "status", children: [
+    /* @__PURE__ */ jsx8("span", { children: "Showing last loaded jobs." }),
+    /* @__PURE__ */ jsx8("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
   ] });
 }
 
 // src/views/RoutinesPage.tsx
-import { Fragment as Fragment2, jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
+import { Fragment as Fragment4, jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
 function pastTense(kind) {
   if (kind === "pause") return "paused";
   if (kind === "resume") return "resumed";
   return "saved";
 }
 function RoutinesPage() {
-  const [state, setState] = useState2(initialRoutinesState);
-  const [routesNonce, setRoutesNonce] = useState2(0);
+  const [state, setState] = useState3(initialRoutinesState);
+  const [routesNonce, setRoutesNonce] = useState3(0);
   const headingRef = useRef(null);
   const statusRef = useRef(null);
   const generationRef = useRef(0);
@@ -1335,6 +1992,30 @@ function RoutinesPage() {
   const locked = state.pending.length !== 0;
   const shown = visibleJobs(state.jobs, state.filter);
   const S = ROUTINES_VIEW_STATUS;
+  const [searchQuery, setSearchQuery] = useState3("");
+  const [selectedJobName, setSelectedJobName] = useState3(null);
+  useEffect2(() => {
+    if (selectedJobName === null) return;
+    const stillThere = state.jobs.some(
+      (job, index) => (jobIdOf(job) || `routine ${index + 1}`) === selectedJobName
+    );
+    if (!stillThere) setSelectedJobName(null);
+  }, [state.jobs, selectedJobName]);
+  const filteredJobs = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return shown;
+    return shown.filter((job) => {
+      const name = (routineTitle(job, "") || jobIdOf(job)).toLowerCase();
+      const schedule = (humanScheduleOf(job) || "").toLowerCase();
+      return name.includes(q) || schedule.includes(q);
+    });
+  }, [shown, searchQuery]);
+  const selectedJob = useMemo(() => {
+    if (!selectedJobName) return null;
+    return state.jobs.find(
+      (j, index) => (jobIdOf(j) || `routine ${index + 1}`) === selectedJobName
+    ) ?? null;
+  }, [state.jobs, selectedJobName]);
   useEffect2(() => {
     let cancelled = false;
     dispatch({ type: "routes-loading" });
@@ -1442,21 +2123,55 @@ function RoutinesPage() {
     void runMutation("resume", name, () => buildResumeParams(route, name));
   }
   function renderList() {
-    return /* @__PURE__ */ jsxs6(Fragment2, { children: [
-      /* @__PURE__ */ jsx8(
-        FilterNav,
-        {
-          filter: state.filter,
-          disabled: locked,
-          onSelect: (value) => dispatch({ type: "filter-changed", filter: value })
-        }
-      ),
-      shown.length === 0 ? state.jobs.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, {}) : /* @__PURE__ */ jsx8(EmptyFilterState, {}) : /* @__PURE__ */ jsx8(
+    const totalCount = state.jobs.length;
+    const shownCount = filteredJobs.length;
+    const isReduced = shownCount < totalCount;
+    const countText = isReduced ? `Showing ${shownCount} of ${totalCount} routines.` : `Showing all ${totalCount} routines.`;
+    return /* @__PURE__ */ jsxs7(Fragment4, { children: [
+      /* @__PURE__ */ jsxs7("div", { className: "hr-toolbar", children: [
+        /* @__PURE__ */ jsxs7("div", { className: "hr-search-wrap", children: [
+          /* @__PURE__ */ jsx9(
+            "input",
+            {
+              type: "text",
+              className: "hr-search-input",
+              placeholder: "Search routines\u2026",
+              value: searchQuery,
+              onChange: (e) => setSearchQuery(e.target.value),
+              "aria-label": "Search routines"
+            }
+          ),
+          searchQuery ? /* @__PURE__ */ jsx9(
+            "button",
+            {
+              type: "button",
+              className: "hr-search-clear",
+              onClick: () => setSearchQuery(""),
+              "aria-label": "Clear search",
+              children: /* @__PURE__ */ jsx9("svg", { width: "10", height: "10", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", children: /* @__PURE__ */ jsx9("path", { d: "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" }) })
+            }
+          ) : null
+        ] }),
+        /* @__PURE__ */ jsxs7("div", { className: "hr-filters-col", children: [
+          /* @__PURE__ */ jsx9(
+            FilterNav,
+            {
+              filter: state.filter,
+              disabled: locked,
+              onSelect: (value) => dispatch({ type: "filter-changed", filter: value })
+            }
+          ),
+          state.status === S.READY && totalCount > 0 ? /* @__PURE__ */ jsx9("span", { className: "hr-count-right", children: countText }) : null
+        ] })
+      ] }),
+      filteredJobs.length === 0 ? state.jobs.length === 0 ? /* @__PURE__ */ jsx9(EmptyState, {}) : /* @__PURE__ */ jsx9(EmptyFilterState, {}) : /* @__PURE__ */ jsx9(
         RoutineList,
         {
-          jobs: shown,
+          jobs: filteredJobs,
           pending: state.pending,
           locked,
+          inspectedId: selectedJobName,
+          onInspect: setSelectedJobName,
           onPause: handlePause,
           onResume: handleResume
         }
@@ -1475,10 +2190,10 @@ function RoutinesPage() {
   }
   const body = [];
   if (state.status === S.ROUTES_LOADING) {
-    body.push(/* @__PURE__ */ jsx8(LoadingState, { text: "Loading routines." }, "routes-loading"));
+    body.push(/* @__PURE__ */ jsx9(LoadingState, { text: "Loading routines." }, "routes-loading"));
   } else if (state.status === S.ROUTES_ERROR) {
     body.push(
-      /* @__PURE__ */ jsx8(
+      /* @__PURE__ */ jsx9(
         ErrorState,
         {
           title: "Could not list routines.",
@@ -1490,7 +2205,7 @@ function RoutinesPage() {
     );
   } else if (state.status === S.ROUTE_UNAVAILABLE) {
     body.push(
-      /* @__PURE__ */ jsx8(
+      /* @__PURE__ */ jsx9(
         UnavailableState,
         {
           profile: state.activeProfile ?? (typeof activeProfile === "string" ? activeProfile : null),
@@ -1502,21 +2217,21 @@ function RoutinesPage() {
   } else if (state.status === S.LIST_LOADING) {
     if (state.jobs.length > 0) {
       body.push(
-        /* @__PURE__ */ jsx8(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-loading")
+        /* @__PURE__ */ jsx9(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-loading")
       );
-      body.push(/* @__PURE__ */ jsx8("div", { children: renderList() }, "stale-list"));
+      body.push(/* @__PURE__ */ jsx9("div", { children: renderList() }, "stale-list"));
     } else {
-      body.push(/* @__PURE__ */ jsx8(LoadingState, { text: "Loading routines." }, "list-loading"));
+      body.push(/* @__PURE__ */ jsx9(LoadingState, { text: "Loading routines." }, "list-loading"));
     }
   } else if (state.status === S.LIST_ERROR) {
     if (state.jobs.length > 0) {
       body.push(
-        /* @__PURE__ */ jsx8(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-error")
+        /* @__PURE__ */ jsx9(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-error")
       );
-      body.push(/* @__PURE__ */ jsx8("div", { children: renderList() }, "stale-list-error"));
+      body.push(/* @__PURE__ */ jsx9("div", { children: renderList() }, "stale-list-error"));
     }
     body.push(
-      /* @__PURE__ */ jsx8(
+      /* @__PURE__ */ jsx9(
         ErrorState,
         {
           title: "Could not load routines.",
@@ -1527,37 +2242,52 @@ function RoutinesPage() {
       )
     );
   } else if (state.status === S.READY) {
-    body.push(/* @__PURE__ */ jsx8("div", { children: renderList() }, "ready-list"));
+    body.push(/* @__PURE__ */ jsx9("div", { children: renderList() }, "ready-list"));
   }
   const profileLabel = typeof activeProfile === "string" && activeProfile ? activeProfile : "\u2014";
-  return /* @__PURE__ */ jsxs6("section", { id: "hermes-routines-root", className: "hr-root", "aria-labelledby": "hermes-routines-heading", children: [
-    /* @__PURE__ */ jsx8("style", { children: ROUTINES_CSS }),
-    /* @__PURE__ */ jsx8("h2", { id: "hermes-routines-heading", ref: headingRef, tabIndex: -1, className: "hr-title", children: "Routines" }),
-    /* @__PURE__ */ jsx8("p", { className: "hr-sub", children: "Routines are scheduled jobs this profile runs to do recurring tasks." }),
-    /* @__PURE__ */ jsxs6("p", { className: "hr-profile", "aria-live": "polite", children: [
-      "Profile: ",
-      /* @__PURE__ */ jsx8("strong", { children: profileLabel })
+  return /* @__PURE__ */ jsxs7("section", { id: "hermes-routines-root", className: "hr-root", "aria-labelledby": "hermes-routines-heading", children: [
+    /* @__PURE__ */ jsx9("style", { children: ROUTINES_CSS }),
+    /* @__PURE__ */ jsxs7("div", { className: "hr-workspace", children: [
+      /* @__PURE__ */ jsxs7("div", { className: `hr-feed-column${!selectedJob ? " hr-feed-contained" : ""}`, children: [
+        /* @__PURE__ */ jsxs7("header", { className: "hr-header", children: [
+          /* @__PURE__ */ jsxs7("div", { className: "hr-header-top", children: [
+            /* @__PURE__ */ jsx9("h2", { id: "hermes-routines-heading", ref: headingRef, tabIndex: -1, className: "hr-title", children: "Routines" }),
+            /* @__PURE__ */ jsxs7("span", { className: "hr-sr-only", children: [
+              "Profile: ",
+              profileLabel
+            ] })
+          ] }),
+          /* @__PURE__ */ jsx9("p", { className: "hr-sub", children: "Routines are scheduled jobs this profile runs to do recurring tasks." })
+        ] }),
+        body
+      ] }),
+      selectedJob ? /* @__PURE__ */ jsx9(
+        RoutineInspectorPanel,
+        {
+          job: selectedJob,
+          fallback: selectedJobName || "Routine",
+          activeRoute,
+          activeProfile: state.activeProfile ?? (typeof activeProfile === "string" ? activeProfile : null),
+          busy: state.pending.indexOf(selectedJobName || "") !== -1,
+          disabled: locked,
+          onClose: () => setSelectedJobName(null),
+          onPause: () => handlePause(jobIdOf(selectedJob) || selectedJobName || ""),
+          onResume: () => handleResume(jobIdOf(selectedJob) || selectedJobName || "")
+        }
+      ) : null
     ] }),
-    state.status === S.READY && state.jobs.length > 0 ? /* @__PURE__ */ jsxs6("p", { className: "hr-count", children: [
-      "Showing ",
-      shown.length,
-      " of ",
-      state.jobs.length,
-      " routines."
-    ] }) : null,
-    body,
-    /* @__PURE__ */ jsx8(StatusLine, { text: liveText, statusRef })
+    /* @__PURE__ */ jsx9(StatusLine, { text: liveText, statusRef })
   ] });
 }
 
 // src/plugin.tsx
-import { jsx as jsx9 } from "react/jsx-runtime";
+import { jsx as jsx10 } from "react/jsx-runtime";
 function register(ctx) {
   ctx.register({
     id: ROUTE_ID,
     area: ROUTES_AREA,
     data: { path: ROUTE_PATH },
-    render: () => /* @__PURE__ */ jsx9(RoutinesPage, {})
+    render: () => /* @__PURE__ */ jsx10(RoutinesPage, {})
   });
   ctx.register({
     id: SIDEBAR_ID,
