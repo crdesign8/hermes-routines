@@ -47,6 +47,8 @@ export function register(ctx: PluginContext): void {
 export const plugin: RoutinesPlugin = {
   id: PLUGIN_ID,
   name: PLUGIN_NAME,
+  description: 'Standalone Hermes Desktop plugin for managing scheduled routines',
+  defaultEnabled: false,
   version: __PLUGIN_VERSION__,
   register,
 };

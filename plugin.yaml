@@ -1,0 +1,5 @@
+name: hermes-routines
+version: 0.1.0
+description: 'Standalone Hermes Desktop plugin for managing scheduled routines'
+provides_tools: []
+provides_hooks: []

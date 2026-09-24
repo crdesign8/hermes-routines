@@ -49,7 +49,23 @@ describe('scaffold', () => {
     assert.ok(pkg.scripts.check.includes('typecheck'), 'check must typecheck');
     assert.ok(pkg.scripts.check.includes('check-allowlist'), 'check must run allowlist');
     assert.ok(pkg.scripts.check.includes('check-version'), 'check must run version gate');
+    assert.ok(pkg.scripts.check.includes('check-manifest'), 'check must run manifest parity gate');
+    assert.equal(pkg.scripts['check:manifest'], 'node scripts/check-manifest.mjs');
     assert.ok(pkg.scripts.check.includes('build.mjs --check'), 'check must verify the artifact is fresh');
+  });
+
+  it('distribution manifest: plugin.yaml at the root, shipped, wired to the parity gate', () => {
+    assert.equal(existsSync(path.join(root, 'plugin.yaml')), true, 'plugin.yaml must exist at the repo root');
+    assert.ok(
+      Array.isArray(pkg.files) && pkg.files.includes('plugin.yaml'),
+      'plugin.yaml must ship in the published package',
+    );
+    assert.equal(existsSync(path.join(root, 'scripts', 'check-manifest.mjs')), true, 'manifest parity gate must exist');
+    assert.equal(
+      existsSync(path.join(root, 'tests', 'manifest-sync.test.mjs')),
+      true,
+      'manifest parity test must exist',
+    );
   });
 
   it('source of truth: src/ + strict tsconfig + build script', () => {

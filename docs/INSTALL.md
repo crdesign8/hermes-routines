@@ -18,6 +18,25 @@ after, and fails the install on mismatch (no half-copy is ever left
 behind; concurrent installs use different temp names and both rename
 over identical bytes, so last-writer-wins stays intact).
 
+## Distribution manifest (`plugin.yaml`)
+
+`plugin.yaml` lives at the package root and ships in the published
+package (`files` in `package.json`), next to `desktop/plugin.js` — it is
+**not** copied by the flat installer above. The installer maps exactly
+one file (`desktop/plugin.js` →
+`<profile-home>/plugins/routines/plugin.js`); the manifest is
+distribution metadata for catalog/registry validation, resolved from
+the package, not from the profile home.
+
+Single source of truth stays `package.json`: `name` / `version` /
+`description` must match across `package.json`, `plugin.yaml`,
+`src/constants.ts` (`PLUGIN_ID`) and the `desktop/plugin.js`
+descriptor (`description`, `defaultEnabled: false` opt-in, `version`
+pin), with `provides_tools: []` / `provides_hooks: []` declared
+explicitly empty. `node scripts/check-manifest.mjs` (part of
+`npm run check`, pinned by `tests/manifest-sync.test.mjs`) fails on any
+drift.
+
 ## Profile home resolution
 
 Precedence (first match wins):
@@ -115,6 +134,7 @@ Install command again.
 npm test                  # full suite (node:test)
 node scripts/check-allowlist.mjs   # import allowlist + require/eval ban (src/ + desktop/)
 node scripts/check-version.mjs     # package.json version == descriptor version in desktop/plugin.js
+node scripts/check-manifest.mjs    # package.json == plugin.yaml == src/constants.ts == desktop/plugin.js (+ empty provides_*)
 node scripts/build.mjs --check     # desktop/plugin.js is fresh (regenerate on drift)
 npm run typecheck                  # tsc --noEmit (strict, src/ + scripts/)
 npm run check             # all gates above

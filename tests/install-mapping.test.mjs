@@ -36,4 +36,14 @@ describe('install-mapping', () => {
     const again = install.install({ profileHome: home, root });
     assert.equal(again.sha256, result.sha256, 'reinstall must be idempotent');
   });
+
+  it('flat install: only desktop/plugin.js ships, plugin.yaml stays at the package root', () => {
+    assert.equal(install.SOURCE_REL, path.join('desktop', 'plugin.js'));
+    const src = readFileSync(path.join(root, 'scripts', 'install.mjs'), 'utf8');
+    assert.equal(
+      src.includes('plugin.yaml'),
+      false,
+      'the flat installer must not reference plugin.yaml (distribution-only, see docs/INSTALL.md)',
+    );
+  });
 });

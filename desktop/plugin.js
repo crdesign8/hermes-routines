@@ -3146,6 +3146,8 @@ function register(ctx) {
 var plugin = {
   id: PLUGIN_ID,
   name: PLUGIN_NAME,
+  description: "Standalone Hermes Desktop plugin for managing scheduled routines",
+  defaultEnabled: false,
   version: "0.1.0",
   register
 };
