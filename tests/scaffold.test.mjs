@@ -18,9 +18,14 @@ function runtimeDeps() {
 }
 
 describe('scaffold', () => {
-  it('package.json is ESM private with node>=20 and zero runtime deps', () => {
+  it('package.json is public-ready ESM with node>=20 and zero runtime deps', () => {
     assert.equal(pkg.type, 'module');
-    assert.equal(pkg.private, true);
+    assert.equal(pkg.private, false);
+    assert.equal(pkg.homepage, 'https://github.com/crdesign8/hermes-routines#readme');
+    assert.equal(pkg.repository?.type, 'git');
+    assert.equal(pkg.repository?.url, 'https://github.com/crdesign8/hermes-routines.git');
+    assert.equal(pkg.bugs?.url, 'https://github.com/crdesign8/hermes-routines/issues');
+    assert.ok(Array.isArray(pkg.files) && pkg.files.includes('README.md'), 'public files metadata required');
     assert.ok(pkg.engines && typeof pkg.engines.node === 'string', 'engines.node required');
     assert.match(pkg.engines.node, />=\s*20/, 'engines.node must require node>=20');
     assert.deepEqual(
