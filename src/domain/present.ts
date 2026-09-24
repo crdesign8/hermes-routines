@@ -92,9 +92,10 @@ export function routineKey(job: RoutineJob | null | undefined, fallback: string)
 }
 
 /**
- * Stable backend id for display and future edits: `job_id` when the row
- * carries one, else the key fallback. Mutations keep using routineKey
- * (the backend resolves names); this reader never drives a mutation.
+ * Stable backend id the future edit screen will address: `job_id` when
+ * the row carries one, else the key fallback. Mutations keep using
+ * routineKey (the backend resolves names); this reader never drives
+ * a mutation.
  */
 export function routineStableIdOf(job: RoutineJob | null | undefined, fallback: string): string {
   const row = asRecord(job);

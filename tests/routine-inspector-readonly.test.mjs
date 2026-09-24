@@ -109,6 +109,7 @@ describe('routine-inspector-readonly', () => {
     assert.match(allTexts, /WHEN TO RUN/);
     assert.match(allTexts, /What should this routine do\?/);
     assert.match(allTexts, /Active/);
+    assert.match(allTexts, /Daily at 09:00/);
 
     const nodes = collect(tree);
 
@@ -134,22 +135,32 @@ describe('routine-inspector-readonly', () => {
     assert.equal(switchBtn.props['aria-checked'], true);
   });
 
-  it('ships no save/submit affordance; pause/resume actions stay', async () => {
+  it('ships no save/submit affordance and nothing beyond the composer', async () => {
     const tree = renderInspector();
+    const allTexts = texts(tree).join(' ');
+    assert.doesNotMatch(allTexts, /0 9 \* \* \*/, 'no cron expression');
+    assert.doesNotMatch(allTexts, /Cron Expression/, 'no expression label');
+    assert.doesNotMatch(allTexts, /abc123/, 'no backend id');
+    assert.doesNotMatch(allTexts, /Routine ID/, 'no id row');
+    assert.doesNotMatch(allTexts, /Next Run/, 'no run metadata');
+    assert.doesNotMatch(allTexts, /Last Run/, 'no run metadata');
+    assert.doesNotMatch(allTexts, /Last Result/, 'no run metadata');
+    assert.doesNotMatch(allTexts, /Profile/, 'no route scope');
+    assert.doesNotMatch(allTexts, /Connection/, 'no route scope');
+    assert.doesNotMatch(allTexts, /Target/, 'no route scope');
+    assert.doesNotMatch(allTexts, /Payload/, 'no payload dump');
+    assert.doesNotMatch(allTexts, /Actions/, 'no actions section');
+
     const nodes = collect(tree);
     const buttons = nodes.filter((n) => n.type === 'button');
     const labels = buttons.map((b) => texts(b).join(''));
-    assert.ok(!labels.some((t) => /create routine/i.test(t)), 'no create affordance');
+    assert.equal(buttons.length, 2, 'only back + disabled switch exist');
+    assert.ok(labels.some((t) => /back to routines/i.test(t)), 'back action stays');
+    assert.ok(!labels.some((t) => /pause/i.test(t)), 'no pause affordance');
+    assert.ok(!labels.some((t) => /resume/i.test(t)), 'no resume affordance');
+    assert.ok(!labels.some((t) => /copy/i.test(t)), 'no copy affordance');
+    assert.ok(!labels.some((t) => /create/i.test(t)), 'no create affordance');
     assert.ok(!labels.some((t) => /save/i.test(t)), 'no save affordance');
-    assert.ok(labels.some((t) => /pause routine/i.test(t)), 'pause action stays');
-    assert.ok(labels.some((t) => /back to list/i.test(t)), 'back action stays');
-  });
-
-  it('shows the stored cron expression read-only with run context', async () => {
-    const tree = renderInspector();
-    const allTexts = texts(tree).join(' ');
-    assert.match(allTexts, /0 9 \* \* \*/);
-    assert.match(allTexts, /abc123/);
   });
 
   it('source pins the future-edit seam (no dead buttons)', () => {

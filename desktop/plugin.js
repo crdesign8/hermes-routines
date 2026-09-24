@@ -16,7 +16,7 @@ var SIDEBAR_LABEL = "Routines";
 var SIDEBAR_CODICON = "history";
 
 // src/views/RoutinesPage.tsx
-import { useCallback, useEffect as useEffect3, useMemo as useMemo2, useRef as useRef2, useState as useState5 } from "react";
+import { useCallback, useEffect as useEffect3, useMemo as useMemo2, useRef as useRef2, useState as useState4 } from "react";
 import { host as host2, useValue } from "@hermes/plugin-sdk";
 
 // src/domain/routing.ts
@@ -2064,60 +2064,28 @@ function RoutineList({
 }
 
 // src/views/RoutineInspectorPanel.tsx
-import { useState as useState2 } from "react";
-import { Fragment as Fragment2, jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
+import { jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
 function RoutineInspectorPanel({
   job,
   fallback,
-  activeRoute,
-  activeProfile,
-  busy,
-  disabled,
-  onClose,
-  onPause,
-  onResume
+  onClose
 }) {
-  const [copiedId, setCopiedId] = useState2(false);
-  const [copiedCron, setCopiedCron] = useState2(false);
   const title = routineTitle(job, fallback);
-  const id = routineStableIdOf(job, fallback);
-  const paused = jobPaused(job);
-  const terminal = routineTerminal(job);
   const schedule = humanScheduleOf(job) || "\u2014";
-  const rawCron = rawScheduleOf(job);
-  const nextIso = nextRunIso(job);
-  const lastIso = lastRunIso(job);
-  const result = lastResultOf(job);
-  const showRuns = routineActive(job);
-  function copyText(text, setCopied) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2e3);
-      }).catch(() => {
-      });
-    }
-  }
   return /* @__PURE__ */ jsxs4("aside", { className: "hr-inspector", "aria-label": `Details for ${title}`, children: [
-    /* @__PURE__ */ jsxs4("header", { className: "hr-inspector-header", children: [
-      /* @__PURE__ */ jsxs4(
-        "button",
-        {
-          type: "button",
-          className: "hr-btn-action hr-btn-back",
-          onClick: onClose,
-          "aria-label": "Back to list",
-          children: [
-            /* @__PURE__ */ jsx6("svg", { width: "12", height: "12", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { flexShrink: 0 }, children: /* @__PURE__ */ jsx6("path", { fillRule: "evenodd", d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" }) }),
-            /* @__PURE__ */ jsx6("span", { children: "Back to list" })
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-header-badges", children: [
-        activeRoute?.mode ? /* @__PURE__ */ jsx6("span", { className: "hr-badge-subtle", children: activeRoute.mode === "remote" ? "VPS" : "Local" }) : null,
-        /* @__PURE__ */ jsx6(RoutineStatus, { job })
-      ] })
-    ] }),
+    /* @__PURE__ */ jsx6("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs4(
+      "button",
+      {
+        type: "button",
+        className: "hr-btn-action hr-btn-back",
+        onClick: onClose,
+        "aria-label": "Back to routines",
+        children: [
+          /* @__PURE__ */ jsx6("svg", { width: "12", height: "12", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { flexShrink: 0 }, children: /* @__PURE__ */ jsx6("path", { fillRule: "evenodd", d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" }) }),
+          /* @__PURE__ */ jsx6("span", { children: "Back to routines" })
+        ]
+      }
+    ) }),
     /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-body", children: [
       /* @__PURE__ */ jsx6("h3", { className: "hr-create-title", children: title }),
       /* @__PURE__ */ jsxs4("div", { className: "hr-create-active-card", children: [
@@ -2169,122 +2137,14 @@ function RoutineInspectorPanel({
       ] }),
       /* @__PURE__ */ jsxs4("div", { className: "hr-create-when-section", children: [
         /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
-        /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: schedule }),
-        rawCron ? /* @__PURE__ */ jsxs4("div", { className: "hr-tech-entry", children: [
-          /* @__PURE__ */ jsxs4("div", { className: "hr-tech-entry-head", children: [
-            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Cron Expression" }),
-            /* @__PURE__ */ jsx6(
-              "button",
-              {
-                type: "button",
-                className: "hr-btn-mini",
-                onClick: () => copyText(rawCron, setCopiedCron),
-                "aria-label": "Copy cron expression",
-                children: copiedCron ? "Copied" : "Copy"
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsx6("code", { className: "hr-code-block", children: rawCron })
-        ] }) : null,
-        /* @__PURE__ */ jsxs4("div", { className: "hr-kv-grid", children: [
-          /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Routine ID" }),
-          /* @__PURE__ */ jsxs4("span", { className: "hr-kv-value hr-code-inline", children: [
-            id,
-            " ",
-            /* @__PURE__ */ jsx6(
-              "button",
-              {
-                type: "button",
-                className: "hr-btn-mini",
-                onClick: () => copyText(id, setCopiedId),
-                "aria-label": "Copy routine ID",
-                children: copiedId ? "Copied" : "Copy"
-              }
-            )
-          ] }),
-          showRuns && nextIso !== null && formatWhen(nextIso) !== null ? /* @__PURE__ */ jsxs4(Fragment2, { children: [
-            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Next Run" }),
-            /* @__PURE__ */ jsxs4("span", { className: "hr-kv-value hr-next", children: [
-              formatWhen(nextIso),
-              formatDate(nextIso) ? /* @__PURE__ */ jsxs4("span", { className: "hr-date", children: [
-                " (",
-                formatDate(nextIso),
-                ")"
-              ] }) : null
-            ] })
-          ] }) : null,
-          showRuns && lastIso !== null && formatWhen(lastIso) !== null ? /* @__PURE__ */ jsxs4(Fragment2, { children: [
-            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Last Run" }),
-            /* @__PURE__ */ jsxs4("span", { className: "hr-kv-value", children: [
-              formatWhen(lastIso),
-              formatDate(lastIso) ? /* @__PURE__ */ jsxs4("span", { className: "hr-date", children: [
-                " (",
-                formatDate(lastIso),
-                ")"
-              ] }) : null
-            ] })
-          ] }) : null,
-          /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Last Result" }),
-          /* @__PURE__ */ jsxs4("span", { className: `hr-kv-value hr-result hr-result-${result.kind}`, children: [
-            result.kind === "success" ? /* @__PURE__ */ jsx6("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { display: "inline-block", verticalAlign: -2, marginRight: 6 }, children: /* @__PURE__ */ jsx6("path", { fillRule: "evenodd", d: "M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.854-8.646a.5.5 0 0 0-.708-.708L7.5 9.293 5.854 7.646a.5.5 0 1 0-.708.708l2 2a.5.5 0 0 0 .708 0l4-4z" }) }) : result.kind === "error" ? /* @__PURE__ */ jsx6("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { display: "inline-block", verticalAlign: -2, marginRight: 6 }, children: /* @__PURE__ */ jsx6("path", { fillRule: "evenodd", d: "M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.354-9.354a.5.5 0 0 0-.708-.708L8 7.293 5.354 4.646a.5.5 0 1 0-.708.708L7.293 8l-2.647 2.646a.5.5 0 0 0 .708.708L8 8.707l2.646 2.647a.5.5 0 0 0 .708-.708L8.707 8l2.647-2.646z" }) }) : null,
-            result.text
-          ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxs4("section", { className: "hr-inspector-section", children: [
-        /* @__PURE__ */ jsx6("h4", { className: "hr-section-title", children: "Route & Target" }),
-        /* @__PURE__ */ jsxs4("div", { className: "hr-kv-grid", children: [
-          /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Profile" }),
-          /* @__PURE__ */ jsx6("span", { className: "hr-kv-value", children: activeProfile || "\u2014" }),
-          activeRoute ? /* @__PURE__ */ jsxs4(Fragment2, { children: [
-            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Connection" }),
-            /* @__PURE__ */ jsxs4("span", { className: "hr-kv-value hr-code-inline", children: [
-              activeRoute.connectionId,
-              " (",
-              activeRoute.mode,
-              ")"
-            ] }),
-            /* @__PURE__ */ jsx6("span", { className: "hr-kv-label", children: "Target" }),
-            /* @__PURE__ */ jsx6("span", { className: "hr-kv-value hr-code-inline", children: activeRoute.targetProfile })
-          ] }) : null
-        ] })
-      ] }),
-      !terminal ? /* @__PURE__ */ jsxs4("section", { className: "hr-inspector-section hr-inspector-actions-section", children: [
-        /* @__PURE__ */ jsx6("h4", { className: "hr-section-title", children: "Actions" }),
-        /* @__PURE__ */ jsx6("div", { className: "hr-inspector-actions-bar", children: paused ? /* @__PURE__ */ jsxs4(
-          "button",
-          {
-            type: "button",
-            className: "hr-btn hr-btn-resume",
-            disabled: disabled || busy,
-            onClick: onResume,
-            "aria-label": `Resume ${title}`,
-            children: [
-              /* @__PURE__ */ jsx6("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "currentColor", "aria-hidden": "true", style: { marginRight: 6 }, children: /* @__PURE__ */ jsx6("path", { d: "M8 5v14l11-7z" }) }),
-              busy ? "Resuming\u2026" : "Resume Routine"
-            ]
-          }
-        ) : /* @__PURE__ */ jsxs4(
-          "button",
-          {
-            type: "button",
-            className: "hr-btn hr-btn-pause",
-            disabled: disabled || busy,
-            onClick: onPause,
-            "aria-label": `Pause ${title}`,
-            children: [
-              /* @__PURE__ */ jsx6("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "currentColor", "aria-hidden": "true", style: { marginRight: 6 }, children: /* @__PURE__ */ jsx6("path", { d: "M6 4h4v16H6V4zm8 0h4v16h-4V4z" }) }),
-              busy ? "Pausing\u2026" : "Pause Routine"
-            ]
-          }
-        ) })
-      ] }) : null
+        /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: schedule })
+      ] })
     ] })
   ] });
 }
 
 // src/views/RoutineComposerPanel.tsx
-import { useMemo, useState as useState4 } from "react";
+import { useMemo, useState as useState3 } from "react";
 
 // src/domain/routineSchedule.ts
 var TRIGGER_OPTIONS = [
@@ -2407,7 +2267,7 @@ function describeScheduleConfig(config) {
 }
 
 // src/views/SelectField.tsx
-import { useEffect as useEffect2, useRef, useState as useState3 } from "react";
+import { useEffect as useEffect2, useRef, useState as useState2 } from "react";
 import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
 function SelectField({
   label,
@@ -2416,7 +2276,7 @@ function SelectField({
   onChange,
   className = ""
 }) {
-  const [isOpen, setIsOpen] = useState3(false);
+  const [isOpen, setIsOpen] = useState2(false);
   const containerRef = useRef(null);
   const listRef = useRef(null);
   const selectedOption = options.find((opt) => opt.value === value) ?? options[0];
@@ -2528,12 +2388,12 @@ function RoutineComposerPanel({
   onClose,
   onSubmit
 }) {
-  const [name, setName] = useState4("");
-  const [prompt, setPrompt] = useState4("");
-  const [active, setActive] = useState4(true);
-  const [scheduleConfig, setScheduleConfig] = useState4(DEFAULT_SCHEDULE_CONFIG);
-  const [submitting, setSubmitting] = useState4(false);
-  const [error, setError] = useState4(null);
+  const [name, setName] = useState3("");
+  const [prompt, setPrompt] = useState3("");
+  const [active, setActive] = useState3(true);
+  const [scheduleConfig, setScheduleConfig] = useState3(DEFAULT_SCHEDULE_CONFIG);
+  const [submitting, setSubmitting] = useState3(false);
+  const [error, setError] = useState3(null);
   const timeOptions = useMemo(
     () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
     []
@@ -2764,7 +2624,7 @@ function RoutineComposerPanel({
 }
 
 // src/views/panels.tsx
-import { Fragment as Fragment3, jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
+import { Fragment as Fragment2, jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
 function StatusLine({ text, statusRef }) {
   return /* @__PURE__ */ jsx9("p", { ref: statusRef, tabIndex: -1, className: "hr-status", role: "status", "aria-live": "polite", children: text || "Routines ready." });
 }
@@ -2818,15 +2678,15 @@ function StaleBanner({ onRetry }) {
 }
 
 // src/views/RoutinesPage.tsx
-import { Fragment as Fragment4, jsx as jsx11, jsxs as jsxs9 } from "react/jsx-runtime";
+import { Fragment as Fragment3, jsx as jsx11, jsxs as jsxs9 } from "react/jsx-runtime";
 function pastTense(kind) {
   if (kind === "pause") return "paused";
   if (kind === "resume") return "resumed";
   return "saved";
 }
 function RoutinesPage() {
-  const [state, setState] = useState5(initialRoutinesState);
-  const [routesNonce, setRoutesNonce] = useState5(0);
+  const [state, setState] = useState4(initialRoutinesState);
+  const [routesNonce, setRoutesNonce] = useState4(0);
   const headingRef = useRef2(null);
   const statusRef = useRef2(null);
   const generationRef = useRef2(0);
@@ -2839,9 +2699,9 @@ function RoutinesPage() {
   const locked = state.pending.length !== 0;
   const shown = visibleJobs(state.jobs, state.filter);
   const S = ROUTINES_VIEW_STATUS;
-  const [searchQuery, setSearchQuery] = useState5("");
-  const [selectedJobName, setSelectedJobName] = useState5(null);
-  const [isCreating, setIsCreating] = useState5(false);
+  const [searchQuery, setSearchQuery] = useState4("");
+  const [selectedJobName, setSelectedJobName] = useState4(null);
+  const [isCreating, setIsCreating] = useState4(false);
   useEffect3(() => {
     if (selectedJobName === null) return;
     const stillThere = state.jobs.some(
@@ -3000,7 +2860,7 @@ function RoutinesPage() {
     const shownCount = filteredJobs.length;
     const isReduced = shownCount < totalCount;
     const countText = isReduced ? `Showing ${shownCount} of ${totalCount} routines.` : `Showing all ${totalCount} routines.`;
-    return /* @__PURE__ */ jsxs9(Fragment4, { children: [
+    return /* @__PURE__ */ jsxs9(Fragment3, { children: [
       /* @__PURE__ */ jsxs9("div", { className: "hr-toolbar", children: [
         /* @__PURE__ */ jsxs9("div", { className: "hr-search-wrap", children: [
           /* @__PURE__ */ jsx11(
