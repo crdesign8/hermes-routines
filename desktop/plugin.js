@@ -2180,7 +2180,12 @@ var TRIGGER_VALUES = new Set(TRIGGER_OPTIONS.map((o) => o.value));
 var DAY_OF_WEEK_VALUES = new Set(DAYS_OF_WEEK);
 var INTERVAL_UNIT_VALUES = new Set(INTERVAL_UNITS);
 function show(value) {
-  const text = typeof value === "string" ? JSON.stringify(value) : String(value);
+  let text;
+  try {
+    text = typeof value === "string" ? JSON.stringify(value) : String(value);
+  } catch {
+    text = Object.prototype.toString.call(value);
+  }
   return text.length > 40 ? `${text.slice(0, 37)}...` : text;
 }
 function generateTimeSlots() {

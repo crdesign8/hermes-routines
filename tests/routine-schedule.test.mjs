@@ -197,12 +197,29 @@ describe('routineSchedule fail-closed validation', () => {
     assertRejected('null', { intervalUnit: null }, /unknown intervalUnit/);
   });
 
-  it('rejects non-object configs', () => {
-    for (const bad of [null, undefined, 'every_day', 42, [], () => {}]) {
+  it('rejects non-object and missing-field configs', () => {
+    for (const bad of [null, undefined, 'every_day', 42, [], () => {}, Symbol('x')]) {
       assert.throws(() => validateScheduleConfig(bad), TypeError, `config ${String(bad)}`);
       assert.throws(() => buildCronExpression(bad), TypeError);
       assert.throws(() => describeScheduleConfig(bad), TypeError);
     }
+    // empty object and undefined fields are invalid, not defaulted
+    for (const bad of [{}, { ...valid, time: undefined }, { ...valid, trigger: undefined }]) {
+      assert.throws(() => validateScheduleConfig(bad), TypeError, JSON.stringify(bad));
+      assert.throws(() => buildCronExpression(bad), TypeError);
+      assert.throws(() => describeScheduleConfig(bad), TypeError);
+    }
+    // error rendering must not itself throw on exotic values
+    const circular = {};
+    circular.self = circular;
+    assert.throws(
+      () => validateScheduleConfig({ ...valid, trigger: Object.create(null) }),
+      /unknown trigger value/,
+    );
+    assert.throws(
+      () => validateScheduleConfig({ ...valid, dayOfMonth: circular }),
+      /dayOfMonth/,
+    );
   });
 
   it('valid UI-generated configs still serialize exactly as before', () => {

@@ -68,9 +68,15 @@ const DAY_OF_WEEK_VALUES: Set<string> = new Set(DAYS_OF_WEEK);
 const INTERVAL_UNIT_VALUES: Set<string> = new Set(INTERVAL_UNITS);
 
 /** Render an invalid value for an error message without letting a huge
- * payload flood the caller (and without template-literal Symbol traps). */
+ * payload flood the caller. Never throws: null-prototype objects and
+ * circular structures would blow up String()/JSON.stringify(). */
 function show(value: unknown): string {
-  const text = typeof value === 'string' ? JSON.stringify(value) : String(value);
+  let text: string;
+  try {
+    text = typeof value === 'string' ? JSON.stringify(value) : String(value);
+  } catch {
+    text = Object.prototype.toString.call(value);
+  }
   return text.length > 40 ? `${text.slice(0, 37)}...` : text;
 }
 
@@ -126,7 +132,7 @@ export const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
  * The whole config is validated regardless of the selected trigger: an
  * unrelated field carrying garbage is still an invalid config.
  */
-export function validateScheduleConfig(input: unknown): void {
+export function validateScheduleConfig(input: unknown): asserts input is ScheduleConfig {
   if (typeof input !== 'object' || input === null) {
     throw new TypeError(`schedule config must be an object (got ${show(input)})`);
   }
