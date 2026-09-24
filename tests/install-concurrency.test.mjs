@@ -22,7 +22,7 @@ function runInstallCli(home) {
   return new Promise((resolve, reject) => {
     execFile(
       process.execPath,
-      [path.join(root, 'scripts', 'install.mjs'), `--profile-home=${home}`, `--root=${root}`],
+      [path.join(root, 'scripts', 'install.mjs'), 'install', `--hermes-home=${home}`, `--root=${root}`],
       { encoding: 'utf8', timeout: 60000 },
       (err, stdout, stderr) => {
         if (err) {
@@ -55,13 +55,13 @@ describe('install-concurrency', () => {
     // over two large Buffers of differing length busy-loops the event
     // loop on Node 24 (observed while migrating off desktop/routines.js).
     const srcBytes = readFileSync(path.join(root, 'desktop', 'plugin.js'));
-    const dest = path.join(home, 'plugins', 'routines', 'plugin.js');
+    const dest = path.join(home, 'desktop-plugins', 'hermes-routines', 'plugin.js');
     const destBytes = readFileSync(dest);
     assert.equal(destBytes.length, srcBytes.length, 'dest must be byte-identical (no half-copy)');
     assert.equal(sha256(destBytes), sha256(srcBytes), 'dest sha256 must match src');
     assert.equal(hashA, sha256(srcBytes), 'reported sha256 must match src');
 
-    const entries = readdirSync(path.join(home, 'plugins', 'routines'));
+    const entries = readdirSync(path.join(home, 'desktop-plugins', 'hermes-routines'));
     assert.deepEqual(
       entries.filter((e) => e.includes('.tmp.')),
       [],

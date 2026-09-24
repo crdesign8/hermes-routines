@@ -47,7 +47,7 @@ Verify that the Desktop host implements the plugin descriptor and
 ## Installation
 
 The supported installation path is from a checkout. The installer copies the
-generated artifact into the selected Hermes profile home and verifies its
+generated artifact into the app-level desktop-plugins root and verifies its
 SHA-256 before and after publishing it.
 
 ```sh
@@ -55,28 +55,31 @@ git clone https://github.com/crdesign8/hermes-routines.git
 cd hermes-routines
 npm ci
 npm run build
-node scripts/install.mjs --profile=default
+node scripts/install.mjs install --hermes-home="$HOME/.hermes"
 ```
 
-For a non-standard profile directory, pass an explicit home:
+For a non-standard app home, pass an explicit home (or set `HERMES_HOME`).
+The default is `~/.hermes`:
 
 ```sh
-node scripts/install.mjs \
-  --profile-home="$HOME/.hermes/profiles/my-profile"
+node scripts/install.mjs install \
+  --hermes-home="$HOME/.hermes"
 ```
 
-`--profile` accepts only a single safe profile name. Use `--profile-home` for
-an arbitrary path. The profile-name precedence is documented in
+There is exactly one install location —
+`<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js` — shared by all
+profiles. The `--hermes-home` / `HERMES_HOME` precedence is documented in
 [`docs/INSTALL.md`](docs/INSTALL.md).
 
-After installation, reload the Desktop profile (or restart the Desktop app).
-The Routines page is then available at `/routines`.
+After installation, reload the Desktop app (or trigger a runtime plugin
+reload). The Routines page is then available at `/routines`, whichever
+profile is active.
 
 ### Verify the installed artifact
 
 ```sh
 sha256sum desktop/plugin.js \
-  "$HOME/.hermes/profiles/default/plugins/routines/plugin.js"
+  "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js"
 ```
 
 The two hashes must match.
@@ -104,30 +107,43 @@ git checkout main
 git pull --ff-only origin main
 npm ci
 npm run build
-node scripts/install.mjs --profile=default
+node scripts/install.mjs update --hermes-home="$HOME/.hermes"
 ```
 
-Then reload the Desktop profile. The plugin has no local migration step;
-routine state remains in the host's `cron.manage` backend.
+Then reload the Desktop app. The plugin has no local migration step;
+routine state remains in the host's `cron.manage` backend. A differing
+update keeps the replaced bytes as `plugin.js.prev` — restore them with
+`node scripts/install.mjs rollback --hermes-home="$HOME/.hermes"`.
 
 ## Uninstall
 
 The installer creates or updates exactly:
 
 ```text
-<profile-home>/plugins/routines/plugin.js
+<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js
 ```
 
-Remove that file and its directory, then reload the profile:
+Remove it (and its backup, if any), then reload the app:
 
 ```sh
-rm "$HOME/.hermes/profiles/default/plugins/routines/plugin.js"
-rmdir "$HOME/.hermes/profiles/default/plugins/routines" 2>/dev/null || true
+node scripts/install.mjs uninstall --hermes-home="$HOME/.hermes"
 ```
 
-Do not remove the shared `plugins` directory. Uninstalling this plugin does
+or manually:
+
+```sh
+rm "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js"
+rm "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js.prev" 2>/dev/null || true
+rmdir "$HOME/.hermes/desktop-plugins/hermes-routines" 2>/dev/null || true
+```
+
+Do not remove the shared `desktop-plugins` directory. Uninstalling this plugin does
 not delete routines stored by the Hermes host; manage those through the host's
 own cron interface if you need to remove them.
+
+Migrating from a pre-#14 release? Delete the old per-profile file too
+(`rm "$HOME/.hermes/profiles/default/plugins/routines/plugin.js"`) —
+see [`docs/INSTALL.md`](docs/INSTALL.md) (Migration).
 
 ## Security and privacy
 
@@ -159,9 +175,10 @@ edge cases, see [`docs/INSTALL.md`](docs/INSTALL.md).
 - **`sha256 mismatch`:** re-run the installer and compare the two hashes
   again. The installer removes its temporary file on failure and uses an
   exclusive temporary name for concurrent installs.
-- **`invalid profile`:** use a profile name matching
-  `[A-Za-z0-9._-]{1,64}`, or pass `--profile-home` for another path.
-- **The page is unavailable after install:** reload the Desktop profile and
+- **`invalid hermes-home`:** pass a non-empty `--hermes-home` path or set
+  `HERMES_HOME`. The pre-#14 `--profile` / `--profile-home` flags are
+  rejected — see `docs/INSTALL.md` (Migration).
+- **The page is unavailable after install:** reload the Desktop app and
   confirm that the target profile has a usable route and the required
   `cron.manage` tool.
 - **The route is present but operations fail closed:** the host did not
