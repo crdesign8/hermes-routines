@@ -650,11 +650,13 @@ function describeSchedule(expr) {
   if (minute.isWildcard && hour.isWildcard && dom.isWildcard && month.isWildcard && dow.isWildcard) {
     return "Every minute";
   }
-  if (minute.step !== null && minute.step > 1 && hour.isWildcard && dom.isWildcard && month.isWildcard && dow.isWildcard) {
-    return `Every ${minute.step} minutes`;
+  if (isUniformMinuteStep(minute) && hour.isWildcard && dom.isWildcard && month.isWildcard && dow.isWildcard) {
+    const step = minute.explicitStep ?? minute.step ?? 0;
+    return `Every ${step} minutes`;
   }
-  if (minute.isZeroOnly && hour.step !== null && hour.step > 1 && dom.isWildcard && month.isWildcard && dow.isWildcard) {
-    return `Every ${hour.step} hours`;
+  if (minute.isZeroOnly && isUniformHourStep(hour) && dom.isWildcard && month.isWildcard && dow.isWildcard) {
+    const step = hour.explicitStep ?? hour.step ?? 0;
+    return `Every ${step} hours`;
   }
   if (minute.values.length === 1 && hour.isWildcard && dom.isWildcard && month.isWildcard && dow.isWildcard) {
     const only = minute.values[0];
@@ -724,7 +726,9 @@ function describeSchedule(expr) {
     return `Every hour from ${start} to ${end}`;
   }
   if (minute.values.length === 1 && month.isWildcard && dow.isWildcard && hour.step !== null && hour.step > 1) {
-    const cadence = `Every ${hour.step} hours`;
+    if (!isUniformHourStep(hour)) return trimmed;
+    const step = hour.explicitStep ?? hour.step;
+    const cadence = `Every ${step} hours`;
     if (dom.isWildcard) return cadence;
     const first = dom.values[0];
     const last = dom.values[dom.values.length - 1];
@@ -761,7 +765,6 @@ function describeInterval(expr) {
 function splitFields(expr) {
   const normalized = expr.trim().replace(/\s*,\s*/g, ",").replace(/\s+/g, " ");
   const list = normalized.split(" ").filter((f) => f.length > 0);
-  if (list.length === 6 && list[0] === "0") list.shift();
   if (list.length !== 5) return null;
   return list;
 }
@@ -774,6 +777,24 @@ function parsedField(values, opts = {}) {
     isZeroOnly: values.length === 1 && values[0] === 0
   };
 }
+function parseStrictInt(token) {
+  if (!/^\d+$/.test(token)) return null;
+  const value = Number.parseInt(token, 10);
+  if (!Number.isSafeInteger(value)) return null;
+  return value;
+}
+function isUniformMinuteStep(field) {
+  const step = field.explicitStep ?? field.step;
+  if (step === null || step <= 1) return false;
+  if (field.values[0] !== 0) return false;
+  return 60 % step === 0;
+}
+function isUniformHourStep(field) {
+  const step = field.explicitStep ?? field.step;
+  if (step === null || step <= 1) return false;
+  if (field.values[0] !== 0) return false;
+  return 24 % step === 0;
+}
 function parseField(field, min, max) {
   const trimmed = field.trim();
   if (!trimmed) return null;
@@ -782,8 +803,8 @@ function parseField(field, min, max) {
   if (trimmed.includes("/")) {
     const parts = trimmed.split("/");
     if (parts.length !== 2) return null;
-    const parsed = Number.parseInt(parts[1] ?? "", 10);
-    if (!Number.isInteger(parsed) || parsed <= 0) return null;
+    const parsed = parseStrictInt(parts[1] ?? "");
+    if (parsed === null || parsed <= 0) return null;
     step = parsed;
     base = parts[0] ?? "";
   }
@@ -798,9 +819,12 @@ function parseField(field, min, max) {
     return parsedField(values, { isWildcard: step == null, step: step ?? 1, explicitStep: step });
   }
   if (!base.includes("*") && !base.includes(",") && !base.includes("-")) {
-    const value = Number.parseInt(base, 10);
-    if (!Number.isInteger(value) || value < min || value > max) return null;
-    return parsedField([value]);
+    const start = parseStrictInt(base);
+    if (start === null || start < min || start > max) return null;
+    if (step === null) return parsedField([start]);
+    const values = [];
+    for (let v = start; v <= max; v += step) values.push(v);
+    return parsedField(values, { step, explicitStep: step });
   }
   if (base.includes(",") || base.includes("-")) {
     const values = /* @__PURE__ */ new Set();
@@ -810,14 +834,14 @@ function parseField(field, min, max) {
       if (piece.includes("-")) {
         const range = piece.split("-");
         if (range.length !== 2) return null;
-        const start = Number.parseInt(range[0] ?? "", 10);
-        const end = Number.parseInt(range[1] ?? "", 10);
-        if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
+        const start = parseStrictInt(range[0] ?? "");
+        const end = parseStrictInt(range[1] ?? "");
+        if (start === null || end === null) return null;
         if (start < min || end > max || start > end) return null;
         for (let v = start; v <= end; v++) values.add(v);
       } else {
-        const value = Number.parseInt(piece, 10);
-        if (!Number.isInteger(value) || value < min || value > max) return null;
+        const value = parseStrictInt(piece);
+        if (value === null || value < min || value > max) return null;
         values.add(value);
       }
     }

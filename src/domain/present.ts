@@ -361,24 +361,24 @@ export function describeSchedule(expr: unknown): string {
     return 'Every minute';
   }
   if (
-    minute.step !== null &&
-    minute.step > 1 &&
+    isUniformMinuteStep(minute) &&
     hour.isWildcard &&
     dom.isWildcard &&
     month.isWildcard &&
     dow.isWildcard
   ) {
-    return `Every ${minute.step} minutes`;
+    const step = minute.explicitStep ?? minute.step ?? 0;
+    return `Every ${step} minutes`;
   }
   if (
     minute.isZeroOnly &&
-    hour.step !== null &&
-    hour.step > 1 &&
+    isUniformHourStep(hour) &&
     dom.isWildcard &&
     month.isWildcard &&
     dow.isWildcard
   ) {
-    return `Every ${hour.step} hours`;
+    const step = hour.explicitStep ?? hour.step ?? 0;
+    return `Every ${step} hours`;
   }
   if (
     minute.values.length === 1 &&
@@ -510,7 +510,11 @@ export function describeSchedule(expr: unknown): string {
     hour.step !== null &&
     hour.step > 1
   ) {
-    const cadence = `Every ${hour.step} hours`;
+    // A stepped hour claim across days/months is only equivalent when the
+    // step is uniform across midnight; otherwise fail closed to verbatim.
+    if (!isUniformHourStep(hour)) return trimmed;
+    const step = hour.explicitStep ?? hour.step;
+    const cadence = `Every ${step} hours`;
     if (dom.isWildcard) return cadence;
     const first = dom.values[0];
     const last = dom.values[dom.values.length - 1];
@@ -549,7 +553,8 @@ function describeInterval(expr: string): string | null {
 function splitFields(expr: string): string[] | null {
   const normalized = expr.trim().replace(/\s*,\s*/g, ',').replace(/\s+/g, ' ');
   const list = normalized.split(' ').filter((f) => f.length > 0);
-  if (list.length === 6 && list[0] === '0') list.shift();
+  // Six-field (seconds-included) expressions are never silently reinterpreted
+  // as five-field: fail closed to the verbatim expression.
   if (list.length !== 5) return null;
   return list;
 }
@@ -575,6 +580,37 @@ function parsedField(
   };
 }
 
+function parseStrictInt(token: string): number | null {
+  if (!/^\d+$/.test(token)) return null;
+  const value = Number.parseInt(token, 10);
+  if (!Number.isSafeInteger(value)) return null;
+  return value;
+}
+
+/**
+ * A minute step is only a uniform interval when it starts at :00 and divides
+ * the hour without a remainder across the hour boundary (step 15 divides
+ * 60; step 45 leaves a 15-minute gap). Anything else fails closed to verbatim.
+ */
+function isUniformMinuteStep(field: ParsedField): boolean {
+  const step = field.explicitStep ?? field.step;
+  if (step === null || step <= 1) return false;
+  if (field.values[0] !== 0) return false;
+  return 60 % step === 0;
+}
+
+/**
+ * An hour step is only a uniform interval when it starts at 00:00 and divides
+ * the day without a remainder across midnight (step 6 divides 24; step 5
+ * leaves a 4-hour gap). Anything else fails closed to verbatim.
+ */
+function isUniformHourStep(field: ParsedField): boolean {
+  const step = field.explicitStep ?? field.step;
+  if (step === null || step <= 1) return false;
+  if (field.values[0] !== 0) return false;
+  return 24 % step === 0;
+}
+
 function parseField(field: string, min: number, max: number): ParsedField | null {
   const trimmed = field.trim();
   if (!trimmed) return null;
@@ -583,8 +619,8 @@ function parseField(field: string, min: number, max: number): ParsedField | null
   if (trimmed.includes('/')) {
     const parts = trimmed.split('/');
     if (parts.length !== 2) return null;
-    const parsed = Number.parseInt(parts[1] ?? '', 10);
-    if (!Number.isInteger(parsed) || parsed <= 0) return null;
+    const parsed = parseStrictInt(parts[1] ?? '');
+    if (parsed === null || parsed <= 0) return null;
     step = parsed;
     base = parts[0] ?? '';
   }
@@ -599,9 +635,14 @@ function parseField(field: string, min: number, max: number): ParsedField | null
     return parsedField(values, { isWildcard: step == null, step: step ?? 1, explicitStep: step });
   }
   if (!base.includes('*') && !base.includes(',') && !base.includes('-')) {
-    const value = Number.parseInt(base, 10);
-    if (!Number.isInteger(value) || value < min || value > max) return null;
-    return parsedField([value]);
+    const start = parseStrictInt(base);
+    if (start === null || start < min || start > max) return null;
+    // A bare start with a step (e.g. `5/15`) expands from the start value;
+    // it must never be silently collapsed to a single value.
+    if (step === null) return parsedField([start]);
+    const values: number[] = [];
+    for (let v = start; v <= max; v += step) values.push(v);
+    return parsedField(values, { step, explicitStep: step });
   }
   if (base.includes(',') || base.includes('-')) {
     const values = new Set<number>();
@@ -611,14 +652,14 @@ function parseField(field: string, min: number, max: number): ParsedField | null
       if (piece.includes('-')) {
         const range = piece.split('-');
         if (range.length !== 2) return null;
-        const start = Number.parseInt(range[0] ?? '', 10);
-        const end = Number.parseInt(range[1] ?? '', 10);
-        if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
+        const start = parseStrictInt(range[0] ?? '');
+        const end = parseStrictInt(range[1] ?? '');
+        if (start === null || end === null) return null;
         if (start < min || end > max || start > end) return null;
         for (let v = start; v <= end; v++) values.add(v);
       } else {
-        const value = Number.parseInt(piece, 10);
-        if (!Number.isInteger(value) || value < min || value > max) return null;
+        const value = parseStrictInt(piece);
+        if (value === null || value < min || value > max) return null;
         values.add(value);
       }
     }

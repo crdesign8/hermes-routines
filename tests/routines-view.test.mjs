@@ -278,6 +278,31 @@ describe('routines-view presentation (Crew port)', () => {
     assert.equal(routines.describeSchedule('0 9 * * MON'), '0 9 * * MON', 'unknown tokens stay verbatim');
   });
 
+  it('humanizer fails closed on cron shapes that cannot be proven equivalent (issue #3)', () => {
+    // Non-uniform minute step: */45 fires at :00 and :45 (15-minute gap).
+    assert.equal(routines.describeSchedule('*/45 * * * *'), '*/45 * * * *');
+    // Non-uniform hour step: */5 fires at 00,05,10,15,20 (4-hour gap to midnight).
+    // It must never claim a uniform five-hour interval.
+    assert.notEqual(routines.describeSchedule('0 */5 * * *'), 'Every 5 hours');
+    assert.equal(routines.describeSchedule('0 */5 1 * *'), '0 */5 1 * *');
+    // Six-field expressions are never silently reinterpreted as five-field.
+    assert.equal(routines.describeSchedule('0 0 9 * * *'), '0 0 9 * * *');
+    assert.equal(routines.describeSchedule('30 0 9 * * *'), '30 0 9 * * *');
+    // Partial numeric tokens are rejected, not partially accepted.
+    assert.equal(routines.describeSchedule('12abc * * * *'), '12abc * * * *');
+    assert.equal(routines.describeSchedule('*/15x * * * *'), '*/15x * * * *');
+    assert.equal(routines.describeSchedule('1-5abc 0 * * *'), '1-5abc 0 * * *');
+    // A bare start with a step is never collapsed to a single value.
+    assert.equal(routines.describeSchedule('5/15 * * * *'), '5/15 * * * *');
+    // Safe humanizations remain intact.
+    assert.equal(routines.describeSchedule('*/15 * * * *'), 'Every 15 minutes');
+    assert.equal(routines.describeSchedule('*/20 * * * *'), 'Every 20 minutes');
+    assert.equal(routines.describeSchedule('0 */2 * * *'), 'Every 2 hours');
+    assert.equal(routines.describeSchedule('0 */6 * * *'), 'Every 6 hours');
+    assert.equal(routines.describeSchedule('0 9 * * 1-5'), 'Every weekday at 09:00');
+    assert.equal(routines.describeSchedule('0 8 1 * *'), 'On the 1st of every month at 08:00');
+  });
+
   it('titles strip the bot prefix and fall back honestly', () => {
     assert.equal(routines.routineTitle({ name: '[bot:news] Morning brief' }, 'routine 1'), 'Morning brief');
     assert.equal(routines.routineTitle({ name: '' }, 'routine 1'), 'routine 1');
