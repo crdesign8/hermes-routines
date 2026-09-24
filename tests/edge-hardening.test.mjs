@@ -117,27 +117,35 @@ describe('edge-hardening', () => {
     assert.equal(logged[0].args[3], 100, 'timeout must reach host.requestProfile as 4th arg');
   });
 
-  it('resolveProfileHome rejects traversal; blank falls back to default', async () => {
+  it('resolveHermesHome honors explicit home, HERMES_HOME env and the ~/.hermes default', async () => {
     const install = await import('../scripts/install.mjs');
-    for (const bad of ['../../evil', '..', '.', '/abs/path', 'a/b', 'has space']) {
-      assert.throws(() => install.resolveProfileHome({ profile: bad }), /invalid profile/);
+    const saved = process.env.HERMES_HOME;
+    const savedLegacy = process.env.HERMES_PROFILE_HOME;
+    try {
+      delete process.env.HERMES_PROFILE_HOME;
+      process.env.HERMES_HOME = '/tmp/env-hermes';
+      assert.equal(install.resolveHermesHome({}), path.resolve('/tmp/env-hermes'));
+      assert.equal(
+        install.resolveHermesHome({ hermesHome: '/tmp/flag-hermes' }),
+        path.resolve('/tmp/flag-hermes'),
+      );
+      delete process.env.HERMES_HOME;
+      assert.match(install.resolveHermesHome({}), /\.hermes$/);
+      assert.throws(() => install.resolveHermesHome({ hermesHome: '   ' }), /invalid hermesHome/);
+      process.env.HERMES_PROFILE_HOME = '/tmp/legacy-profile';
+      assert.throws(() => install.resolveHermesHome({}), /legacy profile install removed/);
+    } finally {
+      if (saved === undefined) delete process.env.HERMES_HOME;
+      else process.env.HERMES_HOME = saved;
+      if (savedLegacy === undefined) delete process.env.HERMES_PROFILE_HOME;
+      else process.env.HERMES_PROFILE_HOME = savedLegacy;
     }
-    assert.throws(() => install.resolveProfileHome({ profileHome: '   ' }), /invalid profileHome/);
-    // Empty profile keeps the historical fallback to `default`.
-    const defHome = install.resolveProfileHome({ profile: '' });
-    assert.match(defHome, /default$/);
-    const ok = install.resolveProfileHome({ profile: 'code-reviewer' });
-    assert.match(ok, /code-reviewer$/);
-    // explicit absolute home is honored (resolved)
-    const testAbs = path.resolve('/tmp/prof-home');
-    const abs = install.resolveProfileHome({ profileHome: testAbs });
-    assert.equal(abs, testAbs);
   });
 
   it('install fails when source is missing and leaves no temp files', async () => {
     const install = await import('../scripts/install.mjs');
-    const home = mkdtempSync(path.join(tmpdir(), 'routines-prof-'));
-    assert.throws(() => install.install({ profileHome: home, root: '/nonexistent-root' }), /install source missing/);
+    const home = mkdtempSync(path.join(tmpdir(), 'routines-home-'));
+    assert.throws(() => install.install({ hermesHome: home, root: '/nonexistent-root' }), /install source missing/);
   });
 
   it('src gateway is fail-closed: listRoutines requires a route, listProfileRoutes wraps errors', () => {

@@ -2,12 +2,12 @@
 
 ## Mapping
 
-| Source (repo)         | Destination (profile home)                |
-|-----------------------|-------------------------------------------|
-| `desktop/plugin.js`   | `<profile-home>/plugins/routines/plugin.js` |
+| Source (repo)         | Destination (app home)                                   |
+|-----------------------|----------------------------------------------------------|
+| `desktop/plugin.js`   | `<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js` |
 
-The plugin folder name equals the registered route id `routines`
-(plugin id is `hermes-routines`). The installed file is always named
+The plugin folder name equals the plugin id `hermes-routines`.
+The installed file is always named
 `plugin.js` and must be byte-identical to `desktop/plugin.js`
 (the **generated** artifact — see Development);
 `scripts/install.mjs` stages to a unique temp file
@@ -18,13 +18,19 @@ after, and fails the install on mismatch (no half-copy is ever left
 behind; concurrent installs use different temp names and both rename
 over identical bytes, so last-writer-wins stays intact).
 
+This is the official app-level door: ONE root,
+`<HERMES_HOME>/desktop-plugins/`, with `<id>/plugin.js` for a
+standalone desktop plugin. The plugin stays installed and loaded
+whichever profile, gateway, or machine the window is pointed at —
+nothing is installed per profile.
+
 ## Distribution manifest (`plugin.yaml`)
 
 `plugin.yaml` lives at the package root and ships in the published
 package (`files` in `package.json`), next to `desktop/plugin.js` — it is
 **not** copied by the flat installer above. The installer maps exactly
 one file (`desktop/plugin.js` →
-`<profile-home>/plugins/routines/plugin.js`); the manifest is
+`<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js`); the manifest is
 distribution metadata for catalog/registry validation, resolved from
 the package, not from the profile home.
 
@@ -37,31 +43,19 @@ explicitly empty. `node scripts/check-manifest.mjs` (part of
 `npm run check`, pinned by `tests/manifest-sync.test.mjs`) fails on any
 drift.
 
-## Profile home resolution
+## App home resolution
 
 Precedence (first match wins):
 
-1. `--profile-home=<dir>` CLI flag (must be non-empty; resolved to absolute).
-2. `HERMES_PROFILE_HOME` environment variable (same rule).
-3. `~/.hermes/profiles/<profile>`, where `<profile>` is `--profile=<name>`,
-   else `HERMES_PROFILE`, else `default`.
+1. `--hermes-home=<dir>` CLI flag (must be non-empty; resolved to absolute).
+2. `HERMES_HOME` environment variable (same rule).
+3. `~/.hermes` (the local app home).
 
-`<profile>` is restricted to `^[A-Za-z0-9._-]{1,64}$`. Traversal
-(`../evil`), absolute paths, separators and blank names are rejected, so
-`--profile` can never escape `~/.hermes/profiles/`. An explicit
-`--profile-home` / `HERMES_PROFILE_HOME` is honored as given (resolved to
-an absolute path) because it is an explicit operator choice.
-
-Canonicalization / symlink note: the explicit home is resolved with
-`path.resolve` (absolute + normalized `.` / `..`), but NOT with
-`realpath` — symlinks are intentionally left unresolved. The OS follows
-them at open/rename time, so installing through a symlinked home writes
-to the symlink target, exactly like installing through the canonical
-path; concurrent installs via either spelling share the same `dest`
-file and stay safe (distinct temp names, atomic rename, identical
-bytes, hash-verified). When scripting, prefer the canonical path
-(`realpath "$HERMES_PROFILE_HOME"` / `pwd -P`) so logs and hashes are
-easy to compare — but both spellings install the same bytes.
+There is exactly one install location — no per-profile second source of
+truth. The legacy profile inputs (`--profile-home`, `--profile`,
+`HERMES_PROFILE_HOME`) are rejected with a migration pointer instead of
+installing elsewhere (see Migration). `HERMES_PROFILE` alone is ignored:
+the app-level door does not vary by profile.
 
 ## Development
 
@@ -79,33 +73,38 @@ stubbed.
 ## Install
 
 ```sh
-node scripts/install.mjs --profile-home="$HOME/.hermes/profiles/default"
+node scripts/install.mjs install --hermes-home="$HOME/.hermes"
+# or (default command is install)
+node scripts/install.mjs --hermes-home="$HOME/.hermes"
 # or
-HERMES_PROFILE_HOME="$HOME/.hermes/profiles/default" node scripts/install.mjs
-# or
-node scripts/install.mjs --profile=default
+HERMES_HOME="$HOME/.hermes" node scripts/install.mjs install
+# or (default home is ~/.hermes)
+node scripts/install.mjs install
 ```
 
 Verify manually:
 
 ```sh
-sha256sum desktop/plugin.js <profile-home>/plugins/routines/plugin.js
+sha256sum desktop/plugin.js <HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js
 ```
 
 Both hashes must match.
 
-## Upgrade
+## Update
 
-Re-run the same install command. Installs are idempotent and atomic:
-the new bytes are staged, hash-verified, and renamed over
-`<profile-home>/plugins/routines/plugin.js`, so the previous version
-stays live until the swap completes. Then reload the desktop profile
-(see Reload below) and re-check the two hashes.
+`update` is `install`: re-run with the refreshed artifact. Installs are
+idempotent and atomic: when the installed bytes already match, nothing
+is rewritten (`unchanged`); otherwise the new bytes are staged,
+hash-verified, and renamed over
+`<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js`, so the
+previous version stays live until the swap completes. The replaced bytes
+are kept as `plugin.js.prev` in the same directory for `rollback`. Then
+reload the app runtime (see Reload) and re-check the two hashes.
 
 ```sh
 npm run build          # refresh desktop/plugin.js from src/ first
-node scripts/install.mjs --profile-home="$HOME/.hermes/profiles/default"
-sha256sum desktop/plugin.js "$HOME/.hermes/profiles/default/plugins/routines/plugin.js"
+node scripts/install.mjs update --hermes-home="$HOME/.hermes"
+sha256sum desktop/plugin.js "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js"
 ```
 
 There is no version check or migration step: the plugin file carries no
@@ -114,19 +113,68 @@ with the newer `desktop/plugin.js` is the whole upgrade.
 
 ## Uninstall
 
-The installer touches exactly one file
-(`<profile-home>/plugins/routines/plugin.js`, plus its parent dirs on
-first install) and tracks nothing else, so uninstall is a plain remove:
+The installer creates or updates exactly:
+
+```text
+<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js
+```
+
+(plus `plugin.js.prev` after a differing update, and the parent dirs on
+first install), so uninstall is a plain remove — idempotent when the
+plugin is already gone:
+
+```sh
+node scripts/install.mjs uninstall --hermes-home="$HOME/.hermes"
+```
+
+or manually:
+
+```sh
+rm "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js"
+rm "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js.prev" 2>/dev/null || true
+rmdir "$HOME/.hermes/desktop-plugins/hermes-routines" 2>/dev/null || true
+```
+
+Then reload the app runtime so the `/routines` route and its
+sidebar row disappear. Removing the whole `desktop-plugins` dir is
+NOT required — other plugins share it. To reinstall later, run the
+Install command again.
+
+## Rollback
+
+A differing `install`/`update` keeps the replaced bytes as
+`plugin.js.prev`. Restore them atomically (same stage, hash-verify,
+rename contract as install):
+
+```sh
+node scripts/install.mjs rollback --hermes-home="$HOME/.hermes"
+```
+
+Rollback without a backup fails closed (`no backup to roll back`). The
+backup is kept after a rollback, so it stays repeatable.
+
+## Migration from the legacy profile install (pre-#14)
+
+Releases before this change installed per profile at
+`<profile-home>/plugins/routines/plugin.js`. That layout is removed:
+the Desktop loader reads only the app-level root, so a profile-scoped
+file no longer loads and the installer refuses to write one.
+
+1. Install app-level (see Install).
+2. Delete the old file for every profile that had it:
 
 ```sh
 rm "$HOME/.hermes/profiles/default/plugins/routines/plugin.js"
 rmdir "$HOME/.hermes/profiles/default/plugins/routines" 2>/dev/null || true
 ```
 
-Then reload the desktop profile so the `/routines` route and its
-sidebar row disappear. Removing the whole profile-home plugins dir is
-NOT required — other plugins share it. To reinstall later, run the
-Install command again.
+3. Reload the app. The Routines page now loads from
+   `<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js` and stays
+   available whichever profile is active.
+
+Legacy invocations (`--profile-home=...`, `--profile=...`,
+`HERMES_PROFILE_HOME=...`) fail with `legacy profile install removed`
+and the same pointer — they never write to a second location.
 
 ## Checks
 
@@ -255,10 +303,11 @@ no runtime dep. `tests/types-contract.test.mjs` pins the wiring
 
 ## Reload
 
-After install, reload the desktop profile so the plugin host picks up
-`plugins/routines/plugin.js` (restart the desktop app or trigger a
-plugin reload for the profile). The Routines page then mounts at
-`/routines` with its sidebar row.
+After install, reload the app runtime so the plugin host picks up
+`desktop-plugins/hermes-routines/plugin.js` (restart the desktop app or trigger a
+runtime plugin reload). The Routines page then mounts at
+`/routines` with its sidebar row, and stays mounted whichever profile
+or gateway the window is pointed at.
 
 ## Coexistence
 
@@ -272,8 +321,10 @@ plugin reload for the profile). The Routines page then mounts at
 
 ## Troubleshooting
 
-- `invalid profile: ...` → profile names allow only letters, digits,
-  `.` `_` `-` (max 64). Use `--profile-home` for exotic paths.
+- `legacy profile install removed ...` → the pre-#14 per-profile inputs
+  (`--profile-home`, `--profile`, `HERMES_PROFILE_HOME`) are rejected on
+  purpose. Install app-level with `--hermes-home` and delete the old
+  `<profile-home>/plugins/routines/plugin.js` (see Migration).
 - `sha256 mismatch ...` → disk error or the source changed mid-install;
   concurrent installs no longer collide (unique `wx` temp per process),
   so just re-run install and compare hashes manually. The staging temp
