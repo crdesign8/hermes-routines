@@ -396,219 +396,168 @@ function routinesViewReducer(state, event) {
   }
 }
 
-// src/domain/present.ts
-function asRecord(value) {
-  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-    return value;
+// src/domain/schedule.ts
+var TRIGGER_OPTIONS = [
+  { value: "every_hour", label: "Every Hour" },
+  { value: "every_day", label: "Every Day" },
+  { value: "weekdays", label: "Weekdays" },
+  { value: "every_week", label: "Every week" },
+  { value: "every_month", label: "Every month" },
+  { value: "interval", label: "Interval" }
+];
+var DAYS_OF_WEEK = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday"
+];
+var DAY_OF_WEEK_TO_CRON = {
+  Sunday: 0,
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6
+};
+var INTERVAL_VALUES = [2, 5, 10, 15, 20, 30, 45];
+var INTERVAL_UNITS = ["minutes", "hours", "days"];
+var TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+var TRIGGER_VALUES = new Set(TRIGGER_OPTIONS.map((o) => o.value));
+var DAY_OF_WEEK_VALUES = new Set(DAYS_OF_WEEK);
+var INTERVAL_UNIT_VALUES = new Set(INTERVAL_UNITS);
+function show(value) {
+  let text;
+  try {
+    text = typeof value === "string" ? JSON.stringify(value) : String(value);
+  } catch {
+    text = Object.prototype.toString.call(value);
   }
-  return null;
+  return text.length > 40 ? `${text.slice(0, 37)}...` : text;
 }
-function optionalString(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-function firstString(...values) {
-  for (const value of values) {
-    const text = optionalString(value);
-    if (text !== null) return text;
+function generateTimeSlots() {
+  const slots = [];
+  for (let h = 0; h < 24; h++) {
+    const hh = String(h).padStart(2, "0");
+    for (const m of [0, 15, 30, 45]) {
+      const mm = String(m).padStart(2, "0");
+      slots.push(`${hh}:${mm}`);
+    }
   }
-  return null;
+  return slots;
 }
-function routineStateOf(job) {
-  const row = asRecord(job);
-  const raw = row === null ? "" : optionalString(row.state) ?? "";
-  const token = raw.trim();
-  if (!token) return "scheduled";
-  if (token === "scheduled") return "scheduled";
-  if (token === "paused") return "paused";
-  if (token === "completed") return "completed";
-  if (token === "error") return "error";
-  return "unknown";
+var TIME_SLOTS = generateTimeSlots();
+function toOrdinal(n) {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  const rem10 = n % 10;
+  if (rem10 === 1) return `${n}st`;
+  if (rem10 === 2) return `${n}nd`;
+  if (rem10 === 3) return `${n}rd`;
+  return `${n}th`;
 }
-function routinePausedOf(job) {
-  if (jobPaused(job ?? void 0)) return true;
-  return routineStateOf(job) === "paused";
-}
-function routineCompleted(job) {
-  return routineStateOf(job) === "completed";
-}
-function routineErrored(job) {
-  return routineStateOf(job) === "error";
-}
-function routineTerminal(job) {
-  const state = routineStateOf(job);
-  return state === "completed" || state === "error";
-}
-function routineActive(job) {
-  return !routinePausedOf(job) && !routineTerminal(job);
-}
-function routineTitle(job, fallback) {
-  const row = asRecord(job);
-  const raw = firstString(row?.name, row?.job_id, row?.id) ?? "";
-  const title = raw.replace(/^\[bot:[a-z0-9][a-z0-9_-]*\]\s*/i, "").replace(/\p{Extended_Pictographic}|\p{Emoji_Presentation}|\uFE0F|\u200D/gu, "").replace(/\s{2,}/g, " ").trim();
-  return title || fallback;
-}
-function routineKey(job, fallback) {
-  return jobIdOf(job ?? void 0) || fallback;
-}
-function routineStableIdOf(job, fallback) {
-  const row = asRecord(job);
-  const id = optionalString(row?.job_id);
-  if (id !== null) return id;
-  return routineKey(job, fallback);
-}
-function routinePromptOf(job) {
-  const row = asRecord(job);
-  if (row === null) return null;
-  const nested = asRecord(row.payload);
-  return firstString(row.prompt, row.prompt_preview, row.promptPreview, nested?.prompt);
-}
-function scheduleTexts(job) {
-  const row = asRecord(job);
-  if (row === null) return { display: null, expr: null };
-  const nested = asRecord(row.schedule);
-  const display = firstString(
-    row.schedule_display,
-    row.scheduleDisplay,
-    nested?.display
-  );
-  let expr = firstString(row.schedule_expr, row.scheduleExpr, nested?.expr);
-  if (expr === null && typeof row.schedule === "string") {
-    const raw = optionalString(row.schedule);
-    expr = raw !== null && raw !== display ? raw : null;
+var DAYS_OF_MONTH = Array.from(
+  { length: 31 },
+  (_, i) => ({ value: i + 1, label: toOrdinal(i + 1) })
+);
+var DEFAULT_SCHEDULE_CONFIG = {
+  trigger: "every_day",
+  time: "08:00",
+  dayOfWeek: "Monday",
+  dayOfMonth: 1,
+  intervalValue: 5,
+  intervalUnit: "minutes"
+};
+function validateScheduleConfig(input) {
+  if (typeof input !== "object" || input === null) {
+    throw new TypeError(`schedule config must be an object (got ${show(input)})`);
   }
-  if (expr !== null && expr === display) expr = null;
-  return { display, expr };
-}
-function humanScheduleOf(job) {
-  const { display, expr } = scheduleTexts(job);
-  if (display !== null && !looksLikeCronExpression(display)) {
-    return describeSchedule(display);
+  const config = input;
+  if (!TRIGGER_VALUES.has(config.trigger)) {
+    throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
   }
-  const source = expr ?? display;
-  if (source === null) return "";
-  return describeSchedule(source);
-}
-function rawScheduleOf(job) {
-  const { display, expr } = scheduleTexts(job);
-  return expr ?? display;
-}
-function fieldOf(job, ...keys) {
-  const row = asRecord(job);
-  if (row === null) return null;
-  for (const key of keys) {
-    const text = optionalString(row[key]);
-    if (text !== null) return text;
+  if (typeof config.time !== "string" || !TIME_RE.test(config.time)) {
+    throw new TypeError(`time must be a valid HH:mm string (got ${show(config.time)})`);
   }
-  return null;
-}
-function nextRunIso(job) {
-  return fieldOf(job, "next_run_at", "nextRunAt", "next_run", "nextRun");
-}
-function lastRunIso(job) {
-  return fieldOf(job, "last_run_at", "lastRunAt", "last_run", "lastRun");
-}
-function lastStatusOf(job) {
-  return fieldOf(job, "last_status", "lastStatus");
-}
-function issueOf(job) {
-  const row = asRecord(job);
-  if (row === null) return null;
-  const fire = asRecord(row.last_fire_error);
-  const candidates = [
-    row.last_fire_error && typeof row.last_fire_error === "string" ? row.last_fire_error : null,
-    fire?.detail ?? null,
-    fire?.at ?? null,
-    row.lastFireError ?? null,
-    row.last_delivery_error,
-    row.lastDeliveryError,
-    row.paused_reason,
-    row.pausedReason,
-    row.last_error,
-    row.lastError
-  ];
-  for (const candidate of candidates) {
-    const text = optionalString(candidate);
-    if (text !== null) return text;
+  if (!DAY_OF_WEEK_VALUES.has(config.dayOfWeek)) {
+    throw new TypeError(`unknown dayOfWeek value: ${show(config.dayOfWeek)}`);
   }
-  return null;
-}
-function lastRanSuccessfully(job) {
-  const status = (lastStatusOf(job) ?? "").trim().toLowerCase();
-  return status === "ok" || status === "success" || status === "completed" || status === "0";
-}
-function lastRanWithError(job) {
-  const status = (lastStatusOf(job) ?? "").trim().toLowerCase();
-  const failed = status === "error" || status === "failed" || status === "failure" || status === "1";
-  return failed || issueOf(job) !== null;
-}
-function lastResultOf(job) {
-  if (lastRanSuccessfully(job)) return { kind: "success", text: "Success" };
-  if (lastRanWithError(job)) {
-    return { kind: "error", text: issueOf(job) ?? "Failed" };
+  if (typeof config.dayOfMonth !== "number" || !Number.isInteger(config.dayOfMonth) || config.dayOfMonth < 1 || config.dayOfMonth > 31) {
+    throw new TypeError(
+      `dayOfMonth must be an integer between 1 and 31 (got ${show(config.dayOfMonth)})`
+    );
   }
-  return { kind: "neutral", text: lastStatusOf(job) ?? "\u2014" };
-}
-function collapsedSubtitleOf(job) {
-  if (routineCompleted(job)) return "Completed";
-  if (routineErrored(job)) return "Error";
-  if (routinePausedOf(job)) return "Paused";
-  const base = humanScheduleOf(job) || "\u2014";
-  const next = nextRunIso(job);
-  const when = next === null ? null : formatWhen(next);
-  if (when === null) return base;
-  const daysMatch = /^in (\d+) days?$/.exec(when);
-  const nextText = daysMatch?.[1] !== void 0 ? `Next in ${daysMatch[1].padStart(2, "0")} days` : `Next ${when.charAt(0).toUpperCase()}${when.slice(1)}`;
-  return `${base}  |  ${nextText}`;
-}
-function parseTimestamp(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const time = Date.parse(trimmed);
-  if (Number.isNaN(time)) return null;
-  return new Date(time);
-}
-function formatWhen(iso, now) {
-  const timestamp = parseTimestamp(iso ?? null);
-  if (timestamp === null) return null;
-  const reference = now ?? /* @__PURE__ */ new Date();
-  const diffMs = timestamp.getTime() - reference.getTime();
-  if (diffMs > 0) {
-    if (diffMs < 6e4) return "soon";
-    const minutes2 = Math.floor(diffMs / 6e4);
-    if (minutes2 < 60) return `in ${minutes2} ${plural(minutes2, "minute")}`;
-    const hours2 = Math.round(minutes2 / 60);
-    if (hours2 < 24) return `in ${hours2} ${plural(hours2, "hour")}`;
-    const days2 = Math.round(hours2 / 24);
-    return `in ${days2} ${plural(days2, "day")}`;
+  if (typeof config.intervalValue !== "number" || !Number.isInteger(config.intervalValue) || config.intervalValue < 1) {
+    throw new TypeError(
+      `intervalValue must be a finite positive integer (got ${show(config.intervalValue)})`
+    );
   }
-  const elapsedMs = -diffMs;
-  if (elapsedMs < 6e4) return "just now";
-  const minutes = Math.floor(elapsedMs / 6e4);
-  if (minutes < 60) return `${minutes} ${plural(minutes, "minute")} ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} ${plural(hours, "hour")} ago`;
-  const days = Math.round(hours / 24);
-  return `${days} ${plural(days, "day")} ago`;
+  if (!INTERVAL_UNIT_VALUES.has(config.intervalUnit)) {
+    throw new TypeError(`unknown intervalUnit value: ${show(config.intervalUnit)}`);
+  }
 }
-function formatDate(iso) {
-  const timestamp = parseTimestamp(iso ?? null);
-  if (timestamp === null) return null;
-  const pad = (n) => String(n).padStart(2, "0");
-  const month = pad(timestamp.getMonth() + 1);
-  const day = pad(timestamp.getDate());
-  const year = timestamp.getFullYear();
-  return `${month}/${day}/${year} ${pad(timestamp.getHours())}:${pad(timestamp.getMinutes())}`;
+function parseTime(time) {
+  const [hourText, minuteText] = time.split(":");
+  return { hour: Number(hourText), minute: Number(minuteText) };
 }
-function plural(value, unit) {
-  return value === 1 ? unit : `${unit}s`;
+function buildCronExpression(config) {
+  validateScheduleConfig(config);
+  const { minute, hour } = parseTime(config.time);
+  switch (config.trigger) {
+    case "every_hour":
+      return "0 * * * *";
+    case "every_day":
+      return `${minute} ${hour} * * *`;
+    case "weekdays":
+      return `${minute} ${hour} * * 1-5`;
+    case "every_week": {
+      const dow = DAY_OF_WEEK_TO_CRON[config.dayOfWeek];
+      return `${minute} ${hour} * * ${dow}`;
+    }
+    case "every_month": {
+      const dom = config.dayOfMonth;
+      return `${minute} ${hour} ${dom} * *`;
+    }
+    case "interval": {
+      const val = config.intervalValue;
+      if (config.intervalUnit === "minutes") {
+        return `every ${val}m`;
+      }
+      if (config.intervalUnit === "hours") {
+        return `every ${val}h`;
+      }
+      if (config.intervalUnit === "days") {
+        return `every ${val}d`;
+      }
+      throw new TypeError(`unknown intervalUnit value: ${show(config.intervalUnit)}`);
+    }
+    default:
+      throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
+  }
 }
-function looksLikeCronExpression(value) {
-  const fields = value.trim().split(/\s+/);
-  if (fields.length < 5 || fields.length > 6) return false;
-  return fields.every((field) => /^[\d*,/\-*]+$/.test(field));
+function describeScheduleConfig(config) {
+  validateScheduleConfig(config);
+  switch (config.trigger) {
+    case "every_hour":
+      return "Every hour";
+    case "every_day":
+      return `Every day at ${config.time}`;
+    case "weekdays":
+      return `Weekdays at ${config.time}`;
+    case "every_week":
+      return `Every ${config.dayOfWeek} at ${config.time}`;
+    case "every_month":
+      return `On the ${toOrdinal(config.dayOfMonth)} of every month at ${config.time}`;
+    case "interval": {
+      const unit = config.intervalValue === 1 ? config.intervalUnit.replace(/s$/, "") : config.intervalUnit;
+      return `Every ${config.intervalValue} ${unit}`;
+    }
+    default:
+      throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
+  }
 }
 var WEEKDAY_NAMES = [
   "Sunday",
@@ -858,12 +807,12 @@ function normalizedWeekdays(values) {
 }
 function describeWeekdays(days) {
   const dayList = sortedUnique(days);
-  if (sameValues(dayList, [1, 2, 3, 4, 5])) return "Every weekday";
+  if (sameValues(dayList, [1, 2, 3, 4, 5])) return "Weekdays";
   if (sameValues(dayList, [0, 6])) return "Every weekend";
   if (dayList.length === 1) {
     const only = dayList[0];
     if (only === void 0) return "";
-    return `${WEEKDAY_NAMES[only]}s`;
+    return `Every ${WEEKDAY_NAMES[only]}`;
   }
   return `Every ${joinNames(dayList.map((d) => WEEKDAY_NAMES[d] ?? String(d)))}`;
 }
@@ -898,6 +847,224 @@ function isContiguousRange(values) {
     if (values[i] !== (values[i - 1] ?? 0) + 1) return false;
   }
   return true;
+}
+
+// src/domain/present.ts
+function asRecord(value) {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  return null;
+}
+function optionalString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+function firstString(...values) {
+  for (const value of values) {
+    const text = optionalString(value);
+    if (text !== null) return text;
+  }
+  return null;
+}
+function routineStateOf(job) {
+  const row = asRecord(job);
+  const raw = row === null ? "" : optionalString(row.state) ?? "";
+  const token = raw.trim();
+  if (!token) return "scheduled";
+  if (token === "scheduled") return "scheduled";
+  if (token === "paused") return "paused";
+  if (token === "completed") return "completed";
+  if (token === "error") return "error";
+  return "unknown";
+}
+function routinePausedOf(job) {
+  if (jobPaused(job ?? void 0)) return true;
+  return routineStateOf(job) === "paused";
+}
+function routineCompleted(job) {
+  return routineStateOf(job) === "completed";
+}
+function routineErrored(job) {
+  return routineStateOf(job) === "error";
+}
+function routineTerminal(job) {
+  const state = routineStateOf(job);
+  return state === "completed" || state === "error";
+}
+function routineActive(job) {
+  return !routinePausedOf(job) && !routineTerminal(job);
+}
+function routineTitle(job, fallback) {
+  const row = asRecord(job);
+  const raw = firstString(row?.name, row?.job_id, row?.id) ?? "";
+  const title = raw.replace(/^\[bot:[a-z0-9][a-z0-9_-]*\]\s*/i, "").replace(/\p{Extended_Pictographic}|\p{Emoji_Presentation}|\uFE0F|\u200D/gu, "").replace(/\s{2,}/g, " ").trim();
+  return title || fallback;
+}
+function routineKey(job, fallback) {
+  return jobIdOf(job ?? void 0) || fallback;
+}
+function routineStableIdOf(job, fallback) {
+  const row = asRecord(job);
+  const id = optionalString(row?.job_id);
+  if (id !== null) return id;
+  return routineKey(job, fallback);
+}
+function routinePromptOf(job) {
+  const row = asRecord(job);
+  if (row === null) return null;
+  const nested = asRecord(row.payload);
+  return firstString(row.prompt, row.prompt_preview, row.promptPreview, nested?.prompt);
+}
+function scheduleTexts(job) {
+  const row = asRecord(job);
+  if (row === null) return { display: null, expr: null };
+  const nested = asRecord(row.schedule);
+  const display = firstString(
+    row.schedule_display,
+    row.scheduleDisplay,
+    nested?.display
+  );
+  let expr = firstString(row.schedule_expr, row.scheduleExpr, nested?.expr);
+  if (expr === null && typeof row.schedule === "string") {
+    const raw = optionalString(row.schedule);
+    expr = raw !== null && raw !== display ? raw : null;
+  }
+  if (expr !== null && expr === display) expr = null;
+  return { display, expr };
+}
+function humanScheduleOf(job) {
+  const { display, expr } = scheduleTexts(job);
+  if (display !== null && !looksLikeCronExpression(display)) {
+    return describeSchedule2(display);
+  }
+  const source = expr ?? display;
+  if (source === null) return "";
+  return describeSchedule2(source);
+}
+function rawScheduleOf(job) {
+  const { display, expr } = scheduleTexts(job);
+  return expr ?? display;
+}
+function fieldOf(job, ...keys) {
+  const row = asRecord(job);
+  if (row === null) return null;
+  for (const key of keys) {
+    const text = optionalString(row[key]);
+    if (text !== null) return text;
+  }
+  return null;
+}
+function nextRunIso(job) {
+  return fieldOf(job, "next_run_at", "nextRunAt", "next_run", "nextRun");
+}
+function lastRunIso(job) {
+  return fieldOf(job, "last_run_at", "lastRunAt", "last_run", "lastRun");
+}
+function lastStatusOf(job) {
+  return fieldOf(job, "last_status", "lastStatus");
+}
+function issueOf(job) {
+  const row = asRecord(job);
+  if (row === null) return null;
+  const fire = asRecord(row.last_fire_error);
+  const candidates = [
+    row.last_fire_error && typeof row.last_fire_error === "string" ? row.last_fire_error : null,
+    fire?.detail ?? null,
+    fire?.at ?? null,
+    row.lastFireError ?? null,
+    row.last_delivery_error,
+    row.lastDeliveryError,
+    row.paused_reason,
+    row.pausedReason,
+    row.last_error,
+    row.lastError
+  ];
+  for (const candidate of candidates) {
+    const text = optionalString(candidate);
+    if (text !== null) return text;
+  }
+  return null;
+}
+function lastRanSuccessfully(job) {
+  const status = (lastStatusOf(job) ?? "").trim().toLowerCase();
+  return status === "ok" || status === "success" || status === "completed" || status === "0";
+}
+function lastRanWithError(job) {
+  const status = (lastStatusOf(job) ?? "").trim().toLowerCase();
+  const failed = status === "error" || status === "failed" || status === "failure" || status === "1";
+  return failed || issueOf(job) !== null;
+}
+function lastResultOf(job) {
+  if (lastRanSuccessfully(job)) return { kind: "success", text: "Success" };
+  if (lastRanWithError(job)) {
+    return { kind: "error", text: issueOf(job) ?? "Failed" };
+  }
+  return { kind: "neutral", text: lastStatusOf(job) ?? "\u2014" };
+}
+function collapsedSubtitleOf(job) {
+  if (routineCompleted(job)) return "Completed";
+  if (routineErrored(job)) return "Error";
+  if (routinePausedOf(job)) return "Paused";
+  const base = humanScheduleOf(job) || "\u2014";
+  const next = nextRunIso(job);
+  const when = next === null ? null : formatWhen(next);
+  if (when === null) return base;
+  const daysMatch = /^in (\d+) days?$/.exec(when);
+  const nextText = daysMatch?.[1] !== void 0 ? `Next in ${daysMatch[1].padStart(2, "0")} days` : `Next ${when.charAt(0).toUpperCase()}${when.slice(1)}`;
+  return `${base}  |  ${nextText}`;
+}
+function parseTimestamp(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const time = Date.parse(trimmed);
+  if (Number.isNaN(time)) return null;
+  return new Date(time);
+}
+function formatWhen(iso, now) {
+  const timestamp = parseTimestamp(iso ?? null);
+  if (timestamp === null) return null;
+  const reference = now ?? /* @__PURE__ */ new Date();
+  const diffMs = timestamp.getTime() - reference.getTime();
+  if (diffMs > 0) {
+    if (diffMs < 6e4) return "soon";
+    const minutes2 = Math.floor(diffMs / 6e4);
+    if (minutes2 < 60) return `in ${minutes2} ${plural(minutes2, "minute")}`;
+    const hours2 = Math.round(minutes2 / 60);
+    if (hours2 < 24) return `in ${hours2} ${plural(hours2, "hour")}`;
+    const days2 = Math.round(hours2 / 24);
+    return `in ${days2} ${plural(days2, "day")}`;
+  }
+  const elapsedMs = -diffMs;
+  if (elapsedMs < 6e4) return "just now";
+  const minutes = Math.floor(elapsedMs / 6e4);
+  if (minutes < 60) return `${minutes} ${plural(minutes, "minute")} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} ${plural(hours, "hour")} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} ${plural(days, "day")} ago`;
+}
+function formatDate(iso) {
+  const timestamp = parseTimestamp(iso ?? null);
+  if (timestamp === null) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  const month = pad(timestamp.getMonth() + 1);
+  const day = pad(timestamp.getDate());
+  const year = timestamp.getFullYear();
+  return `${month}/${day}/${year} ${pad(timestamp.getHours())}:${pad(timestamp.getMinutes())}`;
+}
+function plural(value, unit) {
+  return value === 1 ? unit : `${unit}s`;
+}
+function looksLikeCronExpression(value) {
+  const fields = value.trim().split(/\s+/);
+  if (fields.length < 5 || fields.length > 6) return false;
+  return fields.every((field) => /^[\d*,/\-*]+$/.test(field));
+}
+function describeSchedule2(expr) {
+  return describeSchedule(expr);
 }
 
 // src/domain/cronShapes.ts
@@ -2170,170 +2337,6 @@ function RoutineInspectorPanel({
 // src/views/RoutineComposerPanel.tsx
 import { useMemo, useState as useState3 } from "react";
 
-// src/domain/routineSchedule.ts
-var TRIGGER_OPTIONS = [
-  { value: "every_hour", label: "Every Hour" },
-  { value: "every_day", label: "Every Day" },
-  { value: "weekdays", label: "Weekdays" },
-  { value: "every_week", label: "Every week" },
-  { value: "every_month", label: "Every month" },
-  { value: "interval", label: "Interval" }
-];
-var DAYS_OF_WEEK = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday"
-];
-var DAY_OF_WEEK_TO_CRON = {
-  Sunday: 0,
-  Monday: 1,
-  Tuesday: 2,
-  Wednesday: 3,
-  Thursday: 4,
-  Friday: 5,
-  Saturday: 6
-};
-var INTERVAL_VALUES = [2, 5, 10, 15, 20, 30, 45];
-var INTERVAL_UNITS = ["minutes", "hours", "days"];
-var TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
-var TRIGGER_VALUES = new Set(TRIGGER_OPTIONS.map((o) => o.value));
-var DAY_OF_WEEK_VALUES = new Set(DAYS_OF_WEEK);
-var INTERVAL_UNIT_VALUES = new Set(INTERVAL_UNITS);
-function show(value) {
-  let text;
-  try {
-    text = typeof value === "string" ? JSON.stringify(value) : String(value);
-  } catch {
-    text = Object.prototype.toString.call(value);
-  }
-  return text.length > 40 ? `${text.slice(0, 37)}...` : text;
-}
-function generateTimeSlots() {
-  const slots = [];
-  for (let h = 0; h < 24; h++) {
-    const hh = String(h).padStart(2, "0");
-    for (const m of [0, 15, 30, 45]) {
-      const mm = String(m).padStart(2, "0");
-      slots.push(`${hh}:${mm}`);
-    }
-  }
-  return slots;
-}
-var TIME_SLOTS = generateTimeSlots();
-function toOrdinal(n) {
-  const rem100 = n % 100;
-  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
-  const rem10 = n % 10;
-  if (rem10 === 1) return `${n}st`;
-  if (rem10 === 2) return `${n}nd`;
-  if (rem10 === 3) return `${n}rd`;
-  return `${n}th`;
-}
-var DAYS_OF_MONTH = Array.from(
-  { length: 31 },
-  (_, i) => ({ value: i + 1, label: toOrdinal(i + 1) })
-);
-var DEFAULT_SCHEDULE_CONFIG = {
-  trigger: "every_day",
-  time: "08:00",
-  dayOfWeek: "Monday",
-  dayOfMonth: 1,
-  intervalValue: 5,
-  intervalUnit: "minutes"
-};
-function validateScheduleConfig(input) {
-  if (typeof input !== "object" || input === null) {
-    throw new TypeError(`schedule config must be an object (got ${show(input)})`);
-  }
-  const config = input;
-  if (!TRIGGER_VALUES.has(config.trigger)) {
-    throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
-  }
-  if (typeof config.time !== "string" || !TIME_RE.test(config.time)) {
-    throw new TypeError(`time must be a valid HH:mm string (got ${show(config.time)})`);
-  }
-  if (!DAY_OF_WEEK_VALUES.has(config.dayOfWeek)) {
-    throw new TypeError(`unknown dayOfWeek value: ${show(config.dayOfWeek)}`);
-  }
-  if (typeof config.dayOfMonth !== "number" || !Number.isInteger(config.dayOfMonth) || config.dayOfMonth < 1 || config.dayOfMonth > 31) {
-    throw new TypeError(
-      `dayOfMonth must be an integer between 1 and 31 (got ${show(config.dayOfMonth)})`
-    );
-  }
-  if (typeof config.intervalValue !== "number" || !Number.isInteger(config.intervalValue) || config.intervalValue < 1) {
-    throw new TypeError(
-      `intervalValue must be a finite positive integer (got ${show(config.intervalValue)})`
-    );
-  }
-  if (!INTERVAL_UNIT_VALUES.has(config.intervalUnit)) {
-    throw new TypeError(`unknown intervalUnit value: ${show(config.intervalUnit)}`);
-  }
-}
-function parseTime(time) {
-  const [hourText, minuteText] = time.split(":");
-  return { hour: Number(hourText), minute: Number(minuteText) };
-}
-function buildCronExpression(config) {
-  validateScheduleConfig(config);
-  const { minute, hour } = parseTime(config.time);
-  switch (config.trigger) {
-    case "every_hour":
-      return "0 * * * *";
-    case "every_day":
-      return `${minute} ${hour} * * *`;
-    case "weekdays":
-      return `${minute} ${hour} * * 1-5`;
-    case "every_week": {
-      const dow = DAY_OF_WEEK_TO_CRON[config.dayOfWeek];
-      return `${minute} ${hour} * * ${dow}`;
-    }
-    case "every_month": {
-      const dom = config.dayOfMonth;
-      return `${minute} ${hour} ${dom} * *`;
-    }
-    case "interval": {
-      const val = config.intervalValue;
-      if (config.intervalUnit === "minutes") {
-        return `every ${val}m`;
-      }
-      if (config.intervalUnit === "hours") {
-        return `every ${val}h`;
-      }
-      if (config.intervalUnit === "days") {
-        return `every ${val}d`;
-      }
-      throw new TypeError(`unknown intervalUnit value: ${show(config.intervalUnit)}`);
-    }
-    default:
-      throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
-  }
-}
-function describeScheduleConfig(config) {
-  validateScheduleConfig(config);
-  switch (config.trigger) {
-    case "every_hour":
-      return "Every hour";
-    case "every_day":
-      return `Every day at ${config.time}`;
-    case "weekdays":
-      return `Weekdays at ${config.time}`;
-    case "every_week":
-      return `Every ${config.dayOfWeek} at ${config.time}`;
-    case "every_month":
-      return `On the ${toOrdinal(config.dayOfMonth)} of every month at ${config.time}`;
-    case "interval": {
-      const unit = config.intervalValue === 1 ? config.intervalUnit.replace(/s$/, "") : config.intervalUnit;
-      return `Every ${config.intervalValue} ${unit}`;
-    }
-    default:
-      throw new TypeError(`unknown trigger value: ${show(config.trigger)}`);
-  }
-}
-
 // src/views/SelectField.tsx
 import { useEffect as useEffect2, useRef, useState as useState2 } from "react";
 import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
@@ -3182,7 +3185,7 @@ export {
   coerceRoutes,
   collapsedSubtitleOf,
   plugin_default as default,
-  describeSchedule,
+  describeSchedule2 as describeSchedule,
   describeScheduleConfig,
   findRouteByKey,
   formatDate,

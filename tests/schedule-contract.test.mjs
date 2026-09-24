@@ -6,9 +6,10 @@
 // every_week 96 slots x 7 days = 672, every_month 96 slots x 31 dom = 2976,
 // interval 7 values x 3 units = 21. Total 3957 configs.
 //
-// The two wording paraphrases allowlisted in the round-trip test are owned
-// by open issue #5 (wording unification); the allowlist must fail closed on
-// any third divergence.
+// Humanizer and composer wording were unified in issue #5 (phase-3):
+// present.ts delegates to the canonical schedule.ts contract, so the
+// round-trip test below asserts strict human === composer equality and
+// fails closed on any divergence.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
@@ -199,38 +200,21 @@ describe('schedule contract (issue #4)', () => {
     }
   });
 
-  it('round-trips every matrix config: human === composer except two paraphrases', () => {
-    // Wording unification is issue #5; this allowlist is exactly these two
-    // paraphrase shapes and must fail closed on any third divergence.
-    let weekdaysAllow = 0;
-    let weekAllow = 0;
+  it('round-trips every matrix config: human === composer exactly', () => {
+    // Wording unification landed in issue #5 (phase-3): the humanizer
+    // delegates to the canonical contract, so every matrix config must
+    // match strictly. Any divergence — first, second, or nth — fails here.
     let strict = 0;
     for (const { config, composer } of MATRIX) {
       const cron = buildCronExpression(config);
       const human = routines.describeSchedule(cron);
       const ctx = `config=${JSON.stringify(config)} cron=${cron} composer=${composer} human=${human}`;
-      if (composer === human) {
-        strict++;
-        continue;
-      }
-      if (config.trigger === 'weekdays' && composer === `Weekdays at ${config.time}` && human === `Every weekday at ${config.time}`) {
-        weekdaysAllow++;
-        continue;
-      }
-      if (
-        config.trigger === 'every_week' &&
-        composer === `Every ${config.dayOfWeek} at ${config.time}` &&
-        human === `${config.dayOfWeek}s at ${config.time}`
-      ) {
-        weekAllow++;
-        continue;
-      }
-      assert.fail(`round-trip divergence outside the two-shape allowlist: ${ctx}`);
+      assert.equal(human, composer, `round-trip divergence: ${ctx}`);
+      strict++;
     }
-    // Instrumented branches: the allowlist cannot silently absorb a new family.
-    assert.equal(weekdaysAllow, 96, `weekdays paraphrase branch fired ${weekdaysAllow}x, expected 96`);
-    assert.equal(weekAllow, 672, `every_week paraphrase branch fired ${weekAllow}x, expected 672`);
-    assert.equal(strict, MATRIX.length - 96 - 672, `strict-equality path took ${strict}x`);
+    // Instrumented count: the strict path must cover the whole matrix —
+    // it cannot silently stop absorbing configs.
+    assert.equal(strict, MATRIX.length, `strict-equality path took ${strict}x, expected ${MATRIX.length}`);
   });
 
   it('preserves unsupported/raw cron verbatim and humanizes safe shapes exactly', () => {
@@ -266,8 +250,8 @@ describe('schedule contract (issue #4)', () => {
       ['*/20 * * * *', 'Every 20 minutes'],
       ['0 */2 * * *', 'Every 2 hours'],
       ['0 */6 * * *', 'Every 6 hours'],
-      ['0 9 * * 1-5', 'Every weekday at 09:00'],
-      ['0 7 * * 2', 'Tuesdays at 07:00'],
+      ['0 9 * * 1-5', 'Weekdays at 09:00'],
+      ['0 7 * * 2', 'Every Tuesday at 07:00'],
       ['0 0 1 * *', 'On the 1st of every month at 00:00'],
       ['0 12 1 * *', 'On the 1st of every month at 12:00'],
       ['0 8 1 * *', 'On the 1st of every month at 08:00'],
