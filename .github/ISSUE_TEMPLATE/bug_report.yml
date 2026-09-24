@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible defect in hermes-routines.
+title: "fix: "
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Search existing issues first. For security
+        vulnerabilities, do NOT use this form — follow `SECURITY.md`.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is broken, and what did you expect instead?
+      placeholder: The Routines page shows … but I expected …
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Minimal steps, commit/branch, host and Node versions.
+      placeholder: |
+        1. git rev-parse HEAD → …
+        2. node --version → …
+        3. npm test → …
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Compatibility, security, and privacy impact
+      description: Profile-routing boundary, host compatibility, secrets/PII.
+      placeholder: None / describe the impact.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and PRs for duplicates.
+          required: true
+        - label: I can reproduce on latest `main`.
+          required: true
