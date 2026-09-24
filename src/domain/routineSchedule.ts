@@ -108,7 +108,11 @@ function parseTime(time: string): { minute: number; hour: number } {
   return { minute, hour };
 }
 
-/** Translate high abstraction config to standard 5-part cron string. */
+/** Translate high abstraction config to a backend schedule string.
+ * Wall-clock triggers serialize as standard 5-part cron. The interval
+ * trigger serializes as Hermes-native interval syntax (every Nm/Nh/Nd),
+ * which the backend parse_schedule() runs as a continuous interval —
+ * cron step expressions would reset at field boundaries instead. */
 export function buildCronExpression(config: ScheduleConfig): string {
   const { minute, hour } = parseTime(config.time);
 
@@ -130,12 +134,12 @@ export function buildCronExpression(config: ScheduleConfig): string {
     case 'interval': {
       const val = Math.max(1, Math.floor(config.intervalValue));
       if (config.intervalUnit === 'minutes') {
-        return `*/${val} * * * *`;
+        return `every ${val}m`;
       }
       if (config.intervalUnit === 'hours') {
-        return `0 */${val} * * *`;
+        return `every ${val}h`;
       }
-      return `0 0 */${val} * *`;
+      return `every ${val}d`;
     }
     default:
       return `${minute} ${hour} * * *`;
