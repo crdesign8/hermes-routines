@@ -22,7 +22,7 @@ export interface RoutineComposerPanelProps {
   activeRoute: PluginProfileRoute | null;
   disabled: boolean;
   onClose: () => void;
-  onSubmit: (name: string, schedule: string, payload: Record<string, unknown>, active: boolean) => Promise<boolean>;
+  onSubmit: (name: string, schedule: string, prompt: string, active: boolean) => Promise<boolean>;
 }
 
 export function RoutineComposerPanel({
@@ -68,18 +68,18 @@ export function RoutineComposerPanel({
     let jobId = trimmedName.replace(/\s+/g, '-').replace(/[^A-Za-z0-9._:-]/g, '');
     if (!jobId) jobId = 'routine';
 
-    const payload: Record<string, unknown> = {};
-    if (prompt.trim()) {
-      payload.prompt = prompt.trim();
-    }
-    if (trimmedName !== jobId) {
-      payload.title = trimmedName;
+    // The backend runs the top-level prompt string; an empty instruction
+    // is rejected here so the form fails fast instead of round-tripping.
+    const promptText = prompt.trim();
+    if (!promptText) {
+      setError('Describe what this routine should do.');
+      return;
     }
 
     setSubmitting(true);
     setError(null);
     try {
-      const ok = await onSubmit(jobId, cronExpr, payload, active);
+      const ok = await onSubmit(jobId, cronExpr, promptText, active);
       if (!ok) {
         setError('Failed to create routine. Please verify parameters.');
       }
@@ -262,7 +262,7 @@ export function RoutineComposerPanel({
           <button
             type="button"
             className="hr-btn hr-btn-create-submit"
-            disabled={!name.trim() || submitting || disabled}
+            disabled={!name.trim() || !prompt.trim() || submitting || disabled}
             onClick={handleSubmit}
           >
             {submitting ? 'Creating…' : 'Create Routine'}

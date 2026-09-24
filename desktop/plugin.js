@@ -868,6 +868,7 @@ function isContiguousRange(values) {
 var MAX_JOB_ID_LENGTH = 128;
 var JOB_ID_RE = /^[A-Za-z0-9._:-]+$/;
 var MAX_SCHEDULE_LENGTH = 256;
+var MAX_PROMPT_LENGTH = 2e4;
 var CONTROL_CHARS_RE = /[\x00-\x1F\x7F]/;
 function assertJobId(jobId) {
   if (typeof jobId !== "string") {
@@ -898,12 +899,18 @@ function assertSchedule(schedule) {
   }
   return trimmed;
 }
-function assertPayload(payload) {
-  if (payload === void 0) return {};
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new TypeError("payload must be a plain object");
+function assertPrompt(prompt) {
+  if (typeof prompt !== "string") {
+    throw new TypeError("prompt must be a non-empty string");
   }
-  return payload;
+  const text = prompt.trim();
+  if (!text) {
+    throw new TypeError("prompt must be a non-empty string");
+  }
+  if (text.length > MAX_PROMPT_LENGTH) {
+    throw new TypeError("prompt must be at most 20000 chars");
+  }
+  return text;
 }
 function cloneValue(value) {
   try {
@@ -922,8 +929,8 @@ function listJobs(jobs = []) {
 function addJob(input = {}) {
   const name = assertJobId(input.job_id);
   const schedule = assertSchedule(input.schedule);
-  const payload = cloneValue(assertPayload(input.payload));
-  return { action: "add", name, schedule, payload };
+  const prompt = assertPrompt(input.prompt);
+  return { action: "add", name, schedule, prompt };
 }
 function removeJob(jobId) {
   return { action: "remove", name: assertJobId(jobId) };
@@ -2493,17 +2500,15 @@ function RoutineComposerPanel({
     if (!trimmedName || submitting || disabled) return;
     let jobId = trimmedName.replace(/\s+/g, "-").replace(/[^A-Za-z0-9._:-]/g, "");
     if (!jobId) jobId = "routine";
-    const payload = {};
-    if (prompt.trim()) {
-      payload.prompt = prompt.trim();
-    }
-    if (trimmedName !== jobId) {
-      payload.title = trimmedName;
+    const promptText = prompt.trim();
+    if (!promptText) {
+      setError("Describe what this routine should do.");
+      return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      const ok = await onSubmit(jobId, cronExpr, payload, active);
+      const ok = await onSubmit(jobId, cronExpr, promptText, active);
       if (!ok) {
         setError("Failed to create routine. Please verify parameters.");
       }
@@ -2691,7 +2696,7 @@ function RoutineComposerPanel({
           {
             type: "button",
             className: "hr-btn hr-btn-create-submit",
-            disabled: !name.trim() || submitting || disabled,
+            disabled: !name.trim() || !prompt.trim() || submitting || disabled,
             onClick: handleSubmit,
             children: submitting ? "Creating\u2026" : "Create Routine"
           }
@@ -2908,14 +2913,14 @@ function RoutinesPage() {
     const route = activeRoute;
     void runMutation("resume", name, () => buildResumeParams(route, name));
   }
-  async function handleCreateRoutine(name, schedule, payload, active) {
+  async function handleCreateRoutine(name, schedule, prompt, active) {
     if (!activeRoute) {
       dispatch({ type: "mutation-error", error: "the active profile route is no longer available" });
       return false;
     }
     const route = activeRoute;
     try {
-      const addParams = buildAddParams(route, { job_id: name, schedule, payload });
+      const addParams = buildAddParams(route, { job_id: name, schedule, prompt });
       dispatch({ type: "mutate-start", name });
       await requestCronForRoute(route, "cron.manage", addParams);
       if (!active) {

@@ -168,16 +168,15 @@ describe('fail-closed', () => {
     }
   });
 
-  it('uncloneable payload surfaces a domain TypeError (not the raw DOMException)', async () => {
+  it('blank prompt fails fast as a domain TypeError (never a backend round-trip)', async () => {
     let err = null;
     try {
-      shapes.addJob({ job_id: 'j1', schedule: '* * * * *', payload: { fn: () => {} } });
+      shapes.addJob({ job_id: 'j1', schedule: '* * * * *', prompt: '   ' });
     } catch (e) {
       err = e;
     }
     assert.ok(err instanceof TypeError, 'must be a TypeError');
-    assert.match(err.message, /uncloneable value/);
-    assert.equal(err?.cause?.name, 'DataCloneError');
+    assert.match(err.message, /prompt must be a non-empty string/);
     assert.throws(() => shapes.listJobs([{ fn: () => {} }]), /uncloneable value/);
   });
 

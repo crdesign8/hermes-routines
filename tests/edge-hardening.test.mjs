@@ -35,15 +35,13 @@ describe('edge-hardening', () => {
     assert.deepEqual(shapes.removeJob('  j1  '), { action: 'remove', name: 'j1' });
   });
 
-  it('rejects non-object payload and clones objects', async () => {
+  it('rejects blank, non-string and overlong prompt', async () => {
     const shapes = await import('../src/domain/cronShapes.ts');
-    for (const bad of [null, [], 'x', 42]) {
-      assert.throws(() => shapes.addJob({ job_id: 'j1', schedule: '* * * * *', payload: bad }), TypeError);
+    for (const bad of ['', '   ', null, undefined, 42, {}, [], 'x'.repeat(20001)]) {
+      assert.throws(() => shapes.addJob({ job_id: 'j1', schedule: '* * * * *', prompt: bad }), TypeError);
     }
-    const nested = { a: { b: [1, 2] } };
-    const added = shapes.addJob({ job_id: 'j1', schedule: '* * * * *', payload: nested });
-    nested.a.b.push(3);
-    assert.deepEqual(added.payload, { a: { b: [1, 2] } }, 'nested payload must be deep-cloned');
+    const added = shapes.addJob({ job_id: 'j1', schedule: '* * * * *', prompt: '  ping  ' });
+    assert.equal(added.prompt, 'ping', 'prompt is trimmed');
   });
 
   it('listJobs deep-clones items instead of aliasing', async () => {

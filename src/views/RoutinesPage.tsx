@@ -55,9 +55,10 @@ import {
 // only where safe): pause and resume are optimistic with snapshot
 // rollback; isSafeOptimistic pins the policy and is covered by tests.
 //
-// Scope of this surface: list / details / pause / resume. Create, delete,
-// edit and run-now are not part of this view; their builders stay in the
-// domain layer but drive no interface here.
+// Scope of this surface: list / details / create / pause / resume. Create
+// rides the composer panel and the upstream `cron.manage add` contract
+// (name + schedule + prompt); delete, edit and run-now are not part of
+// this view and have no interface here.
 
 function pastTense(kind: string): string {
   if (kind === 'pause') return 'paused';
@@ -247,7 +248,7 @@ export function RoutinesPage() {
   async function handleCreateRoutine(
     name: string,
     schedule: string,
-    payload: Record<string, unknown>,
+    prompt: string,
     active: boolean,
   ): Promise<boolean> {
     if (!activeRoute) {
@@ -256,7 +257,7 @@ export function RoutinesPage() {
     }
     const route = activeRoute;
     try {
-      const addParams = buildAddParams(route, { job_id: name, schedule, payload });
+      const addParams = buildAddParams(route, { job_id: name, schedule, prompt });
       dispatch({ type: 'mutate-start', name });
       await requestCronForRoute(route, 'cron.manage', addParams);
       if (!active) {

@@ -102,8 +102,8 @@ describe('routine-create-inspector', () => {
       activeRoute: ROUTE,
       disabled: false,
       onClose: () => {},
-      onSubmit: async (name, schedule, payload, active) => {
-        submitted = { name, schedule, payload, active };
+      onSubmit: async (name, schedule, prompt, active) => {
+        submitted = { name, schedule, prompt, active };
         return true;
       },
     });

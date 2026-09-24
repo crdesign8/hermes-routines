@@ -12,22 +12,24 @@ const shapesPath = path.join(root, 'src', 'domain', 'cronShapes.ts');
 // src/domain/cronShapes.ts (ported 1:1 from the former lib/cron-shapes.mjs,
 // bundled into desktop/plugin.js by scripts/build.mjs).
 describe('cron-actions (single source: src/domain/cronShapes.ts)', () => {
-  it('addJob builds {action:add,name,schedule,payload} with edge validation', async () => {
+  it('addJob builds {action:add,name,schedule,prompt} with edge validation', async () => {
     const shapes = await import('../src/domain/cronShapes.ts');
-    const added = shapes.addJob({ job_id: 'wake', schedule: '  0 9 * * *  ' });
+    const added = shapes.addJob({ job_id: 'wake', schedule: '  0 9 * * *  ', prompt: '  ping ops  ' });
     assert.deepEqual(added, {
       action: 'add',
       name: 'wake',
       schedule: '0 9 * * *',
-      payload: {},
+      prompt: 'ping ops',
     });
-    assert.throws(() => shapes.addJob({ job_id: '', schedule: '* * * * *' }), /job_id must be a non-empty string/);
-    assert.throws(() => shapes.addJob({ job_id: 'bad id!', schedule: '* * * * *' }), /job_id must match/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake' }), /schedule must be a non-empty string/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: 'x'.repeat(300) }), /at most 256/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * \n*' }), /control characters/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * * * *', payload: 'str' }), /plain object/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * * * *', payload: [] }), /plain object/);
+    assert.throws(() => shapes.addJob({ job_id: '', schedule: '* * * * *', prompt: 'x' }), /job_id must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ job_id: 'bad id!', schedule: '* * * * *', prompt: 'x' }), /job_id must match/);
+    assert.throws(() => shapes.addJob({ job_id: 'wake', prompt: 'x' }), /schedule must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: 'x'.repeat(300), prompt: 'x' }), /at most 256/);
+    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * \n*', prompt: 'x' }), /control characters/);
+    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * * * *' }), /prompt must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * * * *', prompt: '   ' }), /prompt must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * * * *', prompt: 42 }), /prompt must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * * * *', prompt: 'x'.repeat(20001) }), /at most 20000/);
   });
 
   it('removeJob/pauseJob/resumeJob share the single-id contract', async () => {
@@ -53,16 +55,11 @@ describe('cron-actions (single source: src/domain/cronShapes.ts)', () => {
     assert.deepEqual(shapes.listJobs(), { action: 'list', jobs: [] });
   });
 
-  it('addJob payload is deep-cloned; uncloneable values surface as TypeError', async () => {
+  it('addJob carries the prompt string through (upstream cron.manage create contract)', async () => {
     const shapes = await import('../src/domain/cronShapes.ts');
-    const payload = { nested: { text: 'ping' } };
-    const added = shapes.addJob({ job_id: 'j1', schedule: '* * * * *', payload });
-    payload.nested.text = 'mutated';
-    assert.equal(added.payload.nested.text, 'ping', 'payload must be cloned, not aliased');
-    assert.throws(
-      () => shapes.addJob({ job_id: 'j1', schedule: '* * * * *', payload: { fn() {} } }),
-      /uncloneable value/,
-    );
+    const added = shapes.addJob({ job_id: 'j1', schedule: '* * * * *', prompt: '  ping  ' });
+    assert.equal(added.prompt, 'ping', 'prompt is trimmed and carried top-level');
+    assert.ok(!('payload' in added), 'add shape must not carry a payload object');
   });
 
   it('source pins: five actions, no update/run fiction', () => {
