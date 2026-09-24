@@ -272,7 +272,7 @@ describe('routines-view pause/resume via builders', () => {
 
 describe('routines-view presentation (Crew port)', () => {
   it('humanizes cron schedules instead of showing raw cron', () => {
-    assert.equal(routines.describeSchedule('0 7 * * 2'), 'Tuesdays at 07:00');
+    assert.equal(routines.describeSchedule('0 7 * * 2'), 'Every Tuesday at 07:00');
     assert.equal(routines.describeSchedule('0 9 * * *'), 'Every day at 09:00');
     assert.equal(routines.describeSchedule('every 5m'), 'Every 5 minutes');
     assert.equal(routines.describeSchedule('0 9 * * MON'), '0 9 * * MON', 'unknown tokens stay verbatim');
@@ -299,7 +299,7 @@ describe('routines-view presentation (Crew port)', () => {
     assert.equal(routines.describeSchedule('*/20 * * * *'), 'Every 20 minutes');
     assert.equal(routines.describeSchedule('0 */2 * * *'), 'Every 2 hours');
     assert.equal(routines.describeSchedule('0 */6 * * *'), 'Every 6 hours');
-    assert.equal(routines.describeSchedule('0 9 * * 1-5'), 'Every weekday at 09:00');
+    assert.equal(routines.describeSchedule('0 9 * * 1-5'), 'Weekdays at 09:00');
     assert.equal(routines.describeSchedule('0 8 1 * *'), 'On the 1st of every month at 08:00');
   });
 
