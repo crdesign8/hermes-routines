@@ -72,19 +72,42 @@ describe('routineSchedule', () => {
     assert.equal(buildCronExpression(monthConf), '0 8 1 * *');
     assert.equal(describeScheduleConfig(monthConf), 'On the 1st of every month at 08:00');
 
-    // Interval minutes
+    // Interval minutes (issue #1: Hermes-native interval, not cron steps)
     const minConf = { ...hourConf, trigger: 'interval', intervalValue: 5, intervalUnit: 'minutes' };
-    assert.equal(buildCronExpression(minConf), '*/5 * * * *');
+    assert.equal(buildCronExpression(minConf), 'every 5m');
     assert.equal(describeScheduleConfig(minConf), 'Every 5 minutes');
 
     // Interval hours
     const hrConf = { ...hourConf, trigger: 'interval', intervalValue: 2, intervalUnit: 'hours' };
-    assert.equal(buildCronExpression(hrConf), '0 */2 * * *');
+    assert.equal(buildCronExpression(hrConf), 'every 2h');
     assert.equal(describeScheduleConfig(hrConf), 'Every 2 hours');
 
     // Interval days
     const daysConf = { ...hourConf, trigger: 'interval', intervalValue: 10, intervalUnit: 'days' };
-    assert.equal(buildCronExpression(daysConf), '0 0 */10 * *');
+    assert.equal(buildCronExpression(daysConf), 'every 10d');
     assert.equal(describeScheduleConfig(daysConf), 'Every 10 days');
+  });
+
+  it('serializes issue #1 regression intervals as native syntax', () => {
+    const base = {
+      trigger: 'interval',
+      time: '08:00',
+      dayOfWeek: 'Monday',
+      dayOfMonth: 1,
+      intervalValue: 5,
+      intervalUnit: 'minutes',
+    };
+    assert.equal(
+      buildCronExpression({ ...base, intervalValue: 45, intervalUnit: 'minutes' }),
+      'every 45m',
+    );
+    assert.equal(
+      buildCronExpression({ ...base, intervalValue: 5, intervalUnit: 'hours' }),
+      'every 5h',
+    );
+    assert.equal(
+      buildCronExpression({ ...base, intervalValue: 10, intervalUnit: 'days' }),
+      'every 10d',
+    );
   });
 });

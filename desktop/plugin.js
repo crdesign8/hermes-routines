@@ -2234,12 +2234,12 @@ function buildCronExpression(config) {
     case "interval": {
       const val = Math.max(1, Math.floor(config.intervalValue));
       if (config.intervalUnit === "minutes") {
-        return `*/${val} * * * *`;
+        return `every ${val}m`;
       }
       if (config.intervalUnit === "hours") {
-        return `0 */${val} * * *`;
+        return `every ${val}h`;
       }
-      return `0 0 */${val} * *`;
+      return `every ${val}d`;
     }
     default:
       return `${minute} ${hour} * * *`;
