@@ -1,3 +1,8 @@
+> **Historical snapshot — not the operational contract.** This document is
+> the Fase 1 baseline snapshot for issue #13. The current source of truth
+> for installation, upgrade, uninstall, and troubleshooting is
+> [`docs/INSTALL.md`](docs/INSTALL.md).
+
 # Issue #13 — Contrato upstream e decisões seladas (Fase 1: nota de contrato — snapshot baseline; fases 2–3: implementação concluída)
 
 > Escopo desta fase: **somente registrar** o contrato upstream real e as

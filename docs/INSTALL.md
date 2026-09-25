@@ -305,7 +305,9 @@ no runtime dep. `tests/types-contract.test.mjs` pins the wiring
 
 After install, reload the app runtime so the plugin host picks up
 `desktop-plugins/hermes-routines/plugin.js` (restart the desktop app or trigger a
-runtime plugin reload). The Routines page then mounts at
+runtime plugin reload), then go to Capabilities → Plugins and enable
+hermes-routines. The plugin is opt-in (`defaultEnabled: false`) and does
+not self-enable. Once enabled, the Routines page mounts at
 `/routines` with its sidebar row, and stays mounted whichever profile
 or gateway the window is pointed at.
 
