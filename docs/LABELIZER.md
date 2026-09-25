@@ -79,5 +79,5 @@ overlay mirroring this policy.
 
 ```sh
 node scripts/issue-triage.mjs --validate   # policy + template cross-check (also in npm run check)
-npm test                                    # tests/label-policy.test.mjs: 15 cases
+npm test                                    # tests/label-policy.test.mjs: 16 cases
 ```

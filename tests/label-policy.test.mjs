@@ -147,6 +147,16 @@ describe('label-policy', () => {
     assert.throws(() => validatePolicy(bad), LabelizerError);
   });
 
+  it('fail-closed: no rule may project a human-owned label', () => {
+    const { policy } = loadPolicy();
+    const badBody = JSON.parse(JSON.stringify(policy));
+    badBody.issue.body_rules.push({ contains: 'x', labels: ['priority:p1'] });
+    assert.throws(() => validatePolicy(badBody), /human-owned/);
+    const badTitle = JSON.parse(JSON.stringify(policy));
+    badTitle.issue.title_rules.push({ prefixes: ['urgent:'], labels: ['status:blocked'] });
+    assert.throws(() => validatePolicy(badTitle), /human-owned/);
+  });
+
   it('fail-closed: classifier never emits names outside managed_labels', () => {
     const { policy, managed } = loadPolicy();
     for (const title of ['fix: a', 'feat(b): c', 'chore: d', 'free text']) {

@@ -320,6 +320,20 @@ export function validatePolicy(policy) {
     if (manual.has(l)) throw new LabelizerError(`manual_labels has duplicate: ${l}`);
     manual.add(l);
   }
+  // Fail-closed: human-owned labels are never projected by a rule. Without
+  // this, a future rule could silently auto-assign priority:/status: labels
+  // that compute-and-diff is forbidden from removing.
+  /** @type {{ where: string, labels: any }[]} */
+  const projections = [
+    { where: 'issue.defaults', labels: issue.defaults ?? [] },
+    ...[...(issue.title_rules ?? [])].map((/** @type {any} */ r, /** @type {number} */ i) => ({ where: `issue.title_rules[${i}]`, labels: r.labels ?? [] })),
+    ...[...(issue.title_scope_rules ?? [])].map((/** @type {any} */ r, /** @type {number} */ i) => ({ where: `issue.title_scope_rules[${i}]`, labels: r.labels ?? [] })),
+    ...[...(issue.body_rules ?? [])].map((/** @type {any} */ r, /** @type {number} */ i) => ({ where: `issue.body_rules[${i}]`, labels: r.labels ?? [] })),
+  ];
+  for (const { where, labels } of projections) {
+    const leaked = (Array.isArray(labels) ? labels : []).filter((/** @type {any} */ l) => manual.has(l));
+    if (leaked.length > 0) throw new LabelizerError(`${where} projects human-owned labels: ${leaked.join(', ')}`);
+  }
   return { managed: names, manual };
 }
 
