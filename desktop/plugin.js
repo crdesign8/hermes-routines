@@ -103,6 +103,9 @@ function assertRoutingOptions(options) {
   if (plain.allowUnscoped !== void 0 && typeof plain.allowUnscoped !== "boolean") {
     throw new TypeError("options.allowUnscoped must be a boolean");
   }
+  if (plain.spawnPriority !== void 0 && plain.spawnPriority !== "foreground" && plain.spawnPriority !== "background") {
+    throw new TypeError("options.spawnPriority must be 'foreground' or 'background'");
+  }
 }
 function assertTimeoutMs(timeoutMs) {
   if (timeoutMs === void 0) return;
@@ -1193,11 +1196,20 @@ async function requestCronForRoute(target, method, params = {}, timeoutMs, optio
       throw new Error(`Cannot route ${method} for ${route.connectionId}::${route.profile}`);
     }
     const scoped = scopedCronParams(route, params, { allowUnscoped: options.allowUnscoped });
-    return timeoutMs === void 0 ? host.requestProfile(route, method, scoped) : host.requestProfile(route, method, scoped, timeoutMs);
+    const dialOptions = options.spawnPriority === void 0 ? void 0 : { spawnPriority: options.spawnPriority };
+    if (dialOptions === void 0) {
+      return timeoutMs === void 0 ? host.requestProfile(route, method, scoped) : host.requestProfile(route, method, scoped, timeoutMs);
+    }
+    return timeoutMs === void 0 ? host.requestProfile(route, method, scoped, void 0, dialOptions) : host.requestProfile(route, method, scoped, timeoutMs, dialOptions);
   }
   if (options.allowActiveDoor !== true) {
     throw new Error(
       `Cannot dispatch ${method} without a resolved profile route (active gateway door is opt-in via { allowActiveDoor: true })`
+    );
+  }
+  if (options.spawnPriority !== void 0) {
+    throw new TypeError(
+      `spawnPriority requires a resolved profile route (host.request takes no options bag)`
     );
   }
   if (typeof host.request !== "function") {
@@ -2879,7 +2891,9 @@ function RoutinesPage() {
     }
     dispatch({ type: "mutate-start", name });
     try {
-      await requestCronForRoute(activeRoute, "cron.manage", params);
+      await requestCronForRoute(activeRoute, "cron.manage", params, void 0, {
+        spawnPriority: "foreground"
+      });
       dispatch({ type: "mutate-end", name });
       dispatch({ type: "notice", notice: "routine " + name + " " + pastTense(kind) });
       dispatch({ type: "retry-list" });
@@ -2910,10 +2924,14 @@ function RoutinesPage() {
     try {
       const addParams = buildAddParams(route, { job_id: name, schedule, prompt });
       dispatch({ type: "mutate-start", name });
-      await requestCronForRoute(route, "cron.manage", addParams);
+      await requestCronForRoute(route, "cron.manage", addParams, void 0, {
+        spawnPriority: "foreground"
+      });
       if (!active) {
         const pauseParams = buildPauseParams(route, name);
-        await requestCronForRoute(route, "cron.manage", pauseParams);
+        await requestCronForRoute(route, "cron.manage", pauseParams, void 0, {
+          spawnPriority: "foreground"
+        });
       }
       dispatch({ type: "mutate-end", name });
       dispatch({ type: "notice", notice: "routine " + name + " created" });

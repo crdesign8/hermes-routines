@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { register } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // Formerly sync-semantics (lib ↔ routines.js mirror comparison): with the
 // copy-identity sync removed, gateway behavior has a single source — the
@@ -88,6 +93,128 @@ describe('gateway semantics: requestCronForRoute (single source: desktop/plugin.
     await shapes.requestCronForRoute(null, 'cron.manage', { action: 'list' }, 75, { allowActiveDoor: true });
     assert.equal(plain.length, 3, 'timeout -> host.request(method, params, timeoutMs)');
     assert.equal(plain[2], 75);
+  });
+
+  it("foreground user actions ride the 5th-arg { spawnPriority: 'foreground' } bag", async () => {
+    sdk.__reset();
+    let seen = null;
+    sdk.__setHost({
+      requestProfile: async (...args) => {
+        seen = args;
+        return 'ok';
+      },
+    });
+    // no timeout: the undefined placeholder keeps the bag in 5th position
+    await shapes.requestCronForRoute(
+      ROUTE,
+      'cron.manage',
+      { action: 'pause', profile: 'p1' },
+      undefined,
+      { spawnPriority: 'foreground' },
+    );
+    assert.equal(seen.length, 5, 'foreground -> host.requestProfile(route, method, scoped, undefined, options)');
+    assert.equal(seen[3], undefined, 'timeoutMs placeholder stays undefined when none was given');
+    assert.deepEqual(seen[4], { spawnPriority: 'foreground' });
+
+    // with a timeout the bag still lands 5th, after the positional deadline
+    await shapes.requestCronForRoute(
+      ROUTE,
+      'cron.manage',
+      { action: 'resume', profile: 'p1' },
+      50,
+      { spawnPriority: 'foreground' },
+    );
+    assert.equal(seen.length, 5);
+    assert.equal(seen[3], 50, 'timeoutMs stays positional (4th arg)');
+    assert.deepEqual(seen[4], { spawnPriority: 'foreground' });
+
+    // explicit background is forwarded as-is (same position)
+    await shapes.requestCronForRoute(
+      ROUTE,
+      'cron.manage',
+      { action: 'list', profile: 'p1' },
+      undefined,
+      { spawnPriority: 'background' },
+    );
+    assert.deepEqual(seen[4], { spawnPriority: 'background' });
+
+    // no spawnPriority: the background default keeps the pinned 3/4-arg shapes
+    await shapes.requestCronForRoute(ROUTE, 'cron.manage', { action: 'list', profile: 'p1' });
+    assert.equal(seen.length, 3, 'background default -> host.requestProfile(route, method, scoped)');
+    await shapes.requestCronForRoute(ROUTE, 'cron.manage', { action: 'list', profile: 'p1' }, 50);
+    assert.equal(seen.length, 4, 'background default + timeout -> 4th arg is timeoutMs');
+  });
+
+  it('listRoutines (polling) keeps the background default: no 5th arg', async () => {
+    sdk.__reset();
+    let seen = null;
+    sdk.__setHost({
+      requestProfile: async (...args) => {
+        seen = args;
+        return 'ok';
+      },
+    });
+    await shapes.listRoutines(ROUTE);
+    assert.equal(seen.length, 3, 'polling must not ask for the interactive slot');
+    assert.equal(seen[4], undefined);
+  });
+
+  it('invalid spawnPriority rejects before touching any host door', async () => {
+    sdk.__reset();
+    for (const bad of ['Foreground', 'urgent', 1, null, {}, []]) {
+      await assert.rejects(
+        () =>
+          shapes.requestCronForRoute(ROUTE, 'cron.manage', { action: 'list', profile: 'p1' }, undefined, {
+            spawnPriority: bad,
+          }),
+        TypeError,
+        `spawnPriority ${JSON.stringify(bad)} must throw TypeError`,
+      );
+    }
+    assert.equal(sdk.__calls().length, 0);
+    // absent is fine: undefined is simply the background default
+    await shapes.requestCronForRoute(ROUTE, 'cron.manage', { action: 'list', profile: 'p1' }, undefined, {});
+    assert.equal(sdk.__calls().length, 1);
+  });
+
+  it('spawnPriority on the active door rejects (host.request has no options bag)', async () => {
+    sdk.__reset();
+    sdk.__setHost({ request: async () => 'plain' });
+    await assert.rejects(
+      () =>
+        shapes.requestCronForRoute(null, 'cron.manage', { action: 'list' }, undefined, {
+          allowActiveDoor: true,
+          spawnPriority: 'foreground',
+        }),
+      /spawnPriority requires a resolved profile route/,
+    );
+    assert.equal(sdk.__calls().length, 0, 'the unsupported intent must fail before dispatch');
+    // without the priority the opt-in door still works as before
+    const out = await shapes.requestCronForRoute(null, 'cron.manage', { action: 'list' }, undefined, {
+      allowActiveDoor: true,
+    });
+    assert.equal(out, 'plain');
+  });
+
+  it('view user actions all request foreground (list polling stays background)', () => {
+    const view = readFileSync(path.join(root, 'src', 'views', 'RoutinesPage.tsx'), 'utf8');
+    // comment lines carry prose mentions; only executable lines are counted
+    const code = view
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    const mutations = code.match(/requestCronForRoute\(/g) || [];
+    const foreground = code.match(/spawnPriority:\s*'foreground'/g) || [];
+    assert.equal(mutations.length, 3, 'pause/resume + create(add, pause) are the user actions');
+    assert.equal(
+      foreground.length,
+      mutations.length,
+      'every user action must ask for the interactive spawn slot',
+    );
+    // the list load must never request it: it is polling, not a user action
+    const listRoutinesCalls = code.match(/listRoutines\(/g) || [];
+    assert.equal(listRoutinesCalls.length, 1, 'exactly one list load site');
+    assert.equal(/listRoutines\([^)]*spawnPriority/.test(code), false, 'polling stays background');
   });
 
   it('invalid timeoutMs throws TypeError without touching any host', async () => {

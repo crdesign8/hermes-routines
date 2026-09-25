@@ -17,7 +17,10 @@
 //   - PluginProfileRoute — connectionId, mode, profile, targetProfile are
 //     ALL required: sdk/index.ts
 //   - host.profileRoutes / host.requestProfile(route, method, params,
-//     timeoutMs?) / host.request(method, params?, timeoutMs?): sdk/index.ts
+//     timeoutMs?, { spawnPriority? }) / host.request(method, params?,
+//     timeoutMs?): sdk/index.ts (`PluginProfileRequestOptions` carries
+//     `spawnPriority?: 'foreground' | 'background'`; see the desktop docs,
+//     desktop-plugin-sdk.md § requestProfile)
 //   - host.state.profile / host.state.connectionId: sdk/index.ts (`profile:
 //     readonlyAtom<string>($activeGatewayProfile)`, `connectionId:
 //     readonlyAtom<null | string>($activeConnectionId)`)
@@ -72,11 +75,21 @@ declare module '@hermes/plugin-sdk' {
    *  not this name. */
   interface PluginHost {
     profileRoutes(): Promise<PluginProfileRoute[]>;
+    /**
+     * Registry-routed RPC. `options` is `PluginProfileRequestOptions`: a
+     * call that may cold-start the profile dials at background priority by
+     * default, so a user action (save, button, dialog) must pass
+     * `{ spawnPriority: 'foreground' }` to take the pool's reserved
+     * interactive slot; polling and roster warming keep the default.
+     * When no `timeoutMs` is needed the placeholder `undefined` holds the
+     * position so the bag still lands 5th.
+     */
     requestProfile<T = unknown>(
       route: PluginProfileRoute,
       method: string,
       params: Record<string, unknown>,
       timeoutMs?: number,
+      options?: { spawnPriority?: 'foreground' | 'background' },
     ): Promise<T>;
     request<T = unknown>(
       method: string,
