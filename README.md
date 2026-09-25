@@ -72,7 +72,9 @@ profiles. The `--hermes-home` / `HERMES_HOME` precedence is documented in
 [`docs/INSTALL.md`](docs/INSTALL.md).
 
 After installation, reload the Desktop app (or trigger a runtime plugin
-reload). The Routines page is then available at `/routines`, whichever
+reload), then go to Capabilities → Plugins and enable hermes-routines.
+The plugin is opt-in (`defaultEnabled: false`) and does not self-enable.
+Once enabled, the Routines page is available at `/routines`, whichever
 profile is active.
 
 ### Verify the installed artifact
@@ -86,7 +88,8 @@ The two hashes must match.
 
 ## Usage
 
-1. Install the plugin and reload the profile.
+1. Install the plugin, reload the profile, then go to Capabilities →
+   Plugins and enable hermes-routines (opt-in; it does not self-enable).
 2. Open **Routines** from the sidebar, or navigate to `/routines`.
 3. The page follows the active Desktop profile. It requires the host to expose
    a complete route for that profile; there is no profile picker in this view.
@@ -216,4 +219,4 @@ reference.
 
 ## License
 
-Copyright (c) 2026 Hermes contributors. Released under the MIT License.
+Copyright (c) 2026 crdesign8. Released under the MIT License.
