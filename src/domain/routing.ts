@@ -152,7 +152,7 @@ export function scopedCronParams(
   return { ...plain, profile: target };
 }
 
-/** Validate the routing options bag: plain object, boolean flags only. */
+/** Validate the options bag: plain object, boolean flags plus the spawnPriority enum. */
 export function assertRoutingOptions(options: RoutingOptions | undefined): void {
   if (options === undefined) return;
   const plain = assertPlainObject(options, 'options must be a plain object');
