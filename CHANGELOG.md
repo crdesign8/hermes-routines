@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected the `main` protection definition: required check context is
   `test` (not `ci`), solo flow disables required code-owner reviews, and
   activation uses a repository ruleset (`docs/main-ruleset.json`).
+- Self-hosted `test` job skips pull-request heads from forks so a
+  public repository cannot execute untrusted code on the VPS runner.
 
 ## [0.1.0] - 2026-09-24
 

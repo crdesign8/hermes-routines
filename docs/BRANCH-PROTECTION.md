@@ -116,8 +116,12 @@ workflows` (applies once the repository is public and forks exist).
   PR workflows run.
 - Secrets are never passed to fork PR runs; `pull_request_target` is
   not used in this repository.
-- External PRs follow the same `main` flow: green `test` check,
-  resolved conversations, code-owner routing, squash merge.
+- The self-hosted `test` job skips `pull_request` heads whose
+  `head.repo.full_name` is not this repository. Same-repo PRs and
+  `push` still run. Fork CI is issue #19 (GitHub-hosted), not this
+  runner.
+- Until #19, a fork PR cannot satisfy the required `test` check.
+  Do not merge external PRs.
 
 ## What changes when the repo goes public
 

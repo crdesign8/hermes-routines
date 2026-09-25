@@ -53,6 +53,20 @@ describe('pr-reviewer-contract', () => {
     assert.match(ci, /node-version:\s*['"]?24['"]?/, 'ci must pin Node 24 for type-stripped tests');
   });
 
+  it('self-hosted ci skips fork pull_request heads', () => {
+    const ci = readRoot('.github', 'workflows', 'ci.yml');
+    assert.match(
+      ci,
+      /github\.event_name\s*!=\s*'pull_request'/,
+      'ci must still run push and non-PR events',
+    );
+    assert.match(
+      ci,
+      /head\.repo\.full_name\s*==\s*github\.repository/,
+      'ci must skip pull_request heads from forks',
+    );
+  });
+
   it('human review is CODEOWNERS (* @crdesign8)', () => {
     const owners = readRoot('CODEOWNERS');
     assert.match(owners, /^\*\s+@crdesign8/m, 'CODEOWNERS must keep * @crdesign8');
