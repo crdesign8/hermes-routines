@@ -15,10 +15,10 @@ the plugin small, auditable, and compatible with the Hermes Desktop host.
 
 Prerequisites:
 
-- Node.js `>=20`.
-- Node.js `24` is recommended and is the version used by CI. The test suite
-  imports TypeScript source files with native type stripping, which requires
-  a sufficiently recent Node.js release.
+- Node.js `>=22.18`. The floor is 22.18 because the test suite imports
+  TypeScript source files, which needs native type stripping (available from
+  Node.js 22.18); older releases cannot run `npm test`.
+- Node.js `24` is recommended and is the version used by CI.
 - npm.
 
 Clone and run the local checks:
