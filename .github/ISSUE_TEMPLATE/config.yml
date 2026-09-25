@@ -2,7 +2,10 @@ blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
     url: https://github.com/crdesign8/hermes-routines/blob/main/SECURITY.md
-    about: Do not open a public issue for vulnerabilities. Follow SECURITY.md and report privately.
+    about: Do not open a public issue. Use a private GitHub security advisory or email cr@cradministracao.com.br (see SECURITY.md).
+  - name: Code of Conduct report
+    url: https://github.com/crdesign8/hermes-routines/blob/main/CODE_OF_CONDUCT.md
+    about: Report abusive behavior privately by email to cr@cradministracao.com.br (see CODE_OF_CONDUCT.md). Do not use profile DMs.
   - name: Contributing guide
     url: https://github.com/crdesign8/hermes-routines/blob/main/CONTRIBUTING.md
     about: Read the contribution flow, local checks, and PR requirements before opening an issue.
