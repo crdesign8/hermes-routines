@@ -75,9 +75,10 @@ Linux runner, so a local green run does not replace the remote CI result.
 Direct pushes to `main` are not allowed: all changes enter via PR under
 the rules in [`docs/BRANCH-PROTECTION.md`](docs/BRANCH-PROTECTION.md).
 Review coverage is owned by [`CODEOWNERS`](CODEOWNERS) (`* @crdesign8`).
-Automatic review is the `ci` check on the PR head SHA and human review is
-the code-owner review; the reuse contract, idempotency key, and fail-closed
-merge rules are defined in [`docs/PR-REVIEWER.md`](docs/PR-REVIEWER.md).
+Automatic review is the `test` check (workflow `ci`) on the PR head SHA
+and human review is the code-owner review; the reuse contract,
+idempotency key, and fail-closed merge rules are defined in
+[`docs/PR-REVIEWER.md`](docs/PR-REVIEWER.md).
 Use the issue forms in [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/)
 for bug reports, feature requests, and chores.
 

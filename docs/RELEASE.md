@@ -80,15 +80,16 @@ Perform these steps only **after** the release PR has merged into `main`:
 
 ## 6. Merge by convention (no branch protection on private repos)
 
-- GitHub does not enforce branch protection on this private repository
-  without a qualifying plan: `GET /branches/main/protection` returns
+- GitHub does not enforce branch protection or repository rulesets on
+  this private repository without a qualifying plan:
+  `GET /branches/main/protection` and `GET /repos/.../rulesets` return
   HTTP 403 (`Upgrade to GitHub Pro or make this repository public to
   enable this feature`). See `docs/BRANCH-PROTECTION.md`.
 - Until protection is enforceable, the rules in
   `docs/BRANCH-PROTECTION.md` apply **by convention**: no direct push to
   `main`, PR from a focused branch, squash merge with branch deletion
-  (`gh pr merge --squash --delete-branch`), green remote CI, resolved
-  conversations, `CODEOWNERS` review.
+  (`gh pr merge --squash --delete-branch`), green remote `test` check,
+  resolved conversations, `CODEOWNERS` review routing.
 - This release followed that convention; enforcement becomes automatic once
   the repository is public (or otherwise eligible).
 
