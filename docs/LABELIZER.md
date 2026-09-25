@@ -8,18 +8,23 @@ repo-local execution.
 
 ## SSOT
 
-`.github/label-policy.yml` (versioned, currently `v1`) declares:
+`.github/label-policy.yml` (versioned, currently `v2`) declares:
 
-- `managed_labels` — the only names the triage may project (15 labels:
-  `type:*`, `area:*`, `source:human`). Title/body are untrusted input;
-  label names never interpolate user text.
+- `managed_labels` — the only names the triage may project (19 labels:
+  `type:*`, `area:*`, `source:human`, `priority:*`, `status:blocked`).
+  Title/body are untrusted input; label names never interpolate user text.
+- `manual_labels` — the human-owned subset of `managed_labels`
+  (`priority:p0/p1/p2`, `status:blocked`): declared here for taxonomy
+  governance, never projected by a rule, never removed as stale.
 - `exclusive_groups` — `type:` resolves to a single label by precedence.
 - `issue.defaults` (`source:human`), `title_rules` (conventional-commit
   prefix, case-insensitive), `title_scope_rules` (`(scope)` → `area:*`
-  only, never risk/security), `body_rules` (case-sensitive substring).
+  only, never risk/security), `body_rules` (case-sensitive substring; a rule
+  may set `match: word` to require word boundaries, so `cron` does not fire
+  inside `cronGateway.ts` or "cronograma").
 
 Anything the policy does not desire is not projected. `priority:*` and
-`status:*` are human-owned and never auto-assigned.
+`status:blocked` are human-owned: never auto-assigned, never removed.
 
 ## Entry events
 
@@ -35,8 +40,8 @@ chases its own writes.
 ## Idempotency and fail-closed
 
 - Compute-and-diff: adds desired managed labels, removes stale managed
-  labels, never touches unmanaged labels. Re-runs are no-ops
-  (`decision_key = repo:issue:number:content_sha:policy_vN`).
+  labels (never `manual_labels`), never touches unmanaged labels. Re-runs
+  are no-ops (`decision_key = repo:issue:number:content_sha:policy_vN`).
 - Fail-closed: invalid policy, unknown labels, missing token, or API
   errors abort with exit 1 and no partial writes. Scope rules may only
   project `area:*` (enforced by the validator).
@@ -61,6 +66,10 @@ enabled repos on its cron. Until that onboarding lands, this workflow
 is the sole executor. If both ever run concurrently, the overlay must
 mirror this policy version before activation, or the older executor
 re-adds removed labels (dual-run invariant from the internal engine).
+Policy `v2` additionally requires the overlay engine to honour
+`manual_labels` (never strip `priority:*` / `status:blocked`) and
+`match: word` (word-boundary `body_rules`); a substring-only engine
+would keep re-adding `area:automation` from mid-word matches.
 
 Follow-up (out of scope here, VPS runtime — not this repo):
 onboard `crdesign8/hermes-routines` to the VPS labelizer with an
@@ -70,5 +79,5 @@ overlay mirroring this policy.
 
 ```sh
 node scripts/issue-triage.mjs --validate   # policy + template cross-check (also in npm run check)
-npm test                                    # tests/label-policy.test.mjs: 11 cases
+npm test                                    # tests/label-policy.test.mjs: 15 cases
 ```
