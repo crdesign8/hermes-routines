@@ -15,12 +15,12 @@
 
 | Fonte | Revisão / versão observada | Como verificar |
 |---|---|---|
-| `hermes-agent` checkout em `/home/hermes/.hermes/hermes-agent` | commit `4e966506cff94d344377198d187d46bb59ac050c`, `hermes --version` → `v0.21.4 (2026.9.21)` | `cd /home/hermes/.hermes/hermes-agent && git rev-parse HEAD && hermes --version` |
+| `hermes-agent` checkout used in Fase 1 | commit `4e966506cff94d344377198d187d46bb59ac050c`, `hermes --version` → `v0.21.4 (2026.9.21)` | `git -C <hermes-agent> rev-parse HEAD && hermes --version` |
 | `hermes_cli/plugin_validate.py` | mesmo checkout | `sed -n '70,125p' hermes_cli/plugin_validate.py` |
 | `hermes_cli/plugins_manifest.py` | mesmo checkout | `sed -n '30,42p;345,370p' hermes_cli/plugins_manifest.py` |
 | `apps/desktop/src/contrib/plugin.ts` (interface `HermesPlugin`) | mesmo checkout | `sed -n '133,149p' apps/desktop/src/contrib/plugin.ts` |
 | `apps/desktop/src/contrib/plugins-store.ts:64`, `runtime-loader.ts:395` (default de `defaultEnabled`) | mesmo checkout | `grep -rn "defaultEnabled" apps/desktop/src/` |
-| Exemplos upstream `plugin-llm-example/plugin.yaml`, `plugin-llm-async-example/plugin.yaml` | cópia em `/tmp/hermes-example-plugins-upstream/` | `cat /tmp/hermes-example-plugins-upstream/plugin-llm-example/plugin.yaml` |
+| Exemplos upstream `plugin-llm-example/plugin.yaml`, `plugin-llm-async-example/plugin.yaml` | cópia temporária inspecionada na Fase 1 | `plugin-llm-example/plugin.yaml` no tree de exemplos do hermes-agent |
 
 ## 2. Contrato `plugin.yaml` (validador real)
 
@@ -37,7 +37,7 @@
   `plugins_manifest.py:350-351` (`field(default_factory=list)`); ambos são
   campos conhecidos — `:34-39` (`_KNOWN_MANIFEST_FIELDS`). Os exemplos
   upstream usam a variante `hooks: []` + `provides.commands`
-  (`/tmp/hermes-example-plugins-upstream/plugin-llm-example/plugin.yaml`);
+  (`plugin-llm-example/plugin.yaml`);
   este plugin declara o par `provides_tools`/`provides_hooks` vazio (forma
   canônica do manifesto v2 lida em `plugins_manifest.py:513-517`).
 - **Nenhum `plugin.yaml` existia no baseline da Fase 1** (verificado:

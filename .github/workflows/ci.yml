@@ -8,6 +8,10 @@ jobs:
     # Runner name is NOT valid in runs-on; target via labels.
     # 'local-server' disambiguates from the generic offline runner
     # (hermes-node-01: self-hosted/Linux/X64 only).
+    # Skip fork PR heads: a public repo with this runner would otherwise
+    # execute untrusted code on the VPS. Same-repo PRs and push still run.
+    # Fork CI waits on issue #19 (GitHub-hosted runners).
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [self-hosted, Linux, X64, local-server]
     steps:
       - uses: actions/checkout@v4

@@ -58,6 +58,10 @@ never in a follow-up PR for the same change (`CONTRIBUTING.md`).
   default `GITHUB_TOKEN`. It never merges, never pushes, and never
   executes untrusted code outside the checked-out head.
   `pull_request_target` is not used in this repository.
+- The job is skipped when `github.event_name == 'pull_request'` and
+  `head.repo.full_name` is not this repository. A public repo must
+  not run fork heads on the self-hosted VPS runner. Fork CI waits
+  on issue #19 (GitHub-hosted). Same-repo PRs and `push` still run.
 
 ## Observability
 

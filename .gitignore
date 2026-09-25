@@ -7,3 +7,6 @@ node_modules/
 # Logs and OS noise
 npm-debug.log*
 .DS_Store
+
+# Local audit / scouter dumps (never publish)
+reports/
