@@ -41,7 +41,10 @@ import {
 // subscribed via `useValue`). Routes come from `host.profileRoutes()` and
 // are used ONLY to locate the exact descriptor for that active identity;
 // the view never offers a picker and never falls back to another profile.
-// listRoutines() rides host.requestProfile for cron.manage. A missing
+// listRoutines() rides host.requestProfile for cron.manage at the host's
+// default (background) dial priority; the user actions — pause, resume,
+// create — pass { spawnPriority: 'foreground' } so their possible
+// cold-start takes the pool's reserved interactive slot. A missing
 // route shows the unavailable state instead of guessing a backend, and the
 // view never passes the active-door opt-in.
 //
@@ -220,7 +223,11 @@ export function RoutinesPage() {
     }
     dispatch({ type: 'mutate-start', name });
     try {
-      await requestCronForRoute(activeRoute, 'cron.manage', params);
+      // User-initiated mutation: foreground so a cold-started backend takes
+      // the pool's interactive slot instead of timing out behind it.
+      await requestCronForRoute(activeRoute, 'cron.manage', params, undefined, {
+        spawnPriority: 'foreground',
+      });
       dispatch({ type: 'mutate-end', name });
       dispatch({ type: 'notice', notice: 'routine ' + name + ' ' + pastTense(kind) });
       dispatch({ type: 'retry-list' });
@@ -259,10 +266,14 @@ export function RoutinesPage() {
     try {
       const addParams = buildAddParams(route, { job_id: name, schedule, prompt });
       dispatch({ type: 'mutate-start', name });
-      await requestCronForRoute(route, 'cron.manage', addParams);
+      await requestCronForRoute(route, 'cron.manage', addParams, undefined, {
+        spawnPriority: 'foreground',
+      });
       if (!active) {
         const pauseParams = buildPauseParams(route, name);
-        await requestCronForRoute(route, 'cron.manage', pauseParams);
+        await requestCronForRoute(route, 'cron.manage', pauseParams, undefined, {
+          spawnPriority: 'foreground',
+        });
       }
       dispatch({ type: 'mutate-end', name });
       dispatch({ type: 'notice', notice: 'routine ' + name + ' created' });

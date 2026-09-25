@@ -66,9 +66,9 @@ non-minified) and carries an `AUTO-GENERATED — DO NOT EDIT` banner.
 There is no mirrored copy anywhere: the former
 `desktop/lib/cron-shapes.mjs` + `sync-shapes` copy-identity guard are
 gone. `requestCronForRoute` behavior (routing, scoping, `timeoutMs`
-positioning, fail-closed errors, both opt-ins) is pinned against the
-shipped artifact by `tests/gateway-semantics.test.mjs` with the SDK face
-stubbed.
+positioning, `spawnPriority` dial options, fail-closed errors, opt-ins)
+is pinned against the shipped artifact by `tests/gateway-semantics.test.mjs`
+with the SDK face stubbed.
 
 ## Install
 
@@ -271,7 +271,15 @@ The cron builders (`listJobs`, `addJob`, `removeJob`, `pauseJob`,
     `params.profile` by default.
 - `timeoutMs`, when given, must be a non-negative finite number.
 - `options`, when given, must be a plain object; `allowActiveDoor` and
-  `allowUnscoped` must be booleans when present.
+  `allowUnscoped` must be booleans when present, and `spawnPriority` must
+  be `'foreground'` or `'background'`.
+- `spawnPriority: 'foreground'` marks a call as a user action and rides
+  `host.requestProfile`'s 5th argument, so a cold-started profile backend
+  takes the pool's reserved interactive slot instead of waiting out the
+  30s background slot. Pause, resume and create pass it; the list load
+  keeps the background default (polling). The active gateway door has no
+  options bag, so combining it with `allowActiveDoor` rejects instead of
+  silently dropping the intent.
 - Version pin: `package.json` `version` equals the descriptor
   `version` in `desktop/plugin.js` (injected from `package.json` at
   build time via esbuild `define`, so the artifact cannot drift);

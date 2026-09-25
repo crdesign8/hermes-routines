@@ -43,13 +43,32 @@ export async function requestCronForRoute(
       throw new Error(`Cannot route ${method} for ${route.connectionId}::${route.profile}`);
     }
     const scoped = scopedCronParams(route, params, { allowUnscoped: options.allowUnscoped });
+    // Dial options ride host.requestProfile's 5th argument (SDK
+    // PluginProfileRequestOptions). A user action asks for 'foreground' so
+    // its possible cold-start takes the pool's reserved interactive slot;
+    // polling/list calls omit the bag and keep the host default, so the
+    // plain (3-arg) and timeout-only (4-arg) shapes stay untouched.
+    const dialOptions =
+      options.spawnPriority === undefined ? undefined : { spawnPriority: options.spawnPriority };
+    if (dialOptions === undefined) {
+      return timeoutMs === undefined
+        ? host.requestProfile(route, method, scoped)
+        : host.requestProfile(route, method, scoped, timeoutMs);
+    }
     return timeoutMs === undefined
-      ? host.requestProfile(route, method, scoped)
-      : host.requestProfile(route, method, scoped, timeoutMs);
+      ? host.requestProfile(route, method, scoped, undefined, dialOptions)
+      : host.requestProfile(route, method, scoped, timeoutMs, dialOptions);
   }
   if (options.allowActiveDoor !== true) {
     throw new Error(
       `Cannot dispatch ${method} without a resolved profile route (active gateway door is opt-in via { allowActiveDoor: true })`,
+    );
+  }
+  if (options.spawnPriority !== undefined) {
+    // host.request takes (method, params, timeoutMs) only — there is no
+    // options bag to carry the priority, so the intent cannot be honored.
+    throw new TypeError(
+      `spawnPriority requires a resolved profile route (host.request takes no options bag)`,
     );
   }
   if (typeof host.request !== 'function') {
@@ -70,7 +89,8 @@ export async function listProfileRoutes(): Promise<PluginProfileRoute[]> {
 /**
  * List helper scoped to one profile route via cron.manage. Fail-closed: a
  * resolved route with a backend profile is required — an explicitly scoped
- * read never falls back to the active gateway door.
+ * read never falls back to the active gateway door. Polling, so it keeps
+ * the host's default (background) spawn priority.
  */
 export async function listRoutines(
   route: PluginProfileRoute | null | undefined,

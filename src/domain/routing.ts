@@ -11,12 +11,20 @@ import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 // unless the caller passes the unscoped option. Both opt-ins default to
 // closed.
 
-/** Explicit opt-ins for fail-closed routing (both default to closed). */
+/** Routing options bag: fail-closed flags (default closed) + dial priority. */
 export interface RoutingOptions {
   /** Open the active gateway door when no route resolves. Default closed. */
   allowActiveDoor?: boolean;
   /** Send a routed call without a params.profile key. Default closed. */
   allowUnscoped?: boolean;
+  /**
+   * Dial priority for a routed `host.requestProfile` (SDK
+   * `PluginProfileRequestOptions`, 5th argument): a user action passes
+   * 'foreground' so a cold-start takes the pool's reserved interactive
+   * slot; absent keeps the host default ('background'), which polling and
+   * list calls must keep.
+   */
+  spawnPriority?: 'foreground' | 'background';
 }
 
 /** Result of resolving a scoping entry to a route descriptor. */
@@ -144,7 +152,7 @@ export function scopedCronParams(
   return { ...plain, profile: target };
 }
 
-/** Validate the routing options bag: plain object, boolean flags only. */
+/** Validate the options bag: plain object, boolean flags plus the spawnPriority enum. */
 export function assertRoutingOptions(options: RoutingOptions | undefined): void {
   if (options === undefined) return;
   const plain = assertPlainObject(options, 'options must be a plain object');
@@ -153,6 +161,13 @@ export function assertRoutingOptions(options: RoutingOptions | undefined): void 
   }
   if (plain.allowUnscoped !== undefined && typeof plain.allowUnscoped !== 'boolean') {
     throw new TypeError('options.allowUnscoped must be a boolean');
+  }
+  if (
+    plain.spawnPriority !== undefined &&
+    plain.spawnPriority !== 'foreground' &&
+    plain.spawnPriority !== 'background'
+  ) {
+    throw new TypeError("options.spawnPriority must be 'foreground' or 'background'");
   }
 }
 
