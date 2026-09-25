@@ -15,7 +15,7 @@
 # (2-space indent, `- ` sequences, `key: value` mappings, quoted or plain
 # scalars, integer version). Keep this file inside that subset. Quote every
 # conventional-commit prefix: a bare `fix:` parses as a mapping, not a string.
-version: 1
+version: 2
 
 managed_labels:
   - name: type:bug
@@ -63,6 +63,25 @@ managed_labels:
   - name: source:human
     color: 7057ff
     description: "Origem: solicitacao humana"
+  - name: priority:p0
+    color: b60205
+    description: "Prioridade critica, caminho publicacao"
+  - name: priority:p1
+    color: d93f0b
+    description: "Prioridade alta, pos base"
+  - name: priority:p2
+    color: fbca04
+    description: "Prioridade media, melhoria"
+  - name: status:blocked
+    color: 6e7781
+    description: "Bloqueada por dependencia externa"
+
+# Human-owned labels: declared in managed_labels above (so every label in use
+# lives in this SSOT and the validator can prove it), but never projected by a
+# rule and never removed by compute-and-diff. A label outside this list that is
+# managed and not desired gets removed as stale; these four are set by humans
+# only.
+manual_labels: [priority:p0, priority:p1, priority:p2, status:blocked]
 
 exclusive_groups:
   type:
@@ -140,6 +159,9 @@ issue:
     - contains: "webhook"
       labels: [area:automation]
     - contains: "cron"
+      # `match: word` — "cron" must stand alone; substring matching injected
+      # area:automation from `cronGateway.ts` / "cronograma" (issue #32).
+      match: word
       labels: [area:automation]
     - contains: "runner"
       labels: [type:ci, area:ci]

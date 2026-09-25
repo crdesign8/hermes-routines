@@ -13,8 +13,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          # >=22.18 for native TS type-stripping (tests import src/*.ts);
-          # pinned to 24 to match local development.
+          # engines floor is >=22.18 for native TS type-stripping (tests import
+          # src/*.ts); pinned to 24 to match local development.
           node-version: '24'
       - run: npm ci
       - run: npm test

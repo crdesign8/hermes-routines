@@ -4,8 +4,9 @@
 // The policy (.github/label-policy.yml) is the source of truth. Labels are a
 // projection: this script only ADDS desired managed labels and REMOVES managed
 // labels that are no longer true. It never replaces an issue's complete label
-// set, never touches unmanaged labels (priority:*, status:*, GitHub defaults),
-// never edits code, never merges, never runs issue content as code.
+// set, never touches unmanaged labels (GitHub defaults), never removes
+// human-owned labels (`manual_labels`: priority:*, status:blocked), never
+// edits code, never merges, never runs issue content as code.
 //
 // Classification inputs: title/body are UNTRUSTED. Label names never
 // interpolate user text; only names declared in `managed_labels` may be
@@ -230,7 +231,7 @@ function checkLabelRefs(labels, names, location) {
 
 /**
  * @param {any} policy
- * @returns {{ managed: Set<string> }}
+ * @returns {{ managed: Set<string>, manual: Set<string> }}
  */
 export function validatePolicy(policy) {
   if (typeof policy !== 'object' || policy === null || Array.isArray(policy)) {
@@ -305,9 +306,35 @@ export function validatePolicy(policy) {
     if (typeof rule.contains !== 'string' || rule.contains === '') {
       throw new LabelizerError('issue.body_rules rule has no contains');
     }
+    if (rule.match !== undefined && rule.match !== 'word' && rule.match !== 'substring') {
+      throw new LabelizerError(`issue.body_rules rule has unsupported match: ${String(rule.match)}`);
+    }
     checkLabelRefs(rule.labels ?? [], names, 'issue.body_rules');
   }
-  return { managed: names };
+
+  const manualList = policy.manual_labels ?? [];
+  if (!Array.isArray(manualList)) throw new LabelizerError('manual_labels must be a list');
+  /** @type {Set<string>} */ const manual = new Set();
+  for (const l of manualList) {
+    if (typeof l !== 'string' || !names.has(l)) throw new LabelizerError(`manual_labels contains unknown label: ${String(l)}`);
+    if (manual.has(l)) throw new LabelizerError(`manual_labels has duplicate: ${l}`);
+    manual.add(l);
+  }
+  // Fail-closed: human-owned labels are never projected by a rule. Without
+  // this, a future rule could silently auto-assign priority:/status: labels
+  // that compute-and-diff is forbidden from removing.
+  /** @type {{ where: string, labels: any }[]} */
+  const projections = [
+    { where: 'issue.defaults', labels: issue.defaults ?? [] },
+    ...[...(issue.title_rules ?? [])].map((/** @type {any} */ r, /** @type {number} */ i) => ({ where: `issue.title_rules[${i}]`, labels: r.labels ?? [] })),
+    ...[...(issue.title_scope_rules ?? [])].map((/** @type {any} */ r, /** @type {number} */ i) => ({ where: `issue.title_scope_rules[${i}]`, labels: r.labels ?? [] })),
+    ...[...(issue.body_rules ?? [])].map((/** @type {any} */ r, /** @type {number} */ i) => ({ where: `issue.body_rules[${i}]`, labels: r.labels ?? [] })),
+  ];
+  for (const { where, labels } of projections) {
+    const leaked = (Array.isArray(labels) ? labels : []).filter((/** @type {any} */ l) => manual.has(l));
+    if (leaked.length > 0) throw new LabelizerError(`${where} projects human-owned labels: ${leaked.join(', ')}`);
+  }
+  return { managed: names, manual };
 }
 
 // ---------------------------------------------------------------------------
@@ -351,8 +378,20 @@ function labelsForScope(title, rules) {
 }
 
 /**
+ * @param {string} text
+ * @param {string} token
+ * @param {number} at index of a candidate occurrence
+ * @returns {boolean} the occurrence is delimited by non-word chars on both sides
+ */
+function onWordBoundaries(text, token, at) {
+  const before = at > 0 ? (text[at - 1] ?? '') : '';
+  const after = at + token.length < text.length ? (text[at + token.length] ?? '') : '';
+  return !/[A-Za-z0-9_]/.test(before) && !/[A-Za-z0-9_]/.test(after);
+}
+
+/**
  * @param {string} body case-sensitive, like the VPS engine (`in`)
- * @param {any[]} rules
+ * @param {any[]} rules `match: word` opts a rule into word-boundary matching
  * @returns {Set<string>}
  */
 function labelsForBody(body, rules) {
@@ -361,7 +400,16 @@ function labelsForBody(body, rules) {
   const out = new Set();
   for (const rule of rules) {
     if (typeof rule?.contains !== 'string') continue;
-    if (text.includes(rule.contains)) {
+    const token = rule.contains;
+    let hit = false;
+    if (rule.match === 'word') {
+      for (let at = text.indexOf(token); at !== -1 && !hit; at = text.indexOf(token, at + 1)) {
+        hit = onWordBoundaries(text, token, at);
+      }
+    } else {
+      hit = text.includes(token);
+    }
+    if (hit) {
       for (const l of Array.isArray(rule?.labels) ? rule.labels : []) out.add(String(l));
     }
   }
@@ -415,13 +463,14 @@ export function classifyIssue(item, policy) {
  * @param {string[]} current
  * @param {string[]} desired
  * @param {Set<string>} managed
+ * @param {Set<string>} [manual] human-owned managed labels: never removed
  * @returns {{ additions: string[], removals: string[] }}
  */
-export function computeDiff(current, desired, managed) {
+export function computeDiff(current, desired, managed, manual = new Set()) {
   const cur = new Set(current);
   const want = new Set(desired);
   const additions = [...want].filter((l) => !cur.has(l)).sort();
-  const removals = [...cur].filter((l) => managed.has(l) && !want.has(l)).sort();
+  const removals = [...cur].filter((l) => managed.has(l) && !manual.has(l) && !want.has(l)).sort();
   return { additions, removals };
 }
 
@@ -638,14 +687,14 @@ async function main(argv) {
   if (args.has('--validate')) {
     const root = args.get('--root') ?? DEFAULT_ROOT;
     const policy = loadPolicyFile(root);
-    const { managed } = validatePolicy(policy);
+    const { managed, manual } = validatePolicy(policy);
     const problems = crossCheckTemplates(root, managed);
     if (problems.length > 0) {
       for (const p of problems) console.error(`check-label-policy: ${p}`);
       process.exit(1);
     }
     process.stdout.write(
-      `check-label-policy ok: version ${policy.version}, ${managed.size} managed labels, templates reference managed labels only\n`,
+      `check-label-policy ok: version ${policy.version}, ${managed.size} managed labels (${manual.size} human-owned), templates reference managed labels only\n`,
     );
     return;
   }
@@ -662,7 +711,7 @@ async function main(argv) {
   }
   const apply = args.get('--apply') === 'true';
   const policy = loadPolicyFile(DEFAULT_ROOT);
-  const { managed } = validatePolicy(policy);
+  const { managed, manual } = validatePolicy(policy);
 
   /** @type {number[]} */
   let numbers = [];
@@ -699,7 +748,7 @@ async function main(argv) {
       throw err;
     }
     const desired = classifyIssue({ title: item.title, body: item.body }, policy);
-    const { additions, removals } = computeDiff(item.current, desired, managed);
+    const { additions, removals } = computeDiff(item.current, desired, managed, manual);
     let writePerformed = false;
     if (apply && (additions.length > 0 || removals.length > 0)) {
       await applyDiff(token, repo, n, additions, removals);

@@ -2,7 +2,8 @@ name: issue-triage
 # Deterministic issue triage (issue #16). Reacts to issue activity and applies
 # the projection in .github/label-policy.yml via scripts/issue-triage.mjs.
 # Compute-and-diff only: adds desired managed labels, removes stale managed
-# labels, never touches unmanaged labels, never edits code, never merges.
+# labels, never touches unmanaged labels or human-owned `manual_labels`
+# (priority:*, status:blocked), never edits code, never merges.
 # Manual reprocessing: Actions -> issue-triage -> Run workflow (optional
 # issue_number; empty reprocesses every open issue, cap 30).
 on:

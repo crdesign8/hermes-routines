@@ -22,10 +22,14 @@ function loadPolicy() {
 }
 
 describe('label-policy', () => {
-  it('policy validates: version 1 with 15 managed labels', () => {
+  it('policy validates: version 2 with 19 managed labels (4 human-owned)', () => {
     const { policy, managed } = loadPolicy();
-    assert.equal(policy.version, 1);
-    assert.equal(managed.size, 15);
+    assert.equal(policy.version, 2);
+    assert.equal(managed.size, 19);
+    assert.deepEqual(
+      [...validatePolicy(policy).manual].sort(),
+      ['priority:p0', 'priority:p1', 'priority:p2', 'status:blocked'],
+    );
   });
 
   it('title prefixes project the type (case-insensitive)', () => {
@@ -65,12 +69,38 @@ describe('label-policy', () => {
   it('compute-and-diff never removes unmanaged labels', () => {
     const { managed } = loadPolicy();
     const { additions, removals } = computeDiff(
-      ['source:human', 'priority:p1', 'status:blocked', 'type:chore'],
+      ['source:human', 'contrib:mine', 'type:chore'],
       ['source:human', 'type:bug'],
       managed,
     );
     assert.deepEqual(additions, ['type:bug']);
     assert.deepEqual(removals, ['type:chore']);
+  });
+
+  it('compute-and-diff never removes human-owned (manual) labels', () => {
+    const { policy, managed } = loadPolicy();
+    const { manual } = validatePolicy(policy);
+    const desired = classifyIssue({ title: 'chore: x', body: '' }, policy);
+    const { removals } = computeDiff(
+      ['source:human', 'type:chore', 'priority:p1', 'status:blocked'],
+      desired,
+      managed,
+      manual,
+    );
+    assert.deepEqual(removals, []);
+  });
+
+  it('body rule match:word rejects mid-word substrings', () => {
+    const { policy } = loadPolicy();
+    const midWord = { title: 'fix: spawnPriority', body: 'em `src/gateway/cronGateway.ts` e no cronograma' };
+    assert.equal(classifyIssue(midWord, policy).includes('area:automation'), false);
+    for (const body of ['rodar via cron diario', 'tool `cron.manage`', 'cron']) {
+      assert.equal(
+        classifyIssue({ title: 'fix: x', body }, policy).includes('area:automation'),
+        true,
+        `standalone cron must project area:automation (body: ${body})`,
+      );
+    }
   });
 
   it('reprocessing is a no-op: diff(desired, desired) is empty', () => {
@@ -101,6 +131,30 @@ describe('label-policy', () => {
     const bad = JSON.parse(JSON.stringify(policy));
     bad.issue.title_scope_rules.push({ contains: '(x)', labels: ['type:bug'] });
     assert.throws(() => validatePolicy(bad), LabelizerError);
+  });
+
+  it('fail-closed: manual_labels may only reference declared labels', () => {
+    const { policy } = loadPolicy();
+    const bad = JSON.parse(JSON.stringify(policy));
+    bad.manual_labels.push('priority:p9');
+    assert.throws(() => validatePolicy(bad), LabelizerError);
+  });
+
+  it('fail-closed: body rule match must be word or substring', () => {
+    const { policy } = loadPolicy();
+    const bad = JSON.parse(JSON.stringify(policy));
+    bad.issue.body_rules.push({ contains: 'x', match: 'fuzzy', labels: ['area:ci'] });
+    assert.throws(() => validatePolicy(bad), LabelizerError);
+  });
+
+  it('fail-closed: no rule may project a human-owned label', () => {
+    const { policy } = loadPolicy();
+    const badBody = JSON.parse(JSON.stringify(policy));
+    badBody.issue.body_rules.push({ contains: 'x', labels: ['priority:p1'] });
+    assert.throws(() => validatePolicy(badBody), /human-owned/);
+    const badTitle = JSON.parse(JSON.stringify(policy));
+    badTitle.issue.title_rules.push({ prefixes: ['urgent:'], labels: ['status:blocked'] });
+    assert.throws(() => validatePolicy(badTitle), /human-owned/);
   });
 
   it('fail-closed: classifier never emits names outside managed_labels', () => {

@@ -34,10 +34,11 @@ bundled with this repository.
 ## Requirements
 
 - Hermes Desktop with a profile that exposes the plugin host and `cron.manage`.
-- Node.js `>=20` for building and testing the repository.
-- Node.js `22.18+` or `24` is recommended for running the test suite. The CI
-  workflow uses Node.js `24` because the tests import TypeScript source files
-  using native type stripping.
+- Node.js `>=22.18` for building and testing the repository. The floor is
+  22.18 because the test suite imports TypeScript source files using native
+  type stripping, which is only available from Node.js 22.18 — older
+  releases cannot run `npm test`.
+- Node.js `24` is recommended and is the version used by CI.
 - npm (included with supported Node.js distributions).
 
 The repository does not declare a separate minimum Hermes Desktop release.

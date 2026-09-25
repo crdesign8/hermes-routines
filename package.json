@@ -33,7 +33,7 @@
     "CODE_OF_CONDUCT.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.18"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
