@@ -72,6 +72,9 @@ stubbed.
 
 ## Install
 
+The install docs and shell examples below target Linux (POSIX `sh`, e.g.
+`sha256sum`, `$HOME`).
+
 ```sh
 node scripts/install.mjs install --hermes-home="$HOME/.hermes"
 # or (default command is install)

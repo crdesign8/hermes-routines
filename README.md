@@ -33,6 +33,10 @@ bundled with this repository.
 
 ## Requirements
 
+Supported platforms: Linux is the only verified supported platform for
+building, testing, and installing. Other operating systems are not yet
+verified and are unsupported.
+
 - Hermes Desktop with a profile that exposes the plugin host and `cron.manage`.
 - Node.js `>=22.18` for building and testing the repository. The floor is
   22.18 because the test suite imports TypeScript source files using native

@@ -15,6 +15,8 @@ the plugin small, auditable, and compatible with the Hermes Desktop host.
 
 Prerequisites:
 
+- Linux is the only verified supported platform for building and testing;
+  other operating systems are not yet verified and are unsupported.
 - Node.js `>=22.18`. The floor is 22.18 because the test suite imports
   TypeScript source files, which needs native type stripping (available from
   Node.js 22.18); older releases cannot run `npm test`.
@@ -69,7 +71,7 @@ checked in, but it is never the source of truth. Do not edit it manually.
    follow-up pull request for a fix that belongs in the current change.
 
 CI must be green before merge. The repository currently uses a self-hosted
-runner, so a local green run does not replace the remote CI result.
+Linux runner, so a local green run does not replace the remote CI result.
 Direct pushes to `main` are not allowed: all changes enter via PR under
 the rules in [`docs/BRANCH-PROTECTION.md`](docs/BRANCH-PROTECTION.md).
 Review coverage is owned by [`CODEOWNERS`](CODEOWNERS) (`* @crdesign8`).

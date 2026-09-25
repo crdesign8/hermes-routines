@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Declared Linux as the only verified supported platform for building,
+  testing, and installing; other operating systems are not yet verified
+  and are unsupported.
+
 ## [0.1.0] - 2026-09-24
 
 Initial releasable state of the standalone Hermes Desktop plugin for
