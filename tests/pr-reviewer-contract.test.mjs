@@ -60,12 +60,46 @@ describe('pr-reviewer-contract', () => {
 
   it('merge gates separate auto review from human approval and fail closed', () => {
     const bp = readRoot('docs', 'BRANCH-PROTECTION.md');
-    assert.match(bp, /\["ci"\]|contexts.*\bci\b/, 'required status checks must pin the ci context');
-    assert.match(bp, /strict.*true/i, 'branch must be up to date before merge');
-    assert.match(bp, /required_conversation_resolution.*true/i, 'review threads must resolve before merge');
-    assert.match(bp, /enforce_admins.*true/i, 'admins must be subject to the same rules (no silent bypass)');
+    assert.match(bp, /\/rulesets/, 'apply recipe must use repository rulesets');
+    assert.match(bp, /docs\/main-ruleset\.json/, 'apply recipe must use the committed ruleset payload');
+    assert.match(bp, /strict_required_status_checks_policy:\s*true/, 'branch must be up to date before merge');
+    assert.match(bp, /required_review_thread_resolution/, 'review threads must resolve before merge');
+    assert.match(bp, /bypass_actors/, 'admins must be subject to the same rules (no silent bypass)');
     assert.match(bp, /squash/i, 'merge method must stay squash');
-    assert.match(bp, /No bypass|no silent bypass/i, 'bypass policy must stay closed');
+    assert.match(bp, /No bypass|no bypass/i, 'bypass policy must stay closed');
+  });
+
+  it('main ruleset pins test check and solo code-owner off', () => {
+    const payload = JSON.parse(readRoot('docs', 'main-ruleset.json'));
+    assert.equal(payload.name, 'protect-main');
+    assert.equal(payload.target, 'branch');
+    assert.equal(payload.enforcement, 'active');
+    assert.deepEqual(payload.bypass_actors, []);
+    assert.deepEqual(payload.conditions.ref_name.include, ['refs/heads/main']);
+
+    const pullRequest = payload.rules.find((rule) => rule.type === 'pull_request');
+    assert.equal(pullRequest.parameters.require_code_owner_review, false);
+    assert.equal(pullRequest.parameters.required_approving_review_count, 0);
+    assert.equal(pullRequest.parameters.required_review_thread_resolution, true);
+    assert.equal(pullRequest.parameters.dismiss_stale_reviews_on_push, true);
+
+    const statusChecks = payload.rules.find((rule) => rule.type === 'required_status_checks');
+    assert.equal(statusChecks.parameters.strict_required_status_checks_policy, true);
+    assert.deepEqual(
+      statusChecks.parameters.required_status_checks.map((check) => check.context),
+      ['test'],
+    );
+
+    const ruleTypes = payload.rules.map((rule) => rule.type).sort();
+    assert.deepEqual(ruleTypes, ['deletion', 'non_fast_forward', 'pull_request', 'required_status_checks']);
+
+    const bp = readRoot('docs', 'BRANCH-PROTECTION.md');
+    assert.equal(
+      /--method PUT[\s\S]*branches\/main\/protection/.test(bp),
+      false,
+      'must not apply via legacy branch protection PUT',
+    );
+    assert.match(bp, /#15/, 'activation evidence still belongs on issue #15');
   });
 
   it('contributing routes contributors through the reviewer contract', () => {

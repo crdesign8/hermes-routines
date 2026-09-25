@@ -10,9 +10,9 @@ reuse the internal design without copying its code).
 
 | Surface | Role | File |
 | --- | --- | --- |
-| Automatic review | `ci` check per head SHA (`npm ci`, `npm test`, `npm run check`, Node 24, self-hosted `local-server`) | `.github/workflows/ci.yml` |
+| Automatic review | `test` check per head SHA from workflow `ci` (`npm ci`, `npm test`, `npm run check`, Node 24, self-hosted `local-server`) | `.github/workflows/ci.yml` |
 | Human review | Code-owner review (`* @crdesign8`) | `CODEOWNERS` |
-| Merge gates | Green `ci`, up-to-date branch, resolved conversations, squash merge, no bypass | `docs/BRANCH-PROTECTION.md` |
+| Merge gates | Green `test` check, up-to-date branch, resolved conversations, squash merge, no bypass | `docs/BRANCH-PROTECTION.md` |
 | Contributor flow | Branch, PR template, same-branch fixes, green CI before merge | `CONTRIBUTING.md`, `.github/pull_request_template.md` |
 
 No new reviewer app, webhook service, or workflow is created by
@@ -27,39 +27,41 @@ SHA) — it never replaces them.
 | `push` | Re-runs the automatic review on every commit pushed to the PR branch. |
 | `pull_request` | Runs the automatic review on the PR head SHA (`opened`, `synchronize`, `reopened`). |
 
-Both events resolve to the same `ci` job, so a test PR triggers a
-review on the correct head SHA and the result appears on GitHub as
-the `ci` check run plus the code-owner review thread.
+Both events resolve to the same `test` job in the `ci` workflow, so a
+test PR triggers a review on the correct head SHA and the result
+appears on GitHub as the `test` check run plus the code-owner review
+thread.
 
-Manual failsafe: re-run the failed `ci` job from the PR Checks tab,
+Manual failsafe: re-run the failed `test` job from the PR Checks tab,
 or push a fix to the same branch. Fixes belong in the same PR —
 never in a follow-up PR for the same change (`CONTRIBUTING.md`).
 
 ## Idempotency and fail-closed
 
 - Idempotency key is `(repo, pr_number, head_sha, gate)` where gate
-  is `ci` (automatic) or `code-owner-review` (human). Re-runs on
-  the same head SHA are no-ops when nothing changed; a new commit
-  produces a new head SHA and a fresh review — stale reviews never
-  attach to a new head.
-- Automatic and human reviews are separate: a green `ci` never
-  counts as an approval, and an approval never waives a red `ci`.
-  `dismiss_stale_reviews` (defined in `docs/BRANCH-PROTECTION.md`)
-  drops human approvals when a new head lands.
-- Fail-closed: red or timed-out `ci` blocks merge; unresolved
-  review conversations block merge; `enforce_admins: true` closes
+  is `test` (automatic, job in workflow `ci`) or `code-owner-review`
+  (human). Re-runs on the same head SHA are no-ops when nothing
+  changed; a new commit produces a new head SHA and a fresh review
+  — stale reviews never attach to a new head.
+- Automatic and human reviews are separate: a green `test` check
+  never counts as an approval, and an approval never waives a red
+  `test` check. `dismiss_stale_reviews_on_push` (defined in
+  `docs/BRANCH-PROTECTION.md`) drops human approvals when a new
+  head lands.
+- Fail-closed: red or timed-out `test` blocks merge; unresolved
+  review conversations block merge; empty `bypass_actors` closes
   the silent-bypass path. Emergencies still go through a minimal
   PR with green CI and resolved conversations — speed comes from
   scope, not from skipping the flow.
-- The `ci` job checks out the PR head and runs `npm ci`,
-  `npm test`, `npm run check` with no secrets beyond the default
-  `GITHUB_TOKEN`. It never merges, never pushes, and never executes
-  untrusted code outside the checked-out head. `pull_request_target`
-  is not used in this repository.
+- The `ci` workflow's `test` job checks out the PR head and runs
+  `npm ci`, `npm test`, `npm run check` with no secrets beyond the
+  default `GITHUB_TOKEN`. It never merges, never pushes, and never
+  executes untrusted code outside the checked-out head.
+  `pull_request_target` is not used in this repository.
 
 ## Observability
 
-- Each PR shows one `ci` check run per head SHA (logs, conclusion,
+- Each PR shows one `test` check run per head SHA (logs, conclusion,
   and duration are audit trail).
 - Human review appears as code-owner review + resolved conversation
   threads on the same PR.
@@ -73,8 +75,8 @@ gh pr checks <N>
 ## VPS reuse and dual-run
 
 The registered human reviewer is `CODEOWNERS` (`* @crdesign8`).
-The automatic reviewer is the existing `ci` workflow — the same
-runner family as `issue-triage` (`self-hosted, Linux, X64,
+The automatic reviewer is the existing `ci` workflow (`test` job) —
+the same runner family as `issue-triage` (`self-hosted, Linux, X64,
 local-server`).
 
 Follow-up (out of scope here, VPS runtime — not this repo):
@@ -83,8 +85,8 @@ reviewer as an *additional* check/review on the head SHA, gated
 by the same idempotency key and the same fail-closed merge rules.
 Until that onboarding lands, this contract is the sole reviewer
 definition. If both ever run concurrently, the VPS reviewer must
-not duplicate or shadow the `ci` context name, and a VPS failure
-must never green-light a merge — it fails closed like `ci`.
+not duplicate or shadow the `test` context name, and a VPS failure
+must never green-light a merge — it fails closed like `test`.
 
 ## Local verification
 

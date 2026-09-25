@@ -1,5 +1,6 @@
 # CODEOWNERS for hermes-routines
 
-# Default owner for all paths. Required review from code owners is part of
-# the protected `main` flow documented in docs/BRANCH-PROTECTION.md.
+# Default owner for all paths. Review requests go to @crdesign8.
+# Required code-owner reviews stay off while this is a solo-maintainer
+# repository (see docs/BRANCH-PROTECTION.md).
 * @crdesign8

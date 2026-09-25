@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Declared Linux as the only verified supported platform for building,
   testing, and installing; other operating systems are not yet verified
   and are unsupported.
+- Corrected the `main` protection definition: required check context is
+  `test` (not `ci`), solo flow disables required code-owner reviews, and
+  activation uses a repository ruleset (`docs/main-ruleset.json`).
 
 ## [0.1.0] - 2026-09-24
 
