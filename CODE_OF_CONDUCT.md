@@ -34,11 +34,13 @@ pull requests, and official communication channels.
 
 ## Enforcement
 
-Report abusive, harassing, or otherwise unacceptable behavior privately to
-the maintainer through the repository owner's GitHub profile:
-[github.com/crdesign8](https://github.com/crdesign8). For a security
-vulnerability, use the private reporting process in [`SECURITY.md`](SECURITY.md)
-instead of the public issue tracker.
+Report abusive, harassing, or otherwise unacceptable behavior privately by
+email to [cr@cradministracao.com.br](mailto:cr@cradministracao.com.br) with
+the subject prefix `[hermes-routines conduct]`. Do not use a GitHub profile
+direct message or a public issue for enforcement reports.
+
+For a security vulnerability, use the private reporting process in
+[`SECURITY.md`](SECURITY.md) instead of the public issue tracker.
 
 All complaints will be reviewed and investigated promptly and fairly. The
 maintainer will respect the privacy and security of the reporter.

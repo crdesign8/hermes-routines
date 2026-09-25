@@ -13,10 +13,15 @@ window.
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities privately. Open a
-[GitHub security advisory](https://github.com/crdesign8/hermes-routines/security/advisories/new)
-for this repository, or contact the maintainer through the repository owner
-profile at [github.com/crdesign8](https://github.com/crdesign8).
+Please report suspected vulnerabilities privately through a dedicated channel
+— not a public issue and not a GitHub profile direct message.
+
+1. Preferred: open a
+   [GitHub security advisory](https://github.com/crdesign8/hermes-routines/security/advisories/new)
+   for this repository.
+2. Alternative private channel: email
+   [cr@cradministracao.com.br](mailto:cr@cradministracao.com.br)
+   with the subject prefix `[hermes-routines security]`.
 
 Do not include secrets, real profile data, routine prompts, or exploit details
 that are not necessary to reproduce the issue. If a report contains sensitive
