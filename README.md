@@ -5,9 +5,9 @@
 
 A standalone Hermes Desktop plugin that adds a **Routines** page at `/routines` — with a matching sidebar entry — for managing scheduled routines through the host's per-profile `cron.manage` API. Routine data stays in the Hermes host; this package ships no separate service, database, or update mechanism.
 
-![Schematic overview of hermes-routines: Desktop sidebar entry, Routines page, and host cron.manage backend](docs/assets/hero.svg)
+![Cover image: the Hermes Routines wordmark above the tagline "Scheduled jobs for recurring tasks"](docs/assets/hr-cover-04.png)
 
-*Hero image is a schematic illustration, not a screenshot of the Desktop UI.*
+*Cover image — hermes-routines for Hermes Desktop.*
 
 ## Quick navigation
 
@@ -52,19 +52,19 @@ Limits:
 
 ## Screenshots
 
-The images below are sanitized schematic illustrations of the plugin UI — diagrams, not pixel captures of Hermes Desktop. Names, schedules, and prompts shown are fictional examples.
+The images below are captures of the plugin running inside Hermes Desktop. Routine names, schedules, and prompts shown are examples.
 
-![Schematic illustration of the Routines list view with search and filter controls](docs/assets/screenshot-routines-list.svg)
+![Routines page: a search field, All/Active/Paused filters, and routine cards showing each routine's schedule, next run, last run, and last result](docs/assets/hermes-routines-01.png)
 
 *Routines list — browse, search, and filter routines for the active profile.*
 
-![Schematic illustration of the routine composer panel for a name, schedule, and prompt](docs/assets/screenshot-composer.svg)
+![Create Routine panel: an Active toggle, a Name field, a prompt field, and a Trigger set to Weekdays at 07:45](docs/assets/hermes-routines-02.png)
 
 *Composer — create a routine from a name, schedule, and prompt.*
 
-![Schematic illustration of the read-only routine inspector panel](docs/assets/screenshot-inspector.svg)
+![Routines page with the routine inspector open beside the list, showing the selected routine's schedule and stored instruction](docs/assets/hermes-routines-03.png)
 
-*Inspector — disabled, read-only mirror of the selected routine; editing is not available.*
+*Inspector — the selected routine's schedule and stored instruction, shown read-only beside the list.*
 
 ## Quick install
 
