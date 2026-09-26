@@ -29,18 +29,36 @@ describe('edge-hardening', () => {
       assert.throws(() => shapes.removeJob(bad), TypeError, `removeJob(${JSON.stringify(bad)})`);
       assert.throws(() => shapes.pauseJob(bad), TypeError);
       assert.throws(() => shapes.resumeJob(bad), TypeError);
-      assert.throws(() => shapes.addJob({ job_id: bad, schedule: '* * * * *' }), TypeError);
     }
     // trimming normalizes: padded id is accepted as trimmed
     assert.deepEqual(shapes.removeJob('  j1  '), { action: 'remove', name: 'j1' });
   });
 
+  it('create validates a human-readable name; a job_id is never user-supplied', async () => {
+    const shapes = await import('../src/domain/cronShapes.ts');
+    for (const bad of ['', '   ', '\t\n', 42, null, undefined, {}, [], 'x'.repeat(129)]) {
+      assert.throws(
+        () => shapes.addJob({ name: bad, schedule: '* * * * *', prompt: 'ping' }),
+        TypeError,
+        `addJob name ${JSON.stringify(bad)}`,
+      );
+    }
+    // Human names are not technical ids: spaces, accents and bot prefixes pass.
+    for (const name of ['Resumo diário do Political Manager', '[bot:news] Morning brief']) {
+      assert.equal(shapes.addJob({ name, schedule: '* * * * *', prompt: 'ping' }).name, name);
+    }
+    assert.throws(
+      () => shapes.addJob({ job_id: 'j1', schedule: '* * * * *', prompt: 'ping' }),
+      /name must be a non-empty string/,
+    );
+  });
+
   it('rejects blank, non-string and overlong prompt', async () => {
     const shapes = await import('../src/domain/cronShapes.ts');
     for (const bad of ['', '   ', null, undefined, 42, {}, [], 'x'.repeat(20001)]) {
-      assert.throws(() => shapes.addJob({ job_id: 'j1', schedule: '* * * * *', prompt: bad }), TypeError);
+      assert.throws(() => shapes.addJob({ name: 'j1', schedule: '* * * * *', prompt: bad }), TypeError);
     }
-    const added = shapes.addJob({ job_id: 'j1', schedule: '* * * * *', prompt: '  ping  ' });
+    const added = shapes.addJob({ name: 'j1', schedule: '* * * * *', prompt: '  ping  ' });
     assert.equal(added.prompt, 'ping', 'prompt is trimmed');
   });
 

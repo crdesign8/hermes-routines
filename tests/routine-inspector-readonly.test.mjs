@@ -96,10 +96,14 @@ describe('routine-inspector-readonly', () => {
     assert.equal(routines.routinePromptOf(null), null);
   });
 
-  it('routineStableIdOf prefers job_id, else the key fallback', async () => {
-    assert.equal(routines.routineStableIdOf(JOB, 'Routine'), 'abc123');
-    assert.equal(routines.routineStableIdOf({ name: 'only-name' }, 'Routine'), 'only-name');
-    assert.equal(routines.routineStableIdOf(null, 'Routine'), 'Routine');
+  it('view keys prefer job_id; a name-only row is keyed by the fallback', async () => {
+    assert.equal(routines.routineKey(JOB, 'Routine'), 'abc123');
+    assert.equal(routines.jobIdOf(JOB), 'abc123');
+    // A row without a job_id has no identity: the view falls back to its
+    // positional label, and the name is never promoted to an id.
+    assert.equal(routines.routineKey({ name: 'only-name' }, 'Routine'), 'Routine');
+    assert.equal(routines.jobIdOf({ name: 'only-name' }), '');
+    assert.equal(routines.routineKey(null, 'Routine'), 'Routine');
   });
 
   it('mirrors the composer sections with every control disabled', async () => {

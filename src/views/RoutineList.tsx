@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import type { RoutineJob } from '../domain/jobs';
 import { jobIdOf } from '../domain/jobs';
+import { routineKey, routineTitle } from '../domain/present';
 import { RoutineCard } from './RoutineCard';
 
 export interface RoutineListProps {
@@ -8,11 +9,12 @@ export interface RoutineListProps {
   pending: string[];
   locked: boolean;
   selectedId?: string | null;
-  onSelect?: (name: string | null) => void;
+  onSelect?: (key: string | null) => void;
   inspectedId?: string | null;
-  onInspect?: (name: string | null) => void;
-  onPause: (name: string) => void;
-  onResume: (name: string) => void;
+  onInspect?: (key: string | null) => void;
+  /** Receives the canonical job_id plus the display title (mutations never key on the title). */
+  onPause: (jobId: string, label: string) => void;
+  onResume: (jobId: string, label: string) => void;
 }
 
 export function RoutineList({
@@ -34,27 +36,29 @@ export function RoutineList({
 
   useEffect(() => {
     if (activeInspectorId === null) return;
-    const stillThere = jobs.some((job, index) => (jobIdOf(job) || `routine ${index + 1}`) === activeInspectorId);
+    const stillThere = jobs.some(
+      (job, index) => routineKey(job, `routine ${index + 1}`) === activeInspectorId,
+    );
     if (!stillThere && handleInspect) {
       handleInspect(null);
     }
   }, [jobs, activeInspectorId, handleInspect]);
 
-  function handleToggleExpand(name: string): void {
+  function handleToggleExpand(key: string): void {
     setExpandedNames((prev) => {
       const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(name);
+        next.add(key);
       }
       return next;
     });
   }
 
-  function handleEdit(name: string): void {
+  function handleEdit(key: string): void {
     if (handleInspect) {
-      handleInspect(activeInspectorId === name ? null : name);
+      handleInspect(activeInspectorId === key ? null : key);
     }
   }
 
@@ -62,21 +66,27 @@ export function RoutineList({
     <ul className="hr-list" aria-label="Routines">
       {jobs.map((job, index) => {
         const fallback = `routine ${index + 1}`;
-        const name = jobIdOf(job) || fallback;
-        const busy = pending.indexOf(name) !== -1;
+        // Two keys per row: the canonical job_id drives mutations and
+        // pending/busy matching, while the view key (id, else the
+        // positional label) drives rendering and inspector selection. A row
+        // without a job_id renders but stays unaddressable: pause/resume are
+        // disabled rather than fired at the display name.
+        const jobId = jobIdOf(job);
+        const viewKey = routineKey(job, fallback);
+        const busier = jobId !== '' && pending.indexOf(jobId) !== -1;
         return (
           <RoutineCard
-            key={`${index}::${name}`}
+            key={`${index}::${viewKey}`}
             job={job}
             fallback={fallback}
-            expanded={expandedNames.has(name)}
-            inspected={activeInspectorId === name}
-            busy={busy}
-            disabled={locked}
-            onToggleExpand={() => handleToggleExpand(name)}
-            onEdit={() => handleEdit(name)}
-            onPause={() => onPause(name)}
-            onResume={() => onResume(name)}
+            expanded={expandedNames.has(viewKey)}
+            inspected={activeInspectorId === viewKey}
+            busy={busier}
+            disabled={locked || jobId === ''}
+            onToggleExpand={() => handleToggleExpand(viewKey)}
+            onEdit={() => handleEdit(viewKey)}
+            onPause={() => onPause(jobId, routineTitle(job, fallback))}
+            onResume={() => onResume(jobId, routineTitle(job, fallback))}
           />
         );
       })}

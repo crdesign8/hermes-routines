@@ -245,7 +245,18 @@ The cron builders (`listJobs`, `addJob`, `removeJob`, `pauseJob`,
 
 ## Edge behavior
 
-- `job_id` is trimmed and must match `^[A-Za-z0-9._:-]+$` (max 128 chars).
+- Identity: `job_id` is the only mutation identity. Pause, resume and
+  remove address a routine by its trimmed `job_id`
+  (`^[A-Za-z0-9._:-]+$`, max 128 chars); a row without a usable id fails
+  closed (transitional rows render, but their mutation controls stay
+  disabled and the builder raises `TypeError`) instead of falling back to
+  the display name. `name` is presentation text (trimmed, max 128 chars,
+  no control characters) — spaces, accents and `[bot:...]` prefixes are
+  legal there.
+- Create follows the upstream `cron.manage add` contract: the user
+  supplies `name`, `schedule` and `prompt`; Hermes generates the `job_id`.
+  Creating a routine on hold pauses the row the backend just minted, using
+  the `job_id` from the add answer — never the submitted title.
 - `schedule` is trimmed (max 256 chars, no control characters); cron
   semantics stay backend-owned, the desktop only fails fast on shape.
 - `payload` must be a plain object and is deep-cloned; `listJobs` clones

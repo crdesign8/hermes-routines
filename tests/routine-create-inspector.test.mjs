@@ -142,4 +142,41 @@ describe('routine-create-inspector', () => {
     assert.equal(nodes.some((n) => n.type === 'form'), false, 'no form tag allowed');
     assert.equal(nodes.some((n) => n.type === 'select'), false, 'no select tag allowed');
   });
+
+  it('submits the human-readable name verbatim (never a sanitized job id)', async () => {
+    const name = 'Resumo diário do Political Manager';
+    const noop = () => {};
+    const config = routines.DEFAULT_SCHEDULE_CONFIG;
+    // Composer hooks: [name, prompt, active, scheduleConfig, submitting, error]
+    reactStub.__presetStates([
+      [name, noop],
+      ['Summarize yesterday.', noop],
+      [true, noop],
+      [config, noop],
+      [false, noop],
+      [null, noop],
+    ]);
+    let submitted = null;
+    const element = routines.RoutineComposerPanel({
+      activeProfile: 'p1',
+      activeRoute: ROUTE,
+      disabled: false,
+      onClose: noop,
+      onSubmit: async (submittedName, schedule, prompt, active) => {
+        submitted = { name: submittedName, schedule, prompt, active };
+        return true;
+      },
+    });
+    const submit = collect(element).find(
+      (n) => n.type === 'button' && texts(n).join('').includes('Create Routine'),
+    );
+    assert.ok(submit, 'submit button must exist');
+    await submit.props.onClick();
+    assert.deepEqual(submitted, {
+      name,
+      schedule: routines.buildCronExpression(config),
+      prompt: 'Summarize yesterday.',
+      active: true,
+    });
+  });
 });

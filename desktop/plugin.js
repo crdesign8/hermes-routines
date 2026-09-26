@@ -151,6 +151,104 @@ function activeRouteKey(profile, connectionId) {
   return `${connectionId.trim()}::${profile.trim()}`;
 }
 
+// src/domain/cronShapes.ts
+var MAX_JOB_ID_LENGTH = 128;
+var JOB_ID_RE = /^[A-Za-z0-9._:-]+$/;
+var MAX_NAME_LENGTH = 128;
+var MAX_SCHEDULE_LENGTH = 256;
+var MAX_PROMPT_LENGTH = 2e4;
+var CONTROL_CHARS_RE = /[\x00-\x1F\x7F]/;
+function isValidJobId(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_JOB_ID_LENGTH && JOB_ID_RE.test(value);
+}
+function assertJobId(jobId) {
+  if (typeof jobId !== "string") {
+    throw new TypeError("job_id must be a non-empty string");
+  }
+  const id = jobId.trim();
+  if (!id) {
+    throw new TypeError("job_id must be a non-empty string");
+  }
+  if (!isValidJobId(id)) {
+    throw new TypeError("job_id must match /^[A-Za-z0-9._:-]+$/ with max 128 chars");
+  }
+  return id;
+}
+function assertName(name) {
+  if (typeof name !== "string") {
+    throw new TypeError("name must be a non-empty string");
+  }
+  const text = name.trim();
+  if (!text) {
+    throw new TypeError("name must be a non-empty string");
+  }
+  if (text.length > MAX_NAME_LENGTH) {
+    throw new TypeError("name must be at most 128 chars");
+  }
+  if (CONTROL_CHARS_RE.test(text)) {
+    throw new TypeError("name must not contain control characters");
+  }
+  return text;
+}
+function assertSchedule(schedule) {
+  if (typeof schedule !== "string") {
+    throw new TypeError("schedule must be a non-empty string");
+  }
+  const trimmed = schedule.trim();
+  if (!trimmed) {
+    throw new TypeError("schedule must be a non-empty string");
+  }
+  if (trimmed.length > MAX_SCHEDULE_LENGTH) {
+    throw new TypeError("schedule must be at most 256 chars");
+  }
+  if (CONTROL_CHARS_RE.test(trimmed)) {
+    throw new TypeError("schedule must not contain control characters");
+  }
+  return trimmed;
+}
+function assertPrompt(prompt) {
+  if (typeof prompt !== "string") {
+    throw new TypeError("prompt must be a non-empty string");
+  }
+  const text = prompt.trim();
+  if (!text) {
+    throw new TypeError("prompt must be a non-empty string");
+  }
+  if (text.length > MAX_PROMPT_LENGTH) {
+    throw new TypeError("prompt must be at most 20000 chars");
+  }
+  return text;
+}
+function cloneValue(value) {
+  try {
+    return structuredClone(value);
+  } catch (err) {
+    if (err instanceof Error && err.name === "DataCloneError") {
+      throw new TypeError(`uncloneable value: ${err.message || "DataCloneError"}`, { cause: err });
+    }
+    throw err;
+  }
+}
+function listJobs(jobs = []) {
+  const items = Array.isArray(jobs) ? jobs.map((job) => cloneValue(job)) : [];
+  return { action: "list", jobs: items };
+}
+function addJob(input = {}) {
+  const name = assertName(input.name);
+  const schedule = assertSchedule(input.schedule);
+  const prompt = assertPrompt(input.prompt);
+  return { action: "add", name, schedule, prompt };
+}
+function removeJob(jobId) {
+  return { action: "remove", name: assertJobId(jobId) };
+}
+function pauseJob(jobId) {
+  return { action: "pause", name: assertJobId(jobId) };
+}
+function resumeJob(jobId) {
+  return { action: "resume", name: assertJobId(jobId) };
+}
+
 // src/domain/jobs.ts
 function normalizeJobs(payload) {
   if (Array.isArray(payload)) return payload;
@@ -162,8 +260,20 @@ function normalizeJobs(payload) {
 }
 function jobIdOf(job) {
   const row = job;
-  if (row && typeof row.name === "string" && row.name) return row.name;
-  if (row && typeof row.job_id === "string" && row.job_id) return row.job_id;
+  if (!row || typeof row.job_id !== "string") return "";
+  const id = row.job_id.trim();
+  return isValidJobId(id) ? id : "";
+}
+function jobIdFromResponse(payload) {
+  if (payload === null || typeof payload !== "object") return "";
+  const row = payload;
+  const nested = row.job !== null && typeof row.job === "object" ? row.job : null;
+  for (const candidate of [row.job_id, nested?.job_id]) {
+    if (typeof candidate === "string") {
+      const id = candidate.trim();
+      if (isValidJobId(id)) return id;
+    }
+  }
   return "";
 }
 function jobPaused(job) {
@@ -370,23 +480,25 @@ function routinesViewReducer(state, event) {
         filter: event.filter === "active" || event.filter === "paused" ? event.filter : "all"
       };
     case "mutate-start": {
-      if (typeof event.name !== "string" || !event.name) return base;
-      if (base.pending.indexOf(event.name) !== -1) return { ...base, notice: null };
-      return { ...base, pending: base.pending.concat([event.name]), notice: null };
+      if (typeof event.jobId !== "string") return base;
+      if (base.pending.indexOf(event.jobId) !== -1) return { ...base, notice: null };
+      return { ...base, pending: base.pending.concat([event.jobId]), notice: null };
     }
     case "mutate-end":
-      return { ...base, pending: base.pending.filter((name) => name !== event.name) };
+      return { ...base, pending: base.pending.filter((jobId) => jobId !== event.jobId) };
     case "optimistic-pause":
+      if (!event.jobId) return base;
       return {
         ...base,
         snapshot: base.jobs,
-        jobs: base.jobs.map((job) => jobIdOf(job) === event.name ? withPausedFlag(job, true) : job)
+        jobs: base.jobs.map((job) => jobIdOf(job) === event.jobId ? withPausedFlag(job, true) : job)
       };
     case "optimistic-resume":
+      if (!event.jobId) return base;
       return {
         ...base,
         snapshot: base.jobs,
-        jobs: base.jobs.map((job) => jobIdOf(job) === event.name ? withPausedFlag(job, false) : job)
+        jobs: base.jobs.map((job) => jobIdOf(job) === event.jobId ? withPausedFlag(job, false) : job)
       };
     case "optimistic-rollback":
       return { ...base, snapshot: null, jobs: Array.isArray(base.snapshot) ? base.snapshot : base.jobs };
@@ -908,12 +1020,6 @@ function routineTitle(job, fallback) {
 function routineKey(job, fallback) {
   return jobIdOf(job ?? void 0) || fallback;
 }
-function routineStableIdOf(job, fallback) {
-  const row = asRecord(job);
-  const id = optionalString(row?.job_id);
-  if (id !== null) return id;
-  return routineKey(job, fallback);
-}
 function routinePromptOf(job) {
   const row = asRecord(job);
   if (row === null) return null;
@@ -1068,84 +1174,6 @@ function looksLikeCronExpression(value) {
 }
 function describeSchedule2(expr) {
   return describeSchedule(expr);
-}
-
-// src/domain/cronShapes.ts
-var MAX_JOB_ID_LENGTH = 128;
-var JOB_ID_RE = /^[A-Za-z0-9._:-]+$/;
-var MAX_SCHEDULE_LENGTH = 256;
-var MAX_PROMPT_LENGTH = 2e4;
-var CONTROL_CHARS_RE = /[\x00-\x1F\x7F]/;
-function assertJobId(jobId) {
-  if (typeof jobId !== "string") {
-    throw new TypeError("job_id must be a non-empty string");
-  }
-  const id = jobId.trim();
-  if (!id) {
-    throw new TypeError("job_id must be a non-empty string");
-  }
-  if (id.length > MAX_JOB_ID_LENGTH || !JOB_ID_RE.test(id)) {
-    throw new TypeError("job_id must match /^[A-Za-z0-9._:-]+$/ with max 128 chars");
-  }
-  return id;
-}
-function assertSchedule(schedule) {
-  if (typeof schedule !== "string") {
-    throw new TypeError("schedule must be a non-empty string");
-  }
-  const trimmed = schedule.trim();
-  if (!trimmed) {
-    throw new TypeError("schedule must be a non-empty string");
-  }
-  if (trimmed.length > MAX_SCHEDULE_LENGTH) {
-    throw new TypeError("schedule must be at most 256 chars");
-  }
-  if (CONTROL_CHARS_RE.test(trimmed)) {
-    throw new TypeError("schedule must not contain control characters");
-  }
-  return trimmed;
-}
-function assertPrompt(prompt) {
-  if (typeof prompt !== "string") {
-    throw new TypeError("prompt must be a non-empty string");
-  }
-  const text = prompt.trim();
-  if (!text) {
-    throw new TypeError("prompt must be a non-empty string");
-  }
-  if (text.length > MAX_PROMPT_LENGTH) {
-    throw new TypeError("prompt must be at most 20000 chars");
-  }
-  return text;
-}
-function cloneValue(value) {
-  try {
-    return structuredClone(value);
-  } catch (err) {
-    if (err instanceof Error && err.name === "DataCloneError") {
-      throw new TypeError(`uncloneable value: ${err.message || "DataCloneError"}`, { cause: err });
-    }
-    throw err;
-  }
-}
-function listJobs(jobs = []) {
-  const items = Array.isArray(jobs) ? jobs.map((job) => cloneValue(job)) : [];
-  return { action: "list", jobs: items };
-}
-function addJob(input = {}) {
-  const name = assertJobId(input.job_id);
-  const schedule = assertSchedule(input.schedule);
-  const prompt = assertPrompt(input.prompt);
-  return { action: "add", name, schedule, prompt };
-}
-function removeJob(jobId) {
-  return { action: "remove", name: assertJobId(jobId) };
-}
-function pauseJob(jobId) {
-  return { action: "pause", name: assertJobId(jobId) };
-}
-function resumeJob(jobId) {
-  return { action: "resume", name: assertJobId(jobId) };
 }
 
 // src/gateway/cronParams.ts
@@ -2222,46 +2250,49 @@ function RoutineList({
   const handleInspect = onInspect ?? onSelect;
   useEffect(() => {
     if (activeInspectorId === null) return;
-    const stillThere = jobs.some((job, index) => (jobIdOf(job) || `routine ${index + 1}`) === activeInspectorId);
+    const stillThere = jobs.some(
+      (job, index) => routineKey(job, `routine ${index + 1}`) === activeInspectorId
+    );
     if (!stillThere && handleInspect) {
       handleInspect(null);
     }
   }, [jobs, activeInspectorId, handleInspect]);
-  function handleToggleExpand(name) {
+  function handleToggleExpand(key) {
     setExpandedNames((prev) => {
       const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(name);
+        next.add(key);
       }
       return next;
     });
   }
-  function handleEdit(name) {
+  function handleEdit(key) {
     if (handleInspect) {
-      handleInspect(activeInspectorId === name ? null : name);
+      handleInspect(activeInspectorId === key ? null : key);
     }
   }
   return /* @__PURE__ */ jsx5("ul", { className: "hr-list", "aria-label": "Routines", children: jobs.map((job, index) => {
     const fallback = `routine ${index + 1}`;
-    const name = jobIdOf(job) || fallback;
-    const busy = pending.indexOf(name) !== -1;
+    const jobId = jobIdOf(job);
+    const viewKey = routineKey(job, fallback);
+    const busier = jobId !== "" && pending.indexOf(jobId) !== -1;
     return /* @__PURE__ */ jsx5(
       RoutineCard,
       {
         job,
         fallback,
-        expanded: expandedNames.has(name),
-        inspected: activeInspectorId === name,
-        busy,
-        disabled: locked,
-        onToggleExpand: () => handleToggleExpand(name),
-        onEdit: () => handleEdit(name),
-        onPause: () => onPause(name),
-        onResume: () => onResume(name)
+        expanded: expandedNames.has(viewKey),
+        inspected: activeInspectorId === viewKey,
+        busy: busier,
+        disabled: locked || jobId === "",
+        onToggleExpand: () => handleToggleExpand(viewKey),
+        onEdit: () => handleEdit(viewKey),
+        onPause: () => onPause(jobId, routineTitle(job, fallback)),
+        onResume: () => onResume(jobId, routineTitle(job, fallback))
       },
-      `${index}::${name}`
+      `${index}::${viewKey}`
     );
   }) });
 }
@@ -2498,8 +2529,6 @@ function RoutineComposerPanel({
   async function handleSubmit() {
     const trimmedName = name.trim();
     if (!trimmedName || submitting || disabled) return;
-    let jobId = trimmedName.replace(/\s+/g, "-").replace(/[^A-Za-z0-9._:-]/g, "");
-    if (!jobId) jobId = "routine";
     const promptText = prompt.trim();
     if (!promptText) {
       setError("Describe what this routine should do.");
@@ -2508,7 +2537,7 @@ function RoutineComposerPanel({
     setSubmitting(true);
     setError(null);
     try {
-      const ok = await onSubmit(jobId, cronExpr, promptText, active);
+      const ok = await onSubmit(trimmedName, cronExpr, promptText, active);
       if (!ok) {
         setError("Failed to create routine. Please verify parameters.");
       }
@@ -2783,15 +2812,15 @@ function RoutinesPage() {
   const shown = visibleJobs(state.jobs, state.filter);
   const S = ROUTINES_VIEW_STATUS;
   const [searchQuery, setSearchQuery] = useState4("");
-  const [selectedJobName, setSelectedJobName] = useState4(null);
+  const [selectedJobKey, setSelectedJobKey] = useState4(null);
   const [isCreating, setIsCreating] = useState4(false);
   useEffect3(() => {
-    if (selectedJobName === null) return;
+    if (selectedJobKey === null) return;
     const stillThere = state.jobs.some(
-      (job, index) => (jobIdOf(job) || `routine ${index + 1}`) === selectedJobName
+      (job, index) => routineKey(job, `routine ${index + 1}`) === selectedJobKey
     );
-    if (!stillThere) setSelectedJobName(null);
-  }, [state.jobs, selectedJobName]);
+    if (!stillThere) setSelectedJobKey(null);
+  }, [state.jobs, selectedJobKey]);
   const filteredJobs = useMemo2(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return shown;
@@ -2802,11 +2831,13 @@ function RoutinesPage() {
     });
   }, [shown, searchQuery]);
   const selectedJob = useMemo2(() => {
-    if (!selectedJobName) return null;
+    if (!selectedJobKey) return null;
     return state.jobs.find(
-      (j, index) => (jobIdOf(j) || `routine ${index + 1}`) === selectedJobName
+      (j, index) => routineKey(j, `routine ${index + 1}`) === selectedJobKey
     ) ?? null;
-  }, [state.jobs, selectedJobName]);
+  }, [state.jobs, selectedJobKey]);
+  const selectedJobId = selectedJob ? jobIdOf(selectedJob) : "";
+  const selectedJobLabel = selectedJob ? routineTitle(selectedJob, selectedJobKey || "Routine") : selectedJobKey || "Routine";
   useEffect3(() => {
     let cancelled = false;
     dispatch({ type: "routes-loading" });
@@ -2874,7 +2905,7 @@ function RoutinesPage() {
   function handleRetryRoutes() {
     setRoutesNonce((nonce) => nonce + 1);
   }
-  async function runMutation(kind, name, build) {
+  async function runMutation(kind, jobId, label, build) {
     if (!activeRoute) {
       dispatch({ type: "mutation-error", error: "the active profile route is no longer available" });
       return false;
@@ -2887,33 +2918,33 @@ function RoutinesPage() {
       return false;
     }
     if (isSafeOptimistic(kind)) {
-      dispatch(kind === "pause" ? { type: "optimistic-pause", name } : { type: "optimistic-resume", name });
+      dispatch(kind === "pause" ? { type: "optimistic-pause", jobId } : { type: "optimistic-resume", jobId });
     }
-    dispatch({ type: "mutate-start", name });
+    dispatch({ type: "mutate-start", jobId });
     try {
       await requestCronForRoute(activeRoute, "cron.manage", params, void 0, {
         spawnPriority: "foreground"
       });
-      dispatch({ type: "mutate-end", name });
-      dispatch({ type: "notice", notice: "routine " + name + " " + pastTense(kind) });
+      dispatch({ type: "mutate-end", jobId });
+      dispatch({ type: "notice", notice: "routine " + label + " " + pastTense(kind) });
       dispatch({ type: "retry-list" });
       return true;
     } catch (err) {
-      dispatch({ type: "mutate-end", name });
+      dispatch({ type: "mutate-end", jobId });
       if (isSafeOptimistic(kind)) dispatch({ type: "optimistic-rollback" });
       dispatch({ type: "mutation-error", error: wrapHostError(err, "failed to " + kind + " routine").message });
       return false;
     }
   }
-  function handlePause(name) {
-    if (locked || !name || !activeRoute) return;
+  function handlePause(jobId, label) {
+    if (locked || !jobId || !activeRoute) return;
     const route = activeRoute;
-    void runMutation("pause", name, () => buildPauseParams(route, name));
+    void runMutation("pause", jobId, label, () => buildPauseParams(route, jobId));
   }
-  function handleResume(name) {
-    if (locked || !name || !activeRoute) return;
+  function handleResume(jobId, label) {
+    if (locked || !jobId || !activeRoute) return;
     const route = activeRoute;
-    void runMutation("resume", name, () => buildResumeParams(route, name));
+    void runMutation("resume", jobId, label, () => buildResumeParams(route, jobId));
   }
   async function handleCreateRoutine(name, schedule, prompt, active) {
     if (!activeRoute) {
@@ -2921,25 +2952,37 @@ function RoutinesPage() {
       return false;
     }
     const route = activeRoute;
+    const createSlot = "";
     try {
-      const addParams = buildAddParams(route, { job_id: name, schedule, prompt });
-      dispatch({ type: "mutate-start", name });
-      await requestCronForRoute(route, "cron.manage", addParams, void 0, {
+      const addParams = buildAddParams(route, { name, schedule, prompt });
+      dispatch({ type: "mutate-start", jobId: createSlot });
+      const created = await requestCronForRoute(route, "cron.manage", addParams, void 0, {
         spawnPriority: "foreground"
       });
       if (!active) {
-        const pauseParams = buildPauseParams(route, name);
+        const createdId = jobIdFromResponse(created);
+        if (!createdId) {
+          dispatch({ type: "mutate-end", jobId: createSlot });
+          dispatch({ type: "retry-list" });
+          setIsCreating(false);
+          dispatch({
+            type: "notice",
+            notice: "routine " + name + " created \u2014 the backend returned no job id, so it stays active"
+          });
+          return true;
+        }
+        const pauseParams = buildPauseParams(route, createdId);
         await requestCronForRoute(route, "cron.manage", pauseParams, void 0, {
           spawnPriority: "foreground"
         });
       }
-      dispatch({ type: "mutate-end", name });
+      dispatch({ type: "mutate-end", jobId: createSlot });
       dispatch({ type: "notice", notice: "routine " + name + " created" });
       dispatch({ type: "retry-list" });
       setIsCreating(false);
       return true;
     } catch (err) {
-      dispatch({ type: "mutate-end", name });
+      dispatch({ type: "mutate-end", jobId: createSlot });
       dispatch({ type: "mutation-error", error: wrapHostError(err, "failed to create routine").message });
       return false;
     }
@@ -2992,10 +3035,10 @@ function RoutinesPage() {
           jobs: filteredJobs,
           pending: state.pending,
           locked,
-          inspectedId: selectedJobName,
-          onInspect: (name) => {
-            setSelectedJobName(name);
-            if (name) setIsCreating(false);
+          inspectedId: selectedJobKey,
+          onInspect: (key) => {
+            setSelectedJobKey(key);
+            if (key) setIsCreating(false);
           },
           onPause: handlePause,
           onResume: handleResume
@@ -3083,7 +3126,7 @@ function RoutinesPage() {
                 type: "button",
                 className: "hr-btn-new",
                 onClick: () => {
-                  setSelectedJobName(null);
+                  setSelectedJobKey(null);
                   setIsCreating(true);
                 },
                 "aria-label": "New routine",
@@ -3121,14 +3164,14 @@ function RoutinesPage() {
         RoutineInspectorPanel,
         {
           job: selectedJob,
-          fallback: selectedJobName || "Routine",
+          fallback: selectedJobKey || "Routine",
           activeRoute,
           activeProfile: state.activeProfile ?? (typeof activeProfile === "string" ? activeProfile : null),
-          busy: state.pending.indexOf(selectedJobName || "") !== -1,
+          busy: selectedJobId !== "" && state.pending.indexOf(selectedJobId) !== -1,
           disabled: locked,
-          onClose: () => setSelectedJobName(null),
-          onPause: () => handlePause(jobIdOf(selectedJob) || selectedJobName || ""),
-          onResume: () => handleResume(jobIdOf(selectedJob) || selectedJobName || "")
+          onClose: () => setSelectedJobKey(null),
+          onPause: () => handlePause(selectedJobId, selectedJobLabel),
+          onResume: () => handleResume(selectedJobId, selectedJobLabel)
         }
       ) : isCreating ? /* @__PURE__ */ jsx11(
         RoutineComposerPanel,
@@ -3214,7 +3257,9 @@ export {
   humanScheduleOf,
   initialRoutinesState,
   isSafeOptimistic,
+  isValidJobId,
   issueOf,
+  jobIdFromResponse,
   jobIdOf,
   jobPaused,
   lastRanSuccessfully,
@@ -3246,7 +3291,6 @@ export {
   routineKey,
   routinePausedOf,
   routinePromptOf,
-  routineStableIdOf,
   routineStateOf,
   routineTerminal,
   routineTitle,

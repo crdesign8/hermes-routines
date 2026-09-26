@@ -8,8 +8,8 @@ import {
   type RoutinesState,
 } from '../state/routinesState';
 import { findRouteByKey } from '../domain/routing';
-import { jobIdOf, visibleJobs } from '../domain/jobs';
-import { humanScheduleOf, routineTitle } from '../domain/present';
+import { jobIdFromResponse, jobIdOf, visibleJobs } from '../domain/jobs';
+import { humanScheduleOf, routineKey, routineTitle } from '../domain/present';
 import { wrapHostError } from '../lib/errors';
 import {
   buildAddParams,
@@ -60,8 +60,16 @@ import {
 //
 // Scope of this surface: list / details / create / pause / resume. Create
 // rides the composer panel and the upstream `cron.manage add` contract
-// (name + schedule + prompt); delete, edit and run-now are not part of
-// this view and have no interface here.
+// (name + schedule + prompt) and lets Hermes mint the job_id; delete, edit
+// and run-now are not part of this view and have no interface here.
+//
+// Identity: rows are addressed by their canonical `job_id` (pause/resume,
+// optimistic flips, pending/busy). `name` is display text only — shown as
+// the card title, never sent as a mutation target. A row without a usable
+// job_id stays visible but refuses mutation (buttons disabled, builder
+// fail-closed) instead of guessing identity from its title. Creating a
+// routine on hold pauses the row the backend just minted, using the
+// `job_id` from the add answer.
 
 function pastTense(kind: string): string {
   if (kind === 'pause') return 'paused';
@@ -92,17 +100,19 @@ export function RoutinesPage() {
   const S = ROUTINES_VIEW_STATUS;
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedJobName, setSelectedJobName] = useState<string | null>(null);
+  // Selection key for the inspector: the row's view key (canonical job_id,
+  // else its positional label). Display only — never a mutation identity.
+  const [selectedJobKey, setSelectedJobKey] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
   // Clear selected job if it is no longer present in the jobs inventory
   useEffect(() => {
-    if (selectedJobName === null) return;
+    if (selectedJobKey === null) return;
     const stillThere = state.jobs.some(
-      (job, index) => (jobIdOf(job) || `routine ${index + 1}`) === selectedJobName,
+      (job, index) => routineKey(job, `routine ${index + 1}`) === selectedJobKey,
     );
-    if (!stillThere) setSelectedJobName(null);
-  }, [state.jobs, selectedJobName]);
+    if (!stillThere) setSelectedJobKey(null);
+  }, [state.jobs, selectedJobKey]);
 
   const filteredJobs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -115,13 +125,21 @@ export function RoutinesPage() {
   }, [shown, searchQuery]);
 
   const selectedJob = useMemo(() => {
-    if (!selectedJobName) return null;
+    if (!selectedJobKey) return null;
     return (
       state.jobs.find(
-        (j, index) => (jobIdOf(j) || `routine ${index + 1}`) === selectedJobName,
+        (j, index) => routineKey(j, `routine ${index + 1}`) === selectedJobKey,
       ) ?? null
     );
-  }, [state.jobs, selectedJobName]);
+  }, [state.jobs, selectedJobKey]);
+
+  // Canonical identity of the inspected row ('' when the row has none) and
+  // the display title the notice uses. Mutations read the first, never the
+  // second.
+  const selectedJobId = selectedJob ? jobIdOf(selectedJob) : '';
+  const selectedJobLabel = selectedJob
+    ? routineTitle(selectedJob, selectedJobKey || 'Routine')
+    : selectedJobKey || 'Routine';
 
   useEffect(() => {
     let cancelled = false;
@@ -202,9 +220,17 @@ export function RoutinesPage() {
     setRoutesNonce((nonce) => nonce + 1);
   }
 
+  /**
+   * One pause/resume round trip. `jobId` is the canonical identity sent to
+   * the backend and the key for optimistic/pending state; `label` is the
+   * display title used in the notice. Callers refuse an unaddressable row
+   * before this point (empty jobId) — the reducer refuses to flip an empty
+   * identity and the builders reject it, so no path can mutate a title.
+   */
   async function runMutation(
     kind: 'pause' | 'resume',
-    name: string,
+    jobId: string,
+    label: string,
     build: () => Record<string, unknown>,
   ): Promise<boolean> {
     if (!activeRoute) {
@@ -219,37 +245,37 @@ export function RoutinesPage() {
       return false;
     }
     if (isSafeOptimistic(kind)) {
-      dispatch(kind === 'pause' ? { type: 'optimistic-pause', name } : { type: 'optimistic-resume', name });
+      dispatch(kind === 'pause' ? { type: 'optimistic-pause', jobId } : { type: 'optimistic-resume', jobId });
     }
-    dispatch({ type: 'mutate-start', name });
+    dispatch({ type: 'mutate-start', jobId });
     try {
       // User-initiated mutation: foreground so a cold-started backend takes
       // the pool's interactive slot instead of timing out behind it.
       await requestCronForRoute(activeRoute, 'cron.manage', params, undefined, {
         spawnPriority: 'foreground',
       });
-      dispatch({ type: 'mutate-end', name });
-      dispatch({ type: 'notice', notice: 'routine ' + name + ' ' + pastTense(kind) });
+      dispatch({ type: 'mutate-end', jobId });
+      dispatch({ type: 'notice', notice: 'routine ' + label + ' ' + pastTense(kind) });
       dispatch({ type: 'retry-list' });
       return true;
     } catch (err) {
-      dispatch({ type: 'mutate-end', name });
+      dispatch({ type: 'mutate-end', jobId });
       if (isSafeOptimistic(kind)) dispatch({ type: 'optimistic-rollback' });
       dispatch({ type: 'mutation-error', error: wrapHostError(err, 'failed to ' + kind + ' routine').message });
       return false;
     }
   }
 
-  function handlePause(name: string): void {
-    if (locked || !name || !activeRoute) return;
+  function handlePause(jobId: string, label: string): void {
+    if (locked || !jobId || !activeRoute) return;
     const route = activeRoute;
-    void runMutation('pause', name, () => buildPauseParams(route, name));
+    void runMutation('pause', jobId, label, () => buildPauseParams(route, jobId));
   }
 
-  function handleResume(name: string): void {
-    if (locked || !name || !activeRoute) return;
+  function handleResume(jobId: string, label: string): void {
+    if (locked || !jobId || !activeRoute) return;
     const route = activeRoute;
-    void runMutation('resume', name, () => buildResumeParams(route, name));
+    void runMutation('resume', jobId, label, () => buildResumeParams(route, jobId));
   }
 
   async function handleCreateRoutine(
@@ -263,25 +289,42 @@ export function RoutinesPage() {
       return false;
     }
     const route = activeRoute;
+    // The create slot: no job_id exists until the backend answers, so the
+    // in-flight lock is keyed on '' rather than on any user-supplied text.
+    const createSlot = '';
     try {
-      const addParams = buildAddParams(route, { job_id: name, schedule, prompt });
-      dispatch({ type: 'mutate-start', name });
-      await requestCronForRoute(route, 'cron.manage', addParams, undefined, {
+      const addParams = buildAddParams(route, { name, schedule, prompt });
+      dispatch({ type: 'mutate-start', jobId: createSlot });
+      const created = await requestCronForRoute(route, 'cron.manage', addParams, undefined, {
         spawnPriority: 'foreground',
       });
       if (!active) {
-        const pauseParams = buildPauseParams(route, name);
+        // Creating on hold needs a second call against the row the backend
+        // just minted: pause by its canonical job_id, never by the name.
+        const createdId = jobIdFromResponse(created);
+        if (!createdId) {
+          dispatch({ type: 'mutate-end', jobId: createSlot });
+          dispatch({ type: 'retry-list' });
+          setIsCreating(false);
+          dispatch({
+            type: 'notice',
+            notice:
+              'routine ' + name + ' created — the backend returned no job id, so it stays active',
+          });
+          return true;
+        }
+        const pauseParams = buildPauseParams(route, createdId);
         await requestCronForRoute(route, 'cron.manage', pauseParams, undefined, {
           spawnPriority: 'foreground',
         });
       }
-      dispatch({ type: 'mutate-end', name });
+      dispatch({ type: 'mutate-end', jobId: createSlot });
       dispatch({ type: 'notice', notice: 'routine ' + name + ' created' });
       dispatch({ type: 'retry-list' });
       setIsCreating(false);
       return true;
     } catch (err) {
-      dispatch({ type: 'mutate-end', name });
+      dispatch({ type: 'mutate-end', jobId: createSlot });
       dispatch({ type: 'mutation-error', error: wrapHostError(err, 'failed to create routine').message });
       return false;
     }
@@ -344,10 +387,10 @@ export function RoutinesPage() {
             jobs={filteredJobs}
             pending={state.pending}
             locked={locked}
-            inspectedId={selectedJobName}
-            onInspect={(name) => {
-              setSelectedJobName(name);
-              if (name) setIsCreating(false);
+            inspectedId={selectedJobKey}
+            onInspect={(key) => {
+              setSelectedJobKey(key);
+              if (key) setIsCreating(false);
             }}
             onPause={handlePause}
             onResume={handleResume}
@@ -432,7 +475,7 @@ export function RoutinesPage() {
                 type="button"
                 className="hr-btn-new"
                 onClick={() => {
-                  setSelectedJobName(null);
+                  setSelectedJobKey(null);
                   setIsCreating(true);
                 }}
                 aria-label="New routine"
@@ -464,14 +507,14 @@ export function RoutinesPage() {
         {selectedJob ? (
           <RoutineInspectorPanel
             job={selectedJob}
-            fallback={selectedJobName || 'Routine'}
+            fallback={selectedJobKey || 'Routine'}
             activeRoute={activeRoute}
             activeProfile={state.activeProfile ?? (typeof activeProfile === 'string' ? activeProfile : null)}
-            busy={state.pending.indexOf(selectedJobName || '') !== -1}
+            busy={selectedJobId !== '' && state.pending.indexOf(selectedJobId) !== -1}
             disabled={locked}
-            onClose={() => setSelectedJobName(null)}
-            onPause={() => handlePause(jobIdOf(selectedJob) || selectedJobName || '')}
-            onResume={() => handleResume(jobIdOf(selectedJob) || selectedJobName || '')}
+            onClose={() => setSelectedJobKey(null)}
+            onPause={() => handlePause(selectedJobId, selectedJobLabel)}
+            onResume={() => handleResume(selectedJobId, selectedJobLabel)}
           />
         ) : isCreating ? (
           <RoutineComposerPanel
