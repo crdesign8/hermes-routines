@@ -3,14 +3,33 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange.svg)](https://github.com/crdesign8/hermes-routines/issues/18)
 
-A standalone Hermes Desktop plugin for managing scheduled routines from the
-Desktop UI. It adds a **Routines** page at `/routines` and a matching sidebar
-entry, backed by the host's per-profile `cron.manage` API.
+A standalone Hermes Desktop plugin that adds a **Routines** page at `/routines` — with a matching sidebar entry — for managing scheduled routines through the host's per-profile `cron.manage` API. Routine data stays in the Hermes host; this package ships no separate service, database, or update mechanism.
 
-The plugin keeps routine data in the Hermes host rather than in this package.
-It does not include a separate service, database, or update mechanism.
+![Schematic overview of hermes-routines: Desktop sidebar entry, Routines page, and host cron.manage backend](docs/assets/hero.svg)
 
-## Features
+*Hero image is a schematic illustration, not a screenshot of the Desktop UI.*
+
+## Quick navigation
+
+- [What it does](#what-it-does)
+- [Screenshots](#screenshots)
+- [Quick install](#quick-install)
+- [Usage](#usage)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Upgrade](#upgrade)
+- [Uninstall](#uninstall)
+- [Security and privacy](#security-and-privacy)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Project layout](#project-layout)
+- [License](#license)
+
+## What it does
+
+Manage scheduled routines for the active Hermes profile from inside Hermes Desktop — no separate service or dashboard.
+
+Supported:
 
 - View routines for the active Hermes profile.
 - Search and filter the routine list.
@@ -22,14 +41,71 @@ It does not include a separate service, database, or update mechanism.
 - Build a deterministic, auditable `desktop/plugin.js` artifact with no
   bundled runtime dependencies.
 
-The current page intentionally does not provide delete, edit, or run-now
-controls. Those actions are not exposed by this view.
+Limits:
+
+- The current page intentionally provides no delete, edit-mutation, or run-now
+  actions — the row Edit control only opens the read-only inspector.
+- The routine backend exposes exactly five `cron.manage` actions — list, add,
+  remove, pause, and resume — with no update and no run action.
+- The inspector panel is a disabled, read-only mirror of the composer: it
+  reflects the selected routine but offers no editable controls.
 
 ## Screenshots
 
-No screenshot is currently included. The plugin is installed into an existing
-Hermes Desktop profile and renders inside that host; the host version is not
-bundled with this repository.
+The images below are sanitized schematic illustrations of the plugin UI — diagrams, not pixel captures of Hermes Desktop. Names, schedules, and prompts shown are fictional examples.
+
+![Schematic illustration of the Routines list view with search and filter controls](docs/assets/screenshot-routines-list.svg)
+
+*Routines list — browse, search, and filter routines for the active profile.*
+
+![Schematic illustration of the routine composer panel for a name, schedule, and prompt](docs/assets/screenshot-composer.svg)
+
+*Composer — create a routine from a name, schedule, and prompt.*
+
+![Schematic illustration of the read-only routine inspector panel](docs/assets/screenshot-inspector.svg)
+
+*Inspector — disabled, read-only mirror of the selected routine; editing is not available.*
+
+## Quick install
+
+```sh
+git clone https://github.com/crdesign8/hermes-routines.git
+cd hermes-routines
+npm ci
+npm run build
+node scripts/install.mjs install
+```
+
+The installer copies the generated artifact to the single install location —
+`<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js` (default home
+`~/.hermes`) — and verifies its SHA-256 before and after publishing:
+
+```sh
+sha256sum desktop/plugin.js \
+  "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js"
+```
+
+The two hashes must match. The plugin is opt-in (`defaultEnabled: false`):
+after installing, reload the Desktop app, go to Capabilities → Plugins, and
+enable hermes-routines. The Routines page is then available at `/routines`,
+whichever profile is active. See [`docs/INSTALL.md`](docs/INSTALL.md) for the
+full installation reference.
+
+## Usage
+
+1. Install the plugin, reload the profile, then go to Capabilities →
+   Plugins and enable hermes-routines (opt-in; it does not self-enable).
+2. Open **Routines** from the sidebar, or navigate to `/routines`.
+3. The page follows the active Desktop profile. It requires the host to expose
+   a complete route for that profile; there is no profile picker in this view.
+4. Use the list to inspect routines, then use the New routine control to submit a name,
+   schedule, and prompt. The prompt is the instruction that the host will
+   execute when the routine runs.
+5. Use the pause/resume controls to change a routine's active state.
+
+All list and mutation requests are scoped to the active profile. The plugin
+requires a resolved route with a backend profile and fails closed when that
+route is unavailable. It does not fall back to the active gateway.
 
 ## Requirements
 
@@ -90,22 +166,6 @@ sha256sum desktop/plugin.js \
 ```
 
 The two hashes must match.
-
-## Usage
-
-1. Install the plugin, reload the profile, then go to Capabilities →
-   Plugins and enable hermes-routines (opt-in; it does not self-enable).
-2. Open **Routines** from the sidebar, or navigate to `/routines`.
-3. The page follows the active Desktop profile. It requires the host to expose
-   a complete route for that profile; there is no profile picker in this view.
-4. Use the list to inspect routines, then use the plus control to submit a name,
-   schedule, and prompt. The prompt is the instruction that the host will
-   execute when the routine runs.
-5. Use the pause/resume controls to change a routine's active state.
-
-All list and mutation requests are scoped to the active profile. The plugin
-requires a resolved route with a backend profile and fails closed when that
-route is unavailable. It does not fall back to the active gateway.
 
 ## Upgrade
 
