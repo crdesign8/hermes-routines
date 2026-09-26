@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" role="img" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <title>Routines list schematic</title>
+  <desc>Schematic illustration, not a pixel capture: mock of the RoutinesPage list with search field, All/Active/Paused filter chips, three fictional routines, and pause/resume controls. Mirrors src/views/RoutinesPage.tsx with RoutineList, RoutineCard, and RoutineStatus.</desc>
+  <rect x="0" y="0" width="1200" height="800" fill="#0f172a"/>
+  <rect x="40" y="32" width="1120" height="736" rx="16" fill="#020617" stroke="#334155" stroke-width="2"/>
+  <rect x="40" y="32" width="1120" height="88" rx="16" fill="#1e293b"/>
+  <circle cx="84" cy="76" r="9" fill="#38bdf8"/>
+  <circle cx="112" cy="76" r="9" fill="#334155"/>
+  <circle cx="140" cy="76" r="9" fill="#334155"/>
+  <text x="172" y="86" font-size="28" font-weight="700" fill="#f1f5f9">Routines</text>
+  <text x="940" y="86" font-size="20" fill="#94a3b8">/routines</text>
+  <rect x="84" y="148" width="560" height="52" rx="10" fill="#0f172a" stroke="#475569" stroke-width="1.5"/>
+  <text x="106" y="181" font-size="22" fill="#94a3b8">Search routines…</text>
+  <g font-size="21" font-weight="600">
+    <rect x="668" y="148" width="72" height="52" rx="26" fill="#0ea5e9"/>
+    <text x="690" y="181" fill="#020617">All</text>
+    <rect x="752" y="148" width="104" height="52" rx="26" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+    <text x="772" y="181" fill="#e2e8f0">Active</text>
+    <rect x="868" y="148" width="112" height="52" rx="26" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+    <text x="888" y="181" fill="#e2e8f0">Paused</text>
+  </g>
+  <g>
+    <rect x="84" y="228" width="1032" height="120" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
+    <circle cx="124" cy="268" r="10" fill="#22c55e"/>
+    <text x="148" y="278" font-size="26" font-weight="700" fill="#f1f5f9">Morning briefing</text>
+    <text x="148" y="312" font-size="21" fill="#94a3b8">Weekdays at 08:00</text>
+    <rect x="920" y="262" width="152" height="52" rx="10" fill="none" stroke="#38bdf8" stroke-width="2"/>
+    <text x="958" y="295" font-size="21" font-weight="600" fill="#e2e8f0">Pause</text>
+    <text x="148" y="368" font-size="21" fill="#94a3b8">Active — runs on schedule</text>
+  </g>
+  <g>
+    <rect x="84" y="384" width="1032" height="120" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
+    <circle cx="124" cy="424" r="10" fill="#f59e0b"/>
+    <text x="148" y="434" font-size="26" font-weight="700" fill="#f1f5f9">Evening wind-down</text>
+    <text x="148" y="468" font-size="21" fill="#94a3b8">Daily at 21:30</text>
+    <rect x="920" y="418" width="152" height="52" rx="10" fill="#0ea5e9"/>
+    <text x="950" y="451" font-size="21" font-weight="700" fill="#020617">Resume</text>
+  </g>
+  <g>
+    <rect x="84" y="524" width="1032" height="120" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
+    <circle cx="124" cy="564" r="10" fill="#22c55e"/>
+    <text x="148" y="574" font-size="26" font-weight="700" fill="#f1f5f9">Weekly review notes</text>
+    <text x="148" y="608" font-size="21" fill="#94a3b8">Mondays at 09:00</text>
+    <rect x="920" y="558" width="152" height="52" rx="10" fill="none" stroke="#38bdf8" stroke-width="2"/>
+    <text x="958" y="591" font-size="21" font-weight="600" fill="#e2e8f0">Pause</text>
+  </g>
+  <text x="84" y="692" font-size="20" fill="#94a3b8">Scope: view, search, filter, inspect, create, pause, resume — no delete, edit-mutation, or run-now.</text>
+  <text x="84" y="724" font-size="20" fill="#94a3b8">Row Edit opens the read-only inspector. Schematic — not a pixel capture.</text>
+</svg>
