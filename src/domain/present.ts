@@ -75,7 +75,8 @@ export function routineActive(job: RoutineJob | null | undefined): boolean {
 
 /**
  * Display title: `name` else `job_id`, without the optional `[bot:x]`
- * prefix some cron names carry. Falls back to the caller label.
+ * prefix some cron names carry. Presentation only — a title never drives a
+ * mutation (see `jobIdOf`). Falls back to the caller label.
  */
 export function routineTitle(job: RoutineJob | null | undefined, fallback: string): string {
   const row = asRecord(job);
@@ -88,22 +89,14 @@ export function routineTitle(job: RoutineJob | null | undefined, fallback: strin
   return title || fallback;
 }
 
-/** Canonical identity for keys and mutations (mirrors jobIdOf). */
+/**
+ * View key for rendering and selection: the canonical `job_id`, else the
+ * caller's positional label (a display-only placeholder for a row that
+ * carries no id). Never a mutation identity — mutations address a row
+ * through `jobIdOf` and fail closed on ''.
+ */
 export function routineKey(job: RoutineJob | null | undefined, fallback: string): string {
   return jobIdOf(job ?? undefined) || fallback;
-}
-
-/**
- * Stable backend id the future edit screen will address: `job_id` when
- * the row carries one, else the key fallback. Mutations keep using
- * routineKey (the backend resolves names); this reader never drives
- * a mutation.
- */
-export function routineStableIdOf(job: RoutineJob | null | undefined, fallback: string): string {
-  const row = asRecord(job);
-  const id = optionalString(row?.job_id);
-  if (id !== null) return id;
-  return routineKey(job, fallback);
 }
 
 /**

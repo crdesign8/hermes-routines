@@ -345,30 +345,30 @@ describe('routines-view optimism policy', () => {
     }
   });
 
-  it('optimistic pause flips the flag and rollback restores the snapshot', () => {
+  it('optimistic pause flips the flag by job_id and rollback restores the snapshot', () => {
     const jobs = [
-      { name: 'j1', schedule: '* * * * *', disabled: false },
-      { name: 'j2', schedule: '0 9 * * MON', disabled: true },
+      { job_id: '84c47f11a2bd', name: 'Morning Political Manager Brief', schedule: '* * * * *', disabled: false },
+      { job_id: '19bd7c0a3f11', name: 'Evening digest', schedule: '0 9 * * MON', disabled: false },
     ];
     let state = reduce([
       loaded([ROUTE], 'p1', 'c1'),
       { type: 'list-loaded', jobs, key: 'c1::p1' },
-      { type: 'optimistic-pause', name: 'j1' },
+      { type: 'optimistic-pause', jobId: '84c47f11a2bd' },
     ]);
     assert.equal(state.jobs[0].disabled, true);
-    assert.equal(state.jobs[1].disabled, true);
+    assert.equal(state.jobs[1].disabled, false, 'only the addressed row flips');
     assert.deepEqual(state.snapshot, jobs);
     state = routines.routinesViewReducer(state, { type: 'optimistic-rollback' });
     assert.deepEqual(state.jobs, jobs);
     assert.equal(state.snapshot, null);
   });
 
-  it('optimistic resume clears the flag and rollback restores it', () => {
-    const jobs = [{ name: 'j1', schedule: '* * * * *', disabled: true, enabled: false }];
+  it('optimistic resume clears the flag by job_id and rollback restores it', () => {
+    const jobs = [{ job_id: '84c47f11a2bd', name: 'Morning brief', schedule: '* * * * *', disabled: true, enabled: false }];
     let state = reduce([
       loaded([ROUTE], 'p1', 'c1'),
       { type: 'list-loaded', jobs, key: 'c1::p1' },
-      { type: 'optimistic-resume', name: 'j1' },
+      { type: 'optimistic-resume', jobId: '84c47f11a2bd' },
     ]);
     assert.equal(state.jobs[0].disabled, false);
     state = routines.routinesViewReducer(state, { type: 'optimistic-rollback' });
@@ -376,7 +376,7 @@ describe('routines-view optimism policy', () => {
   });
 
   it('rollback without a snapshot keeps current rows', () => {
-    const jobs = [{ name: 'j1' }];
+    const jobs = [{ job_id: '84c47f11a2bd', name: 'Morning brief' }];
     const state = reduce([
       loaded([ROUTE], 'p1', 'c1'),
       { type: 'list-loaded', jobs, key: 'c1::p1' },
@@ -470,17 +470,21 @@ describe('routines-view render branches', () => {
   }
 
   it('ready list renders humanized cards with status and pause/resume only', () => {
-    const tree = paint(readyWith([{ name: 'j1', schedule: '0 9 * * *' }, { name: 'j2', schedule: '0 9 * * *', disabled: true }]));
+    const tree = paint(readyWith([
+      { job_id: '84c47f11a2bd', name: 'Morning Political Manager Brief', schedule: '0 9 * * *' },
+      { job_id: '19bd7c0a3f11', name: 'Evening digest', schedule: '0 9 * * *', disabled: true },
+    ]));
     const nodes = collect(tree);
     const list = nodes.find((n) => n.type === 'ul');
     assert.ok(list, 'ul required');
     const items = nodes.filter((n) => n.type === 'li');
     assert.equal(items.length, 2);
     const all = texts(tree).join(' | ');
-    assert.match(all, /j1/);
+    assert.match(all, /Morning Political Manager Brief/);
     assert.match(all, /Active/);
     assert.match(all, /Paused/);
     assert.match(all, /Every day at 09:00/, 'schedule must read human, not raw cron');
+    assert.doesNotMatch(all, /84c47f11a2bd/, 'the technical job_id stays out of the card copy');
     const buttons = nodes.filter((n) => n.type === 'button').map((n) => n.props.children);
     assert.ok(buttons.includes('Pause'));
     assert.ok(buttons.includes('Resume'));
@@ -489,8 +493,17 @@ describe('routines-view render branches', () => {
     assert.equal(buttons.includes('Confirm remove'), false);
   });
 
+  it('a row without a job_id renders but refuses pause/resume (fail-closed)', () => {
+    const tree = paint(readyWith([{ name: 'nameless row', schedule: '0 9 * * *' }]));
+    const nodes = collect(tree);
+    const actions = nodes.filter((n) => n.type === 'button' && ['Pause', 'Resume'].includes(n.props.children));
+    assert.equal(actions.length, 1, 'the row still renders its action button');
+    assert.equal(actions[0].props.disabled, true, 'an unaddressable row must not fire against its title');
+    assert.match(texts(tree).join(' '), /nameless row/);
+  });
+
   it('cards disclose details on demand with aria-expanded', () => {
-    const tree = paint(readyWith([{ name: 'j1', schedule: '0 9 * * *' }]));
+    const tree = paint(readyWith([{ job_id: '84c47f11a2bd', name: 'Morning brief', schedule: '0 9 * * *' }]));
     const nodes = collect(tree);
     const toggle = nodes.find((n) => n.type === 'button' && n.props['aria-expanded'] !== undefined);
     assert.ok(toggle, 'expand toggle required');
@@ -499,7 +512,10 @@ describe('routines-view render branches', () => {
 
   it('filter nav marks the current filter and filters rows', () => {
     const state = {
-      ...readyWith([{ name: 'a' }, { name: 'b', disabled: true }]),
+      ...readyWith([
+        { job_id: '84c47f11a2bd', name: 'Morning brief' },
+        { job_id: '19bd7c0a3f11', name: 'Evening digest', disabled: true },
+      ]),
       filter: 'paused',
     };
     const tree = paint(state);
@@ -511,7 +527,7 @@ describe('routines-view render branches', () => {
     assert.equal(current[0].props.children, 'Paused');
     const items = nodes.filter((n) => n.type === 'li');
     assert.equal(items.length, 1);
-    assert.ok(texts(tree).join(' ').includes('b'));
+    assert.ok(texts(tree).join(' ').includes('Evening digest'));
   });
 
   it('no profile picker, create form or delete affordance exists anywhere', () => {
@@ -558,6 +574,67 @@ describe('routines-view render branches', () => {
     sdk.__setActive('p1', 'c1');
     const tree = paint(readyWith([{ name: 'j1' }]));
     assert.ok(texts(tree).join(' ').includes('p1'));
+  });
+});
+
+describe('routines-view create flow (identity end to end)', () => {
+  // RoutinesPage hooks: [state, routesNonce, searchQuery, selectedJobKey, isCreating]
+  function paintCreating() {
+    const state = reduce([
+      loaded([ROUTE, ROUTE_B], 'p1', 'c1'),
+      { type: 'list-loaded', jobs: [], key: 'c1::p1' },
+    ]);
+    const noop = () => {};
+    reactStub.__presetStates([[state, noop], [0, noop], ['', noop], [null, noop], [true, noop]]);
+    return renderView();
+  }
+
+  function composerSubmit(tree) {
+    const panel = collect(tree).find((n) => n.type === routines.RoutineComposerPanel);
+    assert.ok(panel, 'the composer panel must render while creating');
+    assert.equal(typeof panel.props.onSubmit, 'function');
+    return panel.props.onSubmit;
+  }
+
+  it('creates on the human name and pauses the row the backend minted', async () => {
+    const submit = composerSubmit(paintCreating());
+    sdk.__reset();
+    const posted = [];
+    sdk.__setHost({
+      requestProfile: async (_route, _method, params) => {
+        posted.push(params);
+        return { success: true, job_id: '84c47f11a2bd', name: 'Resumo diário', job: { job_id: '84c47f11a2bd' } };
+      },
+    });
+    await submit('Resumo diário do Political Manager', '0 9 * * *', 'Do the thing', false);
+    assert.equal(posted.length, 2, 'create then pause: no third round trip');
+    assert.deepEqual(posted[0], {
+      action: 'add',
+      name: 'Resumo diário do Political Manager',
+      schedule: '0 9 * * *',
+      prompt: 'Do the thing',
+      profile: 't1',
+    });
+    assert.deepEqual(
+      posted[1],
+      { action: 'pause', name: '84c47f11a2bd', profile: 't1' },
+      'the pause must address the backend job_id, not the submitted title',
+    );
+  });
+
+  it('never pauses a just-created routine by its title when no id came back', async () => {
+    const submit = composerSubmit(paintCreating());
+    sdk.__reset();
+    const posted = [];
+    sdk.__setHost({
+      requestProfile: async (_route, _method, params) => {
+        posted.push(params);
+        return { success: true, name: 'Morning brief' };
+      },
+    });
+    await submit('Morning brief', '0 9 * * *', 'Do the thing', false);
+    assert.equal(posted.length, 1, 'without a canonical id the pause is never guessed');
+    assert.equal(posted[0].action, 'add');
   });
 });
 

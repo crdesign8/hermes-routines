@@ -64,10 +64,6 @@ export function RoutineComposerPanel({
     const trimmedName = name.trim();
     if (!trimmedName || submitting || disabled) return;
 
-    // Convert spaces to hyphens and keep valid chars for cron jobId
-    let jobId = trimmedName.replace(/\s+/g, '-').replace(/[^A-Za-z0-9._:-]/g, '');
-    if (!jobId) jobId = 'routine';
-
     // The backend runs the top-level prompt string; an empty instruction
     // is rejected here so the form fails fast instead of round-tripping.
     const promptText = prompt.trim();
@@ -79,7 +75,9 @@ export function RoutineComposerPanel({
     setSubmitting(true);
     setError(null);
     try {
-      const ok = await onSubmit(jobId, cronExpr, promptText, active);
+      // The name is submitted as typed (trimmed): it is a human-readable
+      // title, not a technical id — Hermes generates the job_id.
+      const ok = await onSubmit(trimmedName, cronExpr, promptText, active);
       if (!ok) {
         setError('Failed to create routine. Please verify parameters.');
       }

@@ -12,33 +12,50 @@ const shapesPath = path.join(root, 'src', 'domain', 'cronShapes.ts');
 // src/domain/cronShapes.ts (ported 1:1 from the former lib/cron-shapes.mjs,
 // bundled into desktop/plugin.js by scripts/build.mjs).
 describe('cron-actions (single source: src/domain/cronShapes.ts)', () => {
-  it('addJob builds {action:add,name,schedule,prompt} with edge validation', async () => {
+  it('addJob builds {action:add,name,schedule,prompt} from the human name', async () => {
     const shapes = await import('../src/domain/cronShapes.ts');
-    const added = shapes.addJob({ job_id: 'wake', schedule: '  0 9 * * *  ', prompt: '  ping ops  ' });
+    const added = shapes.addJob({
+      name: '  Morning Political Manager Brief  ',
+      schedule: '  0 9 * * *  ',
+      prompt: '  ping ops  ',
+    });
     assert.deepEqual(added, {
       action: 'add',
-      name: 'wake',
+      name: 'Morning Political Manager Brief',
       schedule: '0 9 * * *',
       prompt: 'ping ops',
     });
-    assert.throws(() => shapes.addJob({ job_id: '', schedule: '* * * * *', prompt: 'x' }), /job_id must be a non-empty string/);
-    assert.throws(() => shapes.addJob({ job_id: 'bad id!', schedule: '* * * * *', prompt: 'x' }), /job_id must match/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', prompt: 'x' }), /schedule must be a non-empty string/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: 'x'.repeat(300), prompt: 'x' }), /at most 256/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * \n*', prompt: 'x' }), /control characters/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * * * *' }), /prompt must be a non-empty string/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * * * *', prompt: '   ' }), /prompt must be a non-empty string/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * * * *', prompt: 42 }), /prompt must be a non-empty string/);
-    assert.throws(() => shapes.addJob({ job_id: 'wake', schedule: '* * * * *', prompt: 'x'.repeat(20001) }), /at most 20000/);
+    // A name is presentation text: spaces, accents and bot prefixes are legal.
+    for (const name of ['Resumo diário do Political Manager', '[bot:news] Morning brief', 'a!b?c/d']) {
+      assert.equal(shapes.addJob({ name, schedule: '* * * * *', prompt: 'x' }).name, name);
+    }
+    assert.throws(() => shapes.addJob({ name: '', schedule: '* * * * *', prompt: 'x' }), /name must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ name: '   ', schedule: '* * * * *', prompt: 'x' }), /name must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ name: 42, schedule: '* * * * *', prompt: 'x' }), /name must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ name: 'x'.repeat(129), schedule: '* * * * *', prompt: 'x' }), /name must be at most 128/);
+    assert.throws(() => shapes.addJob({ name: 'line\nbreak', schedule: '* * * * *', prompt: 'x' }), /control characters/);
+    // The user-supplied value is a name, never a technical job_id.
+    assert.throws(
+      () => shapes.addJob({ job_id: 'wake', schedule: '* * * * *', prompt: 'x' }),
+      /name must be a non-empty string/,
+      'a create cannot supply its own job_id',
+    );
+    assert.throws(() => shapes.addJob({ name: 'wake', prompt: 'x' }), /schedule must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ name: 'wake', schedule: 'x'.repeat(300), prompt: 'x' }), /at most 256/);
+    assert.throws(() => shapes.addJob({ name: 'wake', schedule: '* * \n*', prompt: 'x' }), /control characters/);
+    assert.throws(() => shapes.addJob({ name: 'wake', schedule: '* * * * *' }), /prompt must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ name: 'wake', schedule: '* * * * *', prompt: '   ' }), /prompt must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ name: 'wake', schedule: '* * * * *', prompt: 42 }), /prompt must be a non-empty string/);
+    assert.throws(() => shapes.addJob({ name: 'wake', schedule: '* * * * *', prompt: 'x'.repeat(20001) }), /at most 20000/);
   });
 
-  it('removeJob/pauseJob/resumeJob share the single-id contract', async () => {
+  it('removeJob/pauseJob/resumeJob share the single job_id contract', async () => {
     const shapes = await import('../src/domain/cronShapes.ts');
     assert.deepEqual(shapes.removeJob('j1'), { action: 'remove', name: 'j1' });
     assert.deepEqual(shapes.pauseJob('j1'), { action: 'pause', name: 'j1' });
     assert.deepEqual(shapes.resumeJob('j1'), { action: 'resume', name: 'j1' });
     for (const fn of ['removeJob', 'pauseJob', 'resumeJob']) {
-      for (const bad of ['', '   ', 42, null, undefined, 'bad id!', 'x'.repeat(200)]) {
+      for (const bad of ['', '   ', 'a b', 42, null, undefined, 'bad id!', 'x'.repeat(200)]) {
         assert.throws(() => shapes[fn](bad), TypeError, `${fn} must reject ${String(bad)}`);
       }
     }
@@ -57,7 +74,7 @@ describe('cron-actions (single source: src/domain/cronShapes.ts)', () => {
 
   it('addJob carries the prompt string through (upstream cron.manage create contract)', async () => {
     const shapes = await import('../src/domain/cronShapes.ts');
-    const added = shapes.addJob({ job_id: 'j1', schedule: '* * * * *', prompt: '  ping  ' });
+    const added = shapes.addJob({ name: 'j1', schedule: '* * * * *', prompt: '  ping  ' });
     assert.equal(added.prompt, 'ping', 'prompt is trimmed and carried top-level');
     assert.ok(!('payload' in added), 'add shape must not carry a payload object');
   });

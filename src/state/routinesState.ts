@@ -8,6 +8,10 @@ import { messageOf } from '../lib/errors';
 // transition. The component dispatches functional state updates (see
 // RoutinesPage) and tests drive the reducer directly.
 //
+// Identity: every row-keyed transition (optimistic flip, pending/busy) is
+// keyed by the canonical `job_id` (jobIdOf) — never by the display name. A
+// row without an id is not addressable and simply never matches.
+//
 // Active-profile binding: the plugin never offers a profile picker. The
 // Desktop owns the active profile (`host.state.profile` +
 // `host.state.connectionId`); the reducer only ever represents that exact
@@ -37,6 +41,7 @@ export interface RoutinesState {
   jobs: RoutineJob[];
   error: string | null;
   notice: string | null;
+  /** In-flight mutation keys: canonical `job_id`s, plus the create slot. */
   pending: string[];
   filter: RoutineFilter;
   snapshot: RoutineJob[] | null;
@@ -53,10 +58,10 @@ export type RoutinesEvent =
   | { type: 'list-error'; error: unknown; key: unknown }
   | { type: 'retry-list' }
   | { type: 'filter-changed'; filter: unknown }
-  | { type: 'mutate-start'; name: unknown }
-  | { type: 'mutate-end'; name: unknown }
-  | { type: 'optimistic-pause'; name: string }
-  | { type: 'optimistic-resume'; name: string }
+  | { type: 'mutate-start'; jobId: unknown }
+  | { type: 'mutate-end'; jobId: unknown }
+  | { type: 'optimistic-pause'; jobId: string }
+  | { type: 'optimistic-resume'; jobId: string }
   | { type: 'optimistic-rollback' }
   | { type: 'notice'; notice: unknown }
   | { type: 'mutation-error'; error: unknown };
@@ -225,23 +230,29 @@ export function routinesViewReducer(
         filter: event.filter === 'active' || event.filter === 'paused' ? event.filter : 'all',
       };
     case 'mutate-start': {
-      if (typeof event.name !== 'string' || !event.name) return base;
-      if (base.pending.indexOf(event.name) !== -1) return { ...base, notice: null };
-      return { ...base, pending: base.pending.concat([event.name]), notice: null };
+      // '' is the create slot: a create has no job_id until the backend
+      // answers, and the lock must cover that window too.
+      if (typeof event.jobId !== 'string') return base;
+      if (base.pending.indexOf(event.jobId) !== -1) return { ...base, notice: null };
+      return { ...base, pending: base.pending.concat([event.jobId]), notice: null };
     }
     case 'mutate-end':
-      return { ...base, pending: base.pending.filter((name) => name !== event.name) };
+      return { ...base, pending: base.pending.filter((jobId) => jobId !== event.jobId) };
     case 'optimistic-pause':
+      // Identity must exist: '' addresses nothing (and must never match the
+      // rows that carry no id either).
+      if (!event.jobId) return base;
       return {
         ...base,
         snapshot: base.jobs,
-        jobs: base.jobs.map((job) => (jobIdOf(job) === event.name ? withPausedFlag(job, true) : job)),
+        jobs: base.jobs.map((job) => (jobIdOf(job) === event.jobId ? withPausedFlag(job, true) : job)),
       };
     case 'optimistic-resume':
+      if (!event.jobId) return base;
       return {
         ...base,
         snapshot: base.jobs,
-        jobs: base.jobs.map((job) => (jobIdOf(job) === event.name ? withPausedFlag(job, false) : job)),
+        jobs: base.jobs.map((job) => (jobIdOf(job) === event.jobId ? withPausedFlag(job, false) : job)),
       };
     case 'optimistic-rollback':
       return { ...base, snapshot: null, jobs: Array.isArray(base.snapshot) ? base.snapshot : base.jobs };

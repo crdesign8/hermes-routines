@@ -171,7 +171,7 @@ describe('fail-closed', () => {
   it('blank prompt fails fast as a domain TypeError (never a backend round-trip)', async () => {
     let err = null;
     try {
-      shapes.addJob({ job_id: 'j1', schedule: '* * * * *', prompt: '   ' });
+      shapes.addJob({ name: 'j1', schedule: '* * * * *', prompt: '   ' });
     } catch (e) {
       err = e;
     }

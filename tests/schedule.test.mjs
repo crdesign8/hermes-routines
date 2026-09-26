@@ -24,18 +24,18 @@ describe('schedule', () => {
       '2026-09-24T09:00:00-03:00',
     ];
     for (const schedule of schedules) {
-      const added = shapes.addJob({ job_id: 'j1', schedule, prompt: 'ping' });
+      const added = shapes.addJob({ name: 'j1', schedule, prompt: 'ping' });
       assert.equal(added.schedule, schedule, `schedule must pass through: ${schedule}`);
       assert.equal(added.action, 'add');
       assert.equal(added.name, 'j1');
     }
-    const padded = shapes.addJob({ job_id: 'j1', schedule: '  * * * * *  ', prompt: 'ping' });
+    const padded = shapes.addJob({ name: 'j1', schedule: '  * * * * *  ', prompt: 'ping' });
     assert.equal(padded.schedule, '* * * * *', 'border whitespace is trimmed');
   });
 
   it('keeps schedule and prompt independent', async () => {
     const shapes = await import('../src/domain/cronShapes.ts');
-    const added = shapes.addJob({ job_id: 'j1', schedule: '0 9 * * *', prompt: 'ping' });
+    const added = shapes.addJob({ name: 'j1', schedule: '0 9 * * *', prompt: 'ping' });
     assert.equal(added.schedule, '0 9 * * *');
     assert.equal(added.prompt, 'ping');
   });
@@ -43,11 +43,11 @@ describe('schedule', () => {
   it('rejects empty, whitespace-only, non-string, overlong or control-char schedule', async () => {
     const shapes = await import('../src/domain/cronShapes.ts');
     for (const bad of ['', '   ', 42, null, undefined, {}, []]) {
-      assert.throws(() => shapes.addJob({ job_id: 'j1', schedule: bad, prompt: 'ping' }), TypeError);
+      assert.throws(() => shapes.addJob({ name: 'j1', schedule: bad, prompt: 'ping' }), TypeError);
     }
-    assert.throws(() => shapes.addJob({ job_id: 'j1', prompt: 'ping' }), TypeError);
-    assert.throws(() => shapes.addJob({ job_id: 'j1', schedule: 'x'.repeat(257), prompt: 'ping' }), TypeError);
-    assert.throws(() => shapes.addJob({ job_id: 'j1', schedule: '* * \n*', prompt: 'ping' }), TypeError);
+    assert.throws(() => shapes.addJob({ name: 'j1', prompt: 'ping' }), TypeError);
+    assert.throws(() => shapes.addJob({ name: 'j1', schedule: 'x'.repeat(257), prompt: 'ping' }), TypeError);
+    assert.throws(() => shapes.addJob({ name: 'j1', schedule: '* * \n*', prompt: 'ping' }), TypeError);
   });
 
   it('source pins: schedule edge limits (MAX_* constants live in cronShapes.ts)', () => {

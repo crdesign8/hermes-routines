@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Self-hosted `test` job skips pull-request heads from forks so a
   public repository cannot execute untrusted code on the VPS runner.
 
+### Fixed
+
+- Pause/resume addressed routines by their human-readable name, so any
+  routine whose title was not a valid technical id was rejected locally
+  (`Invalid routine resume: job_id must match ...`). `job_id` is now the
+  only mutation identity: optimistic state, pending/busy keys and the
+  `cron.manage` payload all use the backend id, rows without one fail
+  closed, and create supplies a `name` while Hermes generates the
+  `job_id`.
+
 ## [0.1.0] - 2026-09-24
 
 Initial releasable state of the standalone Hermes Desktop plugin for
