@@ -1,7 +1,12 @@
 # hermes-routines
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange.svg)](https://github.com/crdesign8/hermes-routines/issues/18)
+[![Release: v0.1.0](https://img.shields.io/badge/release-v0.1.0-blue.svg)](../../releases/tag/v0.1.0)
+
+> **Community plugin.** This is an independent, community-maintained plugin.
+> It is not an official Nous Research product and is not endorsed by them.
+> It installs through the Hermes Desktop plugin surface; review the source
+> and the [security notes](#security-and-privacy) before installing.
 
 A standalone Hermes Desktop plugin that adds a **Routines** page at `/routines` — with a matching sidebar entry — for managing scheduled routines through the host's per-profile `cron.manage` API. Routine data stays in the Hermes host; this package ships no separate service, database, or update mechanism.
 
@@ -67,6 +72,19 @@ The images below are captures of the plugin running inside Hermes Desktop. Routi
 *Inspector — the selected routine's schedule and stored instruction, shown read-only beside the list.*
 
 ## Quick install
+
+Install it with the Hermes plugin manager:
+
+```sh
+hermes plugins install crdesign8/hermes-routines
+```
+
+That resolves this repository directly. It is marked as a custom,
+unreviewed source until it is listed in the official catalog, so the
+security scan runs and the install may ask you to confirm. To pin an
+exact commit, add `--ref` followed by a full 40-character commit SHA.
+
+Prefer to build it yourself? The manual path:
 
 ```sh
 git clone https://github.com/crdesign8/hermes-routines.git
@@ -197,13 +215,12 @@ Remove it (and its backup, if any), then reload the app:
 node scripts/install.mjs uninstall --hermes-home="$HOME/.hermes"
 ```
 
-or manually:
-
-```sh
-rm "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js"
-rm "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js.prev" 2>/dev/null || true
-rmdir "$HOME/.hermes/desktop-plugins/hermes-routines" 2>/dev/null || true
-```
+or manually, remove the installed files and then the plugin directory.
+Inside `~/.hermes/desktop-plugins/hermes-routines/`, delete `plugin.js`
+and, if present, `plugin.js.prev`; then remove the
+`hermes-routines` directory itself if it is now empty. A plain directory
+removal only succeeds on an empty directory, so it cannot delete
+anything beyond this plugin.
 
 Do not remove the shared `desktop-plugins` directory. Uninstalling this plugin does
 not delete routines stored by the Hermes host; manage those through the host's

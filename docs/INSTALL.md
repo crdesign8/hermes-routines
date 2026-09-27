@@ -130,13 +130,12 @@ plugin is already gone:
 node scripts/install.mjs uninstall --hermes-home="$HOME/.hermes"
 ```
 
-or manually:
-
-```sh
-rm "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js"
-rm "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js.prev" 2>/dev/null || true
-rmdir "$HOME/.hermes/desktop-plugins/hermes-routines" 2>/dev/null || true
-```
+or manually, remove the installed files and then the plugin directory.
+Inside `~/.hermes/desktop-plugins/hermes-routines/`, delete `plugin.js`
+and, if present, `plugin.js.prev`; then remove the
+`hermes-routines` directory itself if it is now empty. A plain directory
+removal only succeeds on an empty directory, so it cannot delete
+anything beyond this plugin.
 
 Then reload the app runtime so the `/routines` route and its
 sidebar row disappear. Removing the whole `desktop-plugins` dir is
@@ -164,12 +163,10 @@ the Desktop loader reads only the app-level root, so a profile-scoped
 file no longer loads and the installer refuses to write one.
 
 1. Install app-level (see Install).
-2. Delete the old file for every profile that had it:
-
-```sh
-rm "$HOME/.hermes/profiles/default/plugins/routines/plugin.js"
-rmdir "$HOME/.hermes/profiles/default/plugins/routines" 2>/dev/null || true
-```
+2. Delete the old file for every profile that had it: inside
+   `<profile-home>/plugins/routines/`, remove `plugin.js`, then remove
+   the `routines` directory itself if it is now empty. Repeat for each
+   profile home, not only `default`.
 
 3. Reload the app. The Routines page now loads from
    `<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js` and stays

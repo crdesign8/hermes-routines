@@ -64,9 +64,10 @@ Perform these steps only **after** the release PR has merged into `main`:
    into the release notes.
 4. Record the merge commit SHA and the tag SHA in the release issue for
    traceability.
-5. Update the plugin catalog entry (version `0.1.0`, new tarball URL and
-   SHA) only after the Release exists, so the catalog never points at an
-   unpublished artifact.
+5. Update the plugin catalog entry only after the Release exists, so the
+   catalog never points at an unpublished artifact. The catalog entry
+   identifies the plugin by `repo` plus the exact 40-character commit
+   `sha` of the `v0.1.0` tag — there is no tarball URL field.
 
 ## 5. Anonymous clone while PRIVATE (expected-fail)
 
