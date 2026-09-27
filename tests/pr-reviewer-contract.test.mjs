@@ -48,23 +48,52 @@ describe('pr-reviewer-contract', () => {
     assert.match(ci, /npm ci/, 'ci must install deterministically');
     assert.match(ci, /npm test/, 'ci must run the test suite');
     assert.match(ci, /npm run check/, 'ci must run the repo gates');
-    assert.match(ci, /self-hosted/, 'ci must target the self-hosted runner');
-    assert.match(ci, /local-server/, 'ci must disambiguate the routines runner label');
     assert.match(ci, /node-version:\s*['"]?24['"]?/, 'ci must pin Node 24 for type-stripped tests');
   });
 
-  it('self-hosted ci skips fork pull_request heads', () => {
+  it('ci runs on a GitHub-hosted runner, not a persistent self-hosted one', () => {
     const ci = readRoot('.github', 'workflows', 'ci.yml');
-    assert.match(
+    assert.match(ci, /runs-on:\s*ubuntu-24\.04/, 'ci must target a GitHub-hosted runner');
+    // The runner labels are the real risk: a leftover `self-hosted` anywhere
+    // in the file silently routes public fork code onto a maintainer node.
+    assert.doesNotMatch(
       ci,
-      /github\.event_name\s*!=\s*'pull_request'/,
-      'ci must still run push and non-PR events',
+      /runs-on:[^\n]*self-hosted/,
+      'ci must not target a self-hosted runner (public fork code would run on a maintainer node)',
     );
-    assert.match(
+    assert.doesNotMatch(
+      ci,
+      /local-server/,
+      'ci must not reference the self-hosted runner label',
+    );
+  });
+
+  it('ci runs fork pull_request heads instead of skipping them', () => {
+    // The old self-hosted setup skipped fork heads to protect the VPS. On an
+    // ephemeral hosted runner that guard is obsolete, and keeping it would
+    // silently report green while never testing any public fork contribution.
+    const ci = readRoot('.github', 'workflows', 'ci.yml');
+    assert.doesNotMatch(
       ci,
       /head\.repo\.full_name\s*==\s*github\.repository/,
-      'ci must skip pull_request heads from forks',
+      'ci must not skip fork pull_request heads (hosted runners are ephemeral)',
     );
+  });
+
+  it('both workflows run on the same GitHub-hosted runner', () => {
+    for (const workflow of ['ci.yml', 'issue-triage.yml']) {
+      const yaml = readRoot('.github', 'workflows', workflow);
+      assert.match(
+        yaml,
+        /runs-on:\s*ubuntu-24\.04/,
+        `${workflow} must target a GitHub-hosted runner`,
+      );
+      assert.doesNotMatch(
+        yaml,
+        /runs-on:[^\n]*self-hosted/,
+        `${workflow} must not target a self-hosted runner`,
+      );
+    }
   });
 
   it('human review is CODEOWNERS (* @crdesign8)', () => {

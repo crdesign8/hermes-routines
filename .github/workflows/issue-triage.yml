@@ -23,10 +23,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   triage:
-    # Same self-hosted runner as ci (issue #19 keeps PR builds off
-    # GitHub-hosted until the quota renewal; this job checks out the base
-    # commit only, never PR head code, so it is safe for third-party issues).
-    runs-on: [self-hosted, Linux, X64, local-server]
+    # Same GitHub-hosted runner as ci. This job checks out the base commit
+    # only, never PR head code, and runs with `issues: write` only.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

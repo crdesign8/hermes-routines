@@ -15,8 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected the `main` protection definition: required check context is
   `test` (not `ci`), solo flow disables required code-owner reviews, and
   activation uses a repository ruleset (`docs/main-ruleset.json`).
-- Self-hosted `test` job skips pull-request heads from forks so a
-  public repository cannot execute untrusted code on the VPS runner.
+- CI and issue triage moved from the dedicated self-hosted runner
+  (`hermes-node-01-routines`) to the GitHub-hosted `ubuntu-24.04`. No
+  maintainer node runs repository code anymore, so the fork-skip guard
+  the self-hosted runner required is gone and fork pull requests are
+  tested normally.
 
 ### Fixed
 
