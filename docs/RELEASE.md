@@ -46,8 +46,8 @@ Release candidate validation for `0.1.0`:
       (`scripts/issue-triage.mjs --validate`)
    6. `node scripts/build.mjs --check` (generated `desktop/plugin.js`
       is in sync)
-3. Remote CI (`.github/workflows/ci.yml`, self-hosted runner
-   `hermes-node-01-routines`, via `local-server` label) must be green on the PR. Local green runs do not
+3. Remote CI (`.github/workflows/ci.yml`, GitHub-hosted runner
+   `ubuntu-24.04`) must be green on the PR. Local green runs do not
    replace the remote CI result.
 
 No release is cut with any gate red or skipped.

@@ -70,10 +70,11 @@ checked in, but it is never the source of truth. Do not edit it manually.
 6. Respond to review findings in the same branch. Do not open a separate
    follow-up pull request for a fix that belongs in the current change.
 
-CI must be green before merge. The repository currently uses a self-hosted
-Linux runner, so a local green run does not replace the remote CI result.
-Direct pushes to `main` are not allowed: all changes enter via PR under
-the rules in [`docs/BRANCH-PROTECTION.md`](docs/BRANCH-PROTECTION.md).
+CI must be green before merge. The repository runs CI on a GitHub-hosted
+runner (`ubuntu-24.04`), so a local green run does not replace the remote
+CI result. Direct pushes to `main` are not allowed: all changes enter via
+PR under the rules in
+[`docs/BRANCH-PROTECTION.md`](docs/BRANCH-PROTECTION.md).
 Review coverage is owned by [`CODEOWNERS`](CODEOWNERS) (`* @crdesign8`).
 Automatic review is the `test` check (workflow `ci`) on the PR head SHA
 and human review is the code-owner review; the reuse contract,

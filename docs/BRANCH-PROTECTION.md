@@ -41,7 +41,7 @@ return the ruleset matching `docs/main-ruleset.json`.
 - The required status check is **`test`** (job `test` in workflow `ci`,
   `.github/workflows/ci.yml`: `npm test` + `npm run check`). The
   workflow *name* `ci` is not a check context. Local green runs do not
-  replace the remote CI result (self-hosted runner).
+  replace the remote CI result (GitHub-hosted runner `ubuntu-24.04`).
 - All review conversations must be resolved before merge.
 - `CODEOWNERS` (`* @crdesign8`) still routes review requests. Required
   code-owner reviews stay **off** while this is a solo-maintainer
@@ -116,12 +116,15 @@ workflows` (applies once the repository is public and forks exist).
   PR workflows run.
 - Secrets are never passed to fork PR runs; `pull_request_target` is
   not used in this repository.
-- The self-hosted `test` job skips `pull_request` heads whose
-  `head.repo.full_name` is not this repository. Same-repo PRs and
-  `push` still run. Fork CI is issue #19 (GitHub-hosted), not this
-  runner.
-- Until #19, a fork PR cannot satisfy the required `test` check.
-  Do not merge external PRs.
+- The `test` job runs on a GitHub-hosted runner (`ubuntu-24.04`), an
+  ephemeral VM per run, and does **not** skip fork `pull_request` heads.
+  Fork contributions are tested normally and may satisfy the required
+  `test` check, so external PRs are mergeable once green.
+- Review is still required for outside contributions: code-owner review
+  is not *required* by the ruleset (solo-maintainer setting), so an
+  outside PR must be reviewed manually by the maintainer before merge.
+  The fork-PR approval setting above applies to workflows, not to
+  `test`.
 
 ## What changes when the repo goes public
 

@@ -4,15 +4,11 @@ on:
   pull_request:
 jobs:
   test:
-    # Dedicated self-hosted runner (hermes-node-01-routines).
-    # Runner name is NOT valid in runs-on; target via labels.
-    # 'local-server' disambiguates from the generic offline runner
-    # (hermes-node-01: self-hosted/Linux/X64 only).
-    # Skip fork PR heads: a public repo with this runner would otherwise
-    # execute untrusted code on the VPS. Same-repo PRs and push still run.
-    # Fork CI waits on issue #19 (GitHub-hosted runners).
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [self-hosted, Linux, X64, local-server]
+    # GitHub-hosted runner. An ephemeral per-job VM replaces the dedicated
+    # self-hosted VPS runner: no maintainer node executes public fork code,
+    # and public repositories get free unlimited minutes.
+    # Fork PR heads run here too — the host is not a persistent asset.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

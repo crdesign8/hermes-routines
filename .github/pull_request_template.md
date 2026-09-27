@@ -18,7 +18,7 @@ Closes #
 - [ ] `npm run build`
 
 <!-- Paste the real commands run and their result. A local green run does not
-replace the remote CI result (self-hosted runner). -->
+replace the remote CI result (GitHub-hosted runner). -->
 
 ```
 ```

@@ -10,7 +10,7 @@ reuse the internal design without copying its code).
 
 | Surface | Role | File |
 | --- | --- | --- |
-| Automatic review | `test` check per head SHA from workflow `ci` (`npm ci`, `npm test`, `npm run check`, Node 24, self-hosted `local-server`) | `.github/workflows/ci.yml` |
+| Automatic review | `test` check per head SHA from workflow `ci` (`npm ci`, `npm test`, `npm run check`, Node 24, GitHub-hosted `ubuntu-24.04`) | `.github/workflows/ci.yml` |
 | Human review | Code-owner review (`* @crdesign8`) | `CODEOWNERS` |
 | Merge gates | Green `test` check, up-to-date branch, resolved conversations, squash merge, no bypass | `docs/BRANCH-PROTECTION.md` |
 | Contributor flow | Branch, PR template, same-branch fixes, green CI before merge | `CONTRIBUTING.md`, `.github/pull_request_template.md` |
@@ -58,10 +58,11 @@ never in a follow-up PR for the same change (`CONTRIBUTING.md`).
   default `GITHUB_TOKEN`. It never merges, never pushes, and never
   executes untrusted code outside the checked-out head.
   `pull_request_target` is not used in this repository.
-- The job is skipped when `github.event_name == 'pull_request'` and
-  `head.repo.full_name` is not this repository. A public repo must
-  not run fork heads on the self-hosted VPS runner. Fork CI waits
-  on issue #19 (GitHub-hosted). Same-repo PRs and `push` still run.
+- The job runs on a GitHub-hosted runner (`ubuntu-24.04`), an ephemeral
+  VM per run. Fork `pull_request` heads run here too: the host is not a
+  persistent maintainer asset, so there is nothing for untrusted code to
+  reach. Earlier revisions targeted a self-hosted runner and skipped fork
+  heads for that reason; that guard is no longer required.
 
 ## Observability
 
@@ -76,21 +77,12 @@ gh pr view <N> --json number,headRefOid,statusCheckRollup,reviewDecision
 gh pr checks <N>
 ```
 
-## VPS reuse and dual-run
+## Hosted runner and dual-run
 
 The registered human reviewer is `CODEOWNERS` (`* @crdesign8`).
 The automatic reviewer is the existing `ci` workflow (`test` job) —
-the same runner family as `issue-triage` (`self-hosted, Linux, X64,
-local-server`).
-
-Follow-up (out of scope here, VPS runtime — not this repo):
-onboard `crdesign8/hermes-routines` to any VPS-internal PR
-reviewer as an *additional* check/review on the head SHA, gated
-by the same idempotency key and the same fail-closed merge rules.
-Until that onboarding lands, this contract is the sole reviewer
-definition. If both ever run concurrently, the VPS reviewer must
-not duplicate or shadow the `test` context name, and a VPS failure
-must never green-light a merge — it fails closed like `test`.
+running on the same GitHub-hosted runner as `issue-triage`
+(`ubuntu-24.04`).
 
 ## Local verification
 
