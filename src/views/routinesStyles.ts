@@ -457,6 +457,11 @@ export const ROUTINES_CSS = [
   '.hr-stale { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.1)); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; background: var(--ui-bg-tertiary, rgba(255,255,255,0.02)); color: var(--ui-text-secondary, #ccc); font-size: 12px; }',
   '.hr-muted { color: var(--ui-text-tertiary, #888); font-size: 13px; line-height: 1.4; }',
   '.hr-status { margin-top: 10px; color: var(--ui-text-tertiary, #888); font-size: 12px; }',
+  // A status line that only restates what the page already shows (the
+  // toolbar count, the empty state) keeps its role, text and focus target
+  // but takes no visual footprint. Declared after .hr-status on purpose:
+  // same specificity, so the clip wins over the status line's own spacing.
+  '.hr-status.hr-sr-only { margin: -1px; }',
   '',
   '/* New Routine Trigger Button */',
   '.hr-btn-new {',
