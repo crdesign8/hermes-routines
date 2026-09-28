@@ -1100,10 +1100,12 @@ function lastRanSuccessfully(job) {
   const status = (lastStatusOf(job) ?? "").trim().toLowerCase();
   return status === "ok" || status === "success" || status === "completed" || status === "0";
 }
-function lastRanWithError(job) {
+function isFailedStatus(job) {
   const status = (lastStatusOf(job) ?? "").trim().toLowerCase();
-  const failed = status === "error" || status === "failed" || status === "failure" || status === "1";
-  return failed || issueOf(job) !== null;
+  return status === "error" || status === "failed" || status === "failure" || status === "1";
+}
+function lastRanWithError(job) {
+  return isFailedStatus(job) || issueOf(job) !== null;
 }
 function lastResultOf(job) {
   if (lastRanSuccessfully(job)) return { kind: "success", text: "Success" };
@@ -1111,6 +1113,15 @@ function lastResultOf(job) {
     return { kind: "error", text: issueOf(job) ?? "Failed" };
   }
   return { kind: "neutral", text: lastStatusOf(job) ?? "\u2014" };
+}
+function routineHealthOf(job) {
+  if (job === null || job === void 0) return "unknown";
+  if (routineCompleted(job)) return "completed";
+  if (routineErrored(job)) return "failed";
+  if (routinePausedOf(job)) return "paused";
+  if (lastRanWithError(job)) return "failed";
+  if (lastRanSuccessfully(job)) return "healthy";
+  return "unknown";
 }
 function collapsedSubtitleOf(job) {
   if (routineCompleted(job)) return "Completed";
@@ -1513,6 +1524,10 @@ var ROUTINES_CSS = [
   ".hr-status-svg { flex-shrink: 0; }",
   ".hr-status-svg-active { color: var(--ui-green, #34d399); }",
   ".hr-status-svg-paused { color: var(--ui-text-tertiary, #888); }",
+  ".hr-status-svg-failed { color: var(--ui-red, #f87171); }",
+  ".hr-status-svg-unknown { color: var(--ui-text-tertiary, #888); }",
+  ".hr-status-failed { color: var(--ui-red, #f87171); }",
+  ".hr-status-unknown { color: var(--ui-text-tertiary, #888); }",
   ".hr-row-title {",
   "  font-size: 14px;",
   "  font-weight: 600;",
@@ -2100,10 +2115,21 @@ function RunValue({ iso, strong }) {
 // src/views/RoutineStatus.tsx
 import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
 function statusOf(job) {
-  if (routineCompleted(job)) return { label: "Completed", tone: "completed" };
-  if (routineErrored(job)) return { label: "Error", tone: "error" };
-  if (routinePausedOf(job)) return { label: "Paused", tone: "paused" };
-  return { label: "Active", tone: "active" };
+  const health = routineHealthOf(job);
+  switch (health) {
+    case "completed":
+      return { label: "Completed", tone: "completed" };
+    case "failed":
+      if (routineErrored(job)) return { label: "Error", tone: "error" };
+      return { label: "Active \u2014 last run failed", tone: "failed" };
+    case "paused":
+      if (isFailedStatus(job)) return { label: "Paused \u2014 last run failed", tone: "paused" };
+      return { label: "Paused", tone: "paused" };
+    case "unknown":
+      return { label: "Active", tone: "unknown" };
+    case "healthy":
+      return { label: "Active", tone: "active" };
+  }
 }
 function RoutineStatus({ job }) {
   const { label, tone } = statusOf(job);
@@ -2115,7 +2141,11 @@ function RoutineStatus({ job }) {
       /* @__PURE__ */ jsx3("circle", { cx: "8", cy: "8", r: "6.5" }),
       /* @__PURE__ */ jsx3("line", { x1: "6.5", y1: "5.5", x2: "6.5", y2: "10.5" }),
       /* @__PURE__ */ jsx3("line", { x1: "9.5", y1: "5.5", x2: "9.5", y2: "10.5" })
-    ] }) : /* @__PURE__ */ jsxs2("svg", { className: "hr-status-svg", viewBox: "0 0 16 16", width: "16", height: "16", fill: "none", stroke: "currentColor", strokeWidth: "1.8", "aria-hidden": "true", children: [
+    ] }) : tone === "failed" ? /* @__PURE__ */ jsxs2("svg", { className: "hr-status-svg hr-status-svg-failed", viewBox: "0 0 16 16", width: "16", height: "16", fill: "none", stroke: "currentColor", strokeWidth: "1.8", "aria-hidden": "true", children: [
+      /* @__PURE__ */ jsx3("circle", { cx: "8", cy: "8", r: "6.5" }),
+      /* @__PURE__ */ jsx3("line", { x1: "5.5", y1: "5.5", x2: "10.5", y2: "10.5" }),
+      /* @__PURE__ */ jsx3("line", { x1: "10.5", y1: "5.5", x2: "5.5", y2: "10.5" })
+    ] }) : tone === "unknown" ? /* @__PURE__ */ jsx3("svg", { className: "hr-status-svg hr-status-svg-unknown", viewBox: "0 0 16 16", width: "16", height: "16", fill: "none", stroke: "currentColor", strokeWidth: "1.8", "aria-hidden": "true", children: /* @__PURE__ */ jsx3("circle", { cx: "8", cy: "8", r: "6.5" }) }) : /* @__PURE__ */ jsxs2("svg", { className: "hr-status-svg", viewBox: "0 0 16 16", width: "16", height: "16", fill: "none", stroke: "currentColor", strokeWidth: "1.8", "aria-hidden": "true", children: [
       /* @__PURE__ */ jsx3("circle", { cx: "8", cy: "8", r: "6.5" }),
       /* @__PURE__ */ jsx3("circle", { cx: "8", cy: "8", r: "2", fill: "currentColor" })
     ] }),
@@ -3256,6 +3286,7 @@ export {
   generateTimeSlots,
   humanScheduleOf,
   initialRoutinesState,
+  isFailedStatus,
   isSafeOptimistic,
   isValidJobId,
   issueOf,
@@ -3288,6 +3319,7 @@ export {
   routineActive,
   routineCompleted,
   routineErrored,
+  routineHealthOf,
   routineKey,
   routinePausedOf,
   routinePromptOf,

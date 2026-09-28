@@ -207,11 +207,19 @@ export function lastRanSuccessfully(job: RoutineJob | null | undefined): boolean
   return status === 'ok' || status === 'success' || status === 'completed' || status === '0';
 }
 
-export function lastRanWithError(job: RoutineJob | null | undefined): boolean {
+/**
+ * Status-token-only failure gate: true when `last_status` itself carries a
+ * failure token (failed/error/failure/1). Deliberately ignores
+ * `paused_reason`/`pausedReason`/`issueOf` — a clean pause that records a
+ * benign reason (e.g. "paused by user") is not a failed run.
+ */
+export function isFailedStatus(job: RoutineJob | null | undefined): boolean {
   const status = (lastStatusOf(job) ?? '').trim().toLowerCase();
-  const failed =
-    status === 'error' || status === 'failed' || status === 'failure' || status === '1';
-  return failed || issueOf(job) !== null;
+  return status === 'error' || status === 'failed' || status === 'failure' || status === '1';
+}
+
+export function lastRanWithError(job: RoutineJob | null | undefined): boolean {
+  return isFailedStatus(job) || issueOf(job) !== null;
 }
 
 export interface LastResult {
@@ -226,6 +234,26 @@ export function lastResultOf(job: RoutineJob | null | undefined): LastResult {
     return { kind: 'error', text: issueOf(job) ?? 'Failed' };
   }
   return { kind: 'neutral', text: lastStatusOf(job) ?? '—' };
+}
+
+/**
+ * Health indicator for the routine row: a single token combining lifecycle
+ * state with the last-run outcome. Precedence is
+ * completed > error(state) > paused > failed > healthy > unknown, matching
+ * statusOf/collapsedSubtitleOf, so a terminal job keeps its lifecycle token
+ * even when disabled and a paused job never reports a stale failure.
+ * Null rows are unknown.
+ */
+export type RoutineHealth = 'healthy' | 'failed' | 'paused' | 'completed' | 'unknown';
+
+export function routineHealthOf(job: RoutineJob | null | undefined): RoutineHealth {
+  if (job === null || job === undefined) return 'unknown';
+  if (routineCompleted(job)) return 'completed';
+  if (routineErrored(job)) return 'failed';
+  if (routinePausedOf(job)) return 'paused';
+  if (lastRanWithError(job)) return 'failed';
+  if (lastRanSuccessfully(job)) return 'healthy';
+  return 'unknown';
 }
 
 /**
