@@ -3165,7 +3165,7 @@ function RoutinesPage() {
       liveText = "No routines yet.";
       liveRestatesVisible = true;
     } else {
-      liveText = `Showing ${shown.length} of ${state.jobs.length} routines.`;
+      liveText = `Showing ${filteredJobs.length} of ${state.jobs.length} routines.`;
       liveRestatesVisible = true;
     }
   }
