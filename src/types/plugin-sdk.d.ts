@@ -24,6 +24,15 @@
 //   - host.state.profile / host.state.connectionId: sdk/index.ts (`profile:
 //     readonlyAtom<string>($activeGatewayProfile)`, `connectionId:
 //     readonlyAtom<null | string>($activeConnectionId)`)
+//   - host.newChat(profile?): sdk/index.ts (`newChat(profile?:
+//     null | string | PluginProfileRoute, options?)`, 2026-09-28). Only the
+//     one-argument form is declared: the second bag is the bots-only
+//     `PluginNewChatOptions` (workspaceMode/workspaceOwnerKey), which this
+//     plugin never uses.
+//   - host.composer.setDraft(sessionId, text) / host.composer.submit(
+//     sessionId, text): sdk/composer.ts (`composerHost`, 2026-09-28).
+//     getDraft/insertText/focus exist upstream but nothing in this plugin
+//     calls them, so they are NOT declared here.
 //   - useValue: sdk/index.ts (`export { useStore as useValue }`)
 //   - ROUTES_AREA = 'routes', SIDEBAR_NAV_AREA = 'sidebar.nav': app/routes.ts
 //
@@ -71,10 +80,35 @@ declare module '@hermes/plugin-sdk' {
     register: (ctx: PluginContext) => void;
   }
 
+  /**
+   * The composer draft surface for a session, WITHOUT touching app DOM.
+   * Only the two verbs this plugin calls are declared. Addressing: a session
+   * id (stored or runtime) or the literal `'new'` = that session's composer;
+   * every verb is fail-closed upstream — an address no mounted surface owns
+   * returns `false`/`null`, never a broadcast into another session.
+   * Verified in sdk/composer.ts (`composerHost`, 2026-09-28): `setDraft:
+   * (sessionId: null | string, text: string) => Promise<boolean>`, `submit:
+   * (sessionId: null | string, text: string) => boolean`.
+   */
+  interface PluginComposerHost {
+    setDraft(sessionId: null | string, text: string): Promise<boolean>;
+    submit(sessionId: null | string, text: string): boolean;
+  }
+
   /** Gateway doors this plugin calls. Module-local: the SDK exports `host`,
    *  not this name. */
   interface PluginHost {
     profileRoutes(): Promise<PluginProfileRoute[]>;
+    /**
+     * Start a fresh chat draft, optionally pointed at another profile or
+     * cross-connection route. Verified in sdk/index.ts (2026-09-28):
+     * `newChat(profile?: null | string | PluginProfileRoute, options?):
+     * void`. The options bag is the bots-only `PluginNewChatOptions`, which
+     * this plugin never passes.
+     */
+    newChat(profile?: null | string | PluginProfileRoute): void;
+    /** Composer read/write/submit for one session — see `PluginComposerHost`. */
+    readonly composer: PluginComposerHost;
     /**
      * Registry-routed RPC. `options` is `PluginProfileRequestOptions`: a
      * call that may cold-start the profile dials at background priority by

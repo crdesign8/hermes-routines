@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A guided routine-configuration chat boundary,
+  `openGuidedRoutineChat({ route, initialPrompt, autoSubmit })`. It opens a
+  fresh Desktop chat on a concrete profile route and seats the opening
+  prompt in that chat's own composer, so downstream UI never has to know
+  how Desktop session focus and drafts are wired. Only supported `host`
+  doors are used — no DOM traversal, no fiber inspection, no direct
+  composer element manipulation. The behavior is explicit: by default the
+  prompt is drafted and the user sends it, and `autoSubmit` makes the
+  button press itself start the conversation. The helper fails closed —
+  a request without a concrete route, a blank prompt, or a host without
+  the composer surface opens nothing rather than falling back to the
+  active profile. The local SDK shim gained only the two upstream
+  signatures this uses (`host.newChat`, `host.composer.setDraft` /
+  `submit`), each verified against the Desktop SDK and developer guide.
+
 - The routine inspector gained a `LAST EXECUTION` block below the
   configuration: the last run as relative distance plus absolute date, the
   outcome with its tone, the failure reason on its own row when the run

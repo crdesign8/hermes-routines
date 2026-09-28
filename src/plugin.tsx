@@ -64,6 +64,7 @@ export * from './domain/routing';
 export * from './domain/jobs';
 export * from './domain/present';
 export * from './gateway/cronGateway';
+export * from './gateway/guidedChat';
 export * from './gateway/cronParams';
 export * from './lib/errors';
 export * from './state/routinesState';
