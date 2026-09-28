@@ -146,9 +146,6 @@ describe('routine-inspector-readonly', () => {
     assert.doesNotMatch(allTexts, /Cron Expression/, 'no expression label');
     assert.doesNotMatch(allTexts, /abc123/, 'no backend id');
     assert.doesNotMatch(allTexts, /Routine ID/, 'no id row');
-    assert.doesNotMatch(allTexts, /Next Run/, 'no run metadata');
-    assert.doesNotMatch(allTexts, /Last Run/, 'no run metadata');
-    assert.doesNotMatch(allTexts, /Last Result/, 'no run metadata');
     assert.doesNotMatch(allTexts, /Profile/, 'no route scope');
     assert.doesNotMatch(allTexts, /Connection/, 'no route scope');
     assert.doesNotMatch(allTexts, /Target/, 'no route scope');
@@ -165,6 +162,24 @@ describe('routine-inspector-readonly', () => {
     assert.ok(!labels.some((t) => /copy/i.test(t)), 'no copy affordance');
     assert.ok(!labels.some((t) => /create/i.test(t)), 'no create affordance');
     assert.ok(!labels.some((t) => /save/i.test(t)), 'no save affordance');
+  });
+
+  it('keeps the last-execution block free of any control', async () => {
+    // The block is read-only by construction: a run outcome must never
+    // become an edit seam the composer mirror does not already have.
+    const nodes = collect(renderInspector({
+      ...JOB,
+      last_run_at: '2020-01-01T09:00:00Z',
+      last_status: 'failed',
+      last_fire_error: 'upstream refused the connection',
+    }));
+    const block = nodes.find((n) => n.props?.className === 'hr-inspector-last-run');
+    assert.ok(block, 'last-execution block must exist');
+
+    const controls = collect(block).filter(
+      (n) => n.type === 'button' || n.type === 'input' || n.type === 'textarea' || n.type === 'select' || n.type === 'form',
+    );
+    assert.deepEqual(controls, [], 'the last-execution block carries no control');
   });
 
   it('source pins the future-edit seam (no dead buttons)', () => {

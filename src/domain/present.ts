@@ -237,6 +237,69 @@ export function lastResultOf(job: RoutineJob | null | undefined): LastResult {
 }
 
 /**
+ * How far a timestamp sits from now, plus its absolute date. Null when the
+ * input is missing or unparseable, so a caller can state the empty case
+ * instead of rendering a placeholder as if it were data. Both the expanded
+ * card and the inspector read their run distances through this, so the two
+ * can never disagree on what a timestamp means.
+ */
+export interface RunDistance {
+  text: string;
+  date: string | null;
+}
+
+export function runDistanceOf(iso: string | null | undefined): RunDistance | null {
+  const text = formatWhen(iso ?? null);
+  if (text === null) return null;
+  return { text, date: formatDate(iso ?? null) };
+}
+
+/**
+ * Latest execution, shaped for a read-only disclosure: the last-run distance
+ * with its absolute date, the outcome as a tone plus a short label, and the
+ * failure detail on its own row.
+ *
+ * `issue` is set only for a failure — a successful run never leaks a stale
+ * `last_fire_error` — and the result label stays short ('Failed') so the same
+ * tone can be reused wherever the detail sits next to it.
+ *
+ * `known` asks whether the row carries evidence of an execution at all: a run
+ * timestamp or a last-status token. Deliberately not `issueOf`, which also
+ * reads non-run fields — a benign `paused_reason` would otherwise render a
+ * routine that never fired as a failed one. A lifecycle `error` state with no
+ * recorded run stays empty here on purpose: the inspector reports executions,
+ * and the job's error state is already spoken for by the row's status
+ * indicator, which has its own vocabulary.
+ */
+export interface LastExecution {
+  known: boolean;
+  lastRun: RunDistance | null;
+  resultKind: LastResult['kind'];
+  resultText: string;
+  issue: string | null;
+  nextRun: RunDistance | null;
+}
+
+export function lastExecutionOf(job: RoutineJob | null | undefined): LastExecution {
+  const result = lastResultOf(job);
+  const failed = result.kind === 'error';
+  const known = lastRunIso(job) !== null || lastStatusOf(job) !== null;
+
+  return {
+    known,
+    lastRun: runDistanceOf(lastRunIso(job)),
+    resultKind: result.kind,
+    // The failure detail moves to its own row; the badge keeps the outcome.
+    resultText: failed ? 'Failed' : result.text,
+    // Gated on known so the block can never contradict itself: a row with no
+    // execution shows the empty state and no issue row, even when the backend
+    // parked a benign reason there (issueOf also reads paused_reason).
+    issue: known && failed ? issueOf(job) : null,
+    nextRun: routineActive(job) ? runDistanceOf(nextRunIso(job)) : null,
+  };
+}
+
+/**
  * Health indicator for the routine row: a single token combining lifecycle
  * state with the last-run outcome. Precedence is
  * completed > error(state) > paused > failed > healthy > unknown, matching

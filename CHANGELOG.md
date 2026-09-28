@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The routine inspector gained a `LAST EXECUTION` block below the
+  configuration: the last run as relative distance plus absolute date, the
+  outcome with its tone, the failure reason on its own row when the run
+  failed, and the next run while the routine can still fire. A routine with
+  no run history states so in words instead of showing a placeholder. Every
+  value comes from the new presentation-only `lastExecutionOf`, so the
+  block, the expanded card and the health indicator cannot disagree. The
+  block is read-only by construction — it carries no control — and a
+  successful run never surfaces a stale `last_fire_error`. No backend or
+  gateway contract change.
+
 ### Changed
 
 - Declared Linux as the only verified supported platform for building,
