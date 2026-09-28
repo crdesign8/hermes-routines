@@ -1114,6 +1114,28 @@ function lastResultOf(job) {
   }
   return { kind: "neutral", text: lastStatusOf(job) ?? "\u2014" };
 }
+function runDistanceOf(iso) {
+  const text = formatWhen(iso ?? null);
+  if (text === null) return null;
+  return { text, date: formatDate(iso ?? null) };
+}
+function lastExecutionOf(job) {
+  const result = lastResultOf(job);
+  const failed = result.kind === "error";
+  const known = lastRunIso(job) !== null || lastStatusOf(job) !== null;
+  return {
+    known,
+    lastRun: runDistanceOf(lastRunIso(job)),
+    resultKind: result.kind,
+    // The failure detail moves to its own row; the badge keeps the outcome.
+    resultText: failed ? "Failed" : result.text,
+    // Gated on known so the block can never contradict itself: a row with no
+    // execution shows the empty state and no issue row, even when the backend
+    // parked a benign reason there (issueOf also reads paused_reason).
+    issue: known && failed ? issueOf(job) : null,
+    nextRun: routineActive(job) ? runDistanceOf(nextRunIso(job)) : null
+  };
+}
 function routineHealthOf(job) {
   if (job === null || job === void 0) return "unknown";
   if (routineCompleted(job)) return "completed";
@@ -1709,6 +1731,18 @@ var ROUTINES_CSS = [
   ".hr-tech-entry-head { display: flex; align-items: center; justify-content: space-between; }",
   ".hr-code-block { font-family: var(--dt-font-mono, monospace); font-size: 11px; padding: 8px 10px; border-radius: 6px; background: var(--ui-bg-quinary, rgba(0,0,0,0.2)); border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.06)); color: var(--ui-text-secondary, #ccc); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0; }",
   ".hr-inspector-actions-section { margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.06)); }",
+  // Run outcome, read-only: a separator plus its own stack, so the block
+  // never reads as another editable field of the composer above it.
+  ".hr-inspector-last-run {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  gap: 4px;",
+  "  margin-top: 6px;",
+  "  padding-top: 14px;",
+  "  border-top: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.06));",
+  "}",
+  ".hr-inspector-last-run .hr-create-section-label { margin-bottom: 6px; }",
+  ".hr-inspector-issue { white-space: pre-wrap; overflow-wrap: anywhere; }",
   ".hr-inspector-actions-bar { display: flex; gap: 8px; }",
   ".hr-btn { display: inline-flex; align-items: center; justify-content: center; padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--ui-text-primary, #fff); background: var(--ui-bg-card, #222); border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.12)); border-radius: 6px; cursor: pointer; transition: all 0.15s ease; }",
   ".hr-btn:hover { background: var(--chrome-action-hover, rgba(255,255,255,0.08)); }",
@@ -2077,43 +2111,48 @@ function RoutineDetails({
   job
 }) {
   const schedule = humanScheduleOf(job) || "\u2014";
-  const nextIso = nextRunIso(job);
-  const lastIso = lastRunIso(job);
+  const nextRun = routineActive(job) ? runDistanceOf(nextRunIso(job)) : null;
+  const lastRun = runDistanceOf(lastRunIso(job));
   const result = lastResultOf(job);
-  const showRuns = routineActive(job);
   return /* @__PURE__ */ jsxs("div", { className: "hr-details", children: [
     /* @__PURE__ */ jsxs("div", { className: "hr-detail", children: [
       /* @__PURE__ */ jsx2("span", { className: "hr-detail-label", children: "Schedule" }),
       /* @__PURE__ */ jsx2("span", { className: "hr-detail-value", children: schedule })
     ] }),
-    showRuns && nextIso !== null && formatWhen(nextIso) !== null ? /* @__PURE__ */ jsxs("div", { className: "hr-detail", children: [
+    nextRun !== null ? /* @__PURE__ */ jsxs("div", { className: "hr-detail", children: [
       /* @__PURE__ */ jsx2("span", { className: "hr-detail-label", children: "Next run" }),
-      /* @__PURE__ */ jsx2(RunValue, { iso: nextIso, strong: true })
+      /* @__PURE__ */ jsx2(RunWhen, { distance: nextRun, strong: true })
     ] }) : null,
-    showRuns && lastIso !== null && formatWhen(lastIso) !== null ? /* @__PURE__ */ jsxs("div", { className: "hr-detail", children: [
+    lastRun !== null ? /* @__PURE__ */ jsxs("div", { className: "hr-detail", children: [
       /* @__PURE__ */ jsx2("span", { className: "hr-detail-label", children: "Last run" }),
-      /* @__PURE__ */ jsx2(RunValue, { iso: lastIso })
+      /* @__PURE__ */ jsx2(RunWhen, { distance: lastRun })
     ] }) : null,
     /* @__PURE__ */ jsxs("div", { className: "hr-detail", children: [
       /* @__PURE__ */ jsx2("span", { className: "hr-detail-label", children: "Last result" }),
-      /* @__PURE__ */ jsxs("span", { className: `hr-result hr-result-${result.kind}`, children: [
-        result.kind === "success" ? /* @__PURE__ */ jsx2("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { display: "inline-block", verticalAlign: -2, marginRight: 6 }, children: /* @__PURE__ */ jsx2("path", { fillRule: "evenodd", d: "M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.854-8.646a.5.5 0 0 0-.708-.708L7.5 9.293 5.854 7.646a.5.5 0 1 0-.708.708l2 2a.5.5 0 0 0 .708 0l4-4z" }) }) : result.kind === "error" ? /* @__PURE__ */ jsx2("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { display: "inline-block", verticalAlign: -2, marginRight: 6 }, children: /* @__PURE__ */ jsx2("path", { fillRule: "evenodd", d: "M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.354-9.354a.5.5 0 0 0-.708-.708L8 7.293 5.354 4.646a.5.5 0 1 0-.708.708L7.293 8l-2.647 2.646a.5.5 0 0 0 .708.708L8 8.707l2.646 2.647a.5.5 0 0 0 .708-.708L8.707 8l2.647-2.646z" }) }) : null,
-        result.text
-      ] })
+      /* @__PURE__ */ jsx2(ResultTone, { kind: result.kind, text: result.text })
     ] })
   ] });
 }
-function RunValue({ iso, strong }) {
-  const distance = formatWhen(iso);
-  if (distance === null) return null;
-  const date = formatDate(iso);
+function RunWhen({
+  distance,
+  strong
+}) {
   return /* @__PURE__ */ jsxs("span", { className: strong ? "hr-detail-value hr-next" : "hr-detail-value", children: [
-    distance,
-    date !== null ? /* @__PURE__ */ jsxs("span", { className: "hr-date", children: [
+    distance.text,
+    distance.date !== null ? /* @__PURE__ */ jsxs("span", { className: "hr-date", children: [
       " (",
-      date,
+      distance.date,
       ")"
     ] }) : null
+  ] });
+}
+function ResultTone({
+  kind,
+  text
+}) {
+  return /* @__PURE__ */ jsxs("span", { className: `hr-result hr-result-${kind}`, children: [
+    kind === "success" ? /* @__PURE__ */ jsx2("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { display: "inline-block", verticalAlign: -2, marginRight: 6 }, children: /* @__PURE__ */ jsx2("path", { fillRule: "evenodd", d: "M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.854-8.646a.5.5 0 0 0-.708-.708L7.5 9.293 5.854 7.646a.5.5 0 1 0-.708.708l2 2a.5.5 0 0 0 .708 0l4-4z" }) }) : kind === "error" ? /* @__PURE__ */ jsx2("svg", { width: "14", height: "14", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { display: "inline-block", verticalAlign: -2, marginRight: 6 }, children: /* @__PURE__ */ jsx2("path", { fillRule: "evenodd", d: "M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm3.354-9.354a.5.5 0 0 0-.708-.708L8 7.293 5.354 4.646a.5.5 0 1 0-.708.708L7.293 8l-2.647 2.646a.5.5 0 0 0 .708.708L8 8.707l2.646 2.647a.5.5 0 0 0 .708-.708L8.707 8l2.647-2.646z" }) }) : null,
+    text
   ] });
 }
 
@@ -2341,6 +2380,7 @@ function RoutineInspectorPanel({
 }) {
   const title = routineTitle(job, fallback);
   const schedule = humanScheduleOf(job) || "\u2014";
+  const execution = lastExecutionOf(job);
   return /* @__PURE__ */ jsxs4("aside", { className: "hr-inspector", "aria-label": `Details for ${title}`, children: [
     /* @__PURE__ */ jsx6("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs4(
       "button",
@@ -2407,6 +2447,28 @@ function RoutineInspectorPanel({
       /* @__PURE__ */ jsxs4("div", { className: "hr-create-when-section", children: [
         /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
         /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: schedule })
+      ] }),
+      /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-last-run", children: [
+        /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "LAST EXECUTION" }),
+        execution.lastRun !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Last run" }),
+          /* @__PURE__ */ jsx6(RunWhen, { distance: execution.lastRun })
+        ] }) : null,
+        /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Last result" }),
+          execution.known ? /* @__PURE__ */ jsx6(ResultTone, { kind: execution.resultKind, text: execution.resultText }) : (
+            // Stated in words, never as a placeholder that reads as data.
+            /* @__PURE__ */ jsx6("span", { className: "hr-muted", children: "No runs yet." })
+          )
+        ] }),
+        execution.issue !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Issue" }),
+          /* @__PURE__ */ jsx6("span", { className: "hr-detail-value hr-inspector-issue", children: execution.issue })
+        ] }) : null,
+        execution.nextRun !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Next run" }),
+          /* @__PURE__ */ jsx6(RunWhen, { distance: execution.nextRun, strong: true })
+        ] }) : null
       ] })
     ] })
   ] });
@@ -3275,9 +3337,12 @@ export {
   ROUTE_ID,
   ROUTE_PATH,
   ROUTINES_VIEW_STATUS,
+  ResultTone,
   RoutineComposerPanel,
+  RoutineDetails,
   RoutineInspectorPanel,
   RoutinesPage,
+  RunWhen,
   SIDEBAR_CODICON,
   SIDEBAR_ID,
   SIDEBAR_LABEL,
@@ -3314,6 +3379,7 @@ export {
   jobIdFromResponse,
   jobIdOf,
   jobPaused,
+  lastExecutionOf,
   lastRanSuccessfully,
   lastRanWithError,
   lastResultOf,
@@ -3348,6 +3414,7 @@ export {
   routineTerminal,
   routineTitle,
   routinesViewReducer,
+  runDistanceOf,
   scopedCronParams,
   toOrdinal,
   validateScheduleConfig,

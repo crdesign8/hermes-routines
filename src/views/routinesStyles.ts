@@ -438,6 +438,18 @@ export const ROUTINES_CSS = [
   '.hr-tech-entry-head { display: flex; align-items: center; justify-content: space-between; }',
   '.hr-code-block { font-family: var(--dt-font-mono, monospace); font-size: 11px; padding: 8px 10px; border-radius: 6px; background: var(--ui-bg-quinary, rgba(0,0,0,0.2)); border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.06)); color: var(--ui-text-secondary, #ccc); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 0; }',
   '.hr-inspector-actions-section { margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.06)); }',
+  // Run outcome, read-only: a separator plus its own stack, so the block
+  // never reads as another editable field of the composer above it.
+  '.hr-inspector-last-run {',
+  '  display: flex;',
+  '  flex-direction: column;',
+  '  gap: 4px;',
+  '  margin-top: 6px;',
+  '  padding-top: 14px;',
+  '  border-top: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.06));',
+  '}',
+  '.hr-inspector-last-run .hr-create-section-label { margin-bottom: 6px; }',
+  '.hr-inspector-issue { white-space: pre-wrap; overflow-wrap: anywhere; }',
   '.hr-inspector-actions-bar { display: flex; gap: 8px; }',
   '.hr-btn { display: inline-flex; align-items: center; justify-content: center; padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--ui-text-primary, #fff); background: var(--ui-bg-card, #222); border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.12)); border-radius: 6px; cursor: pointer; transition: all 0.15s ease; }',
   '.hr-btn:hover { background: var(--chrome-action-hover, rgba(255,255,255,0.08)); }',

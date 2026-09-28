@@ -3,10 +3,12 @@ import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import type { RoutineJob } from '../domain/jobs';
 import {
   humanScheduleOf,
+  lastExecutionOf,
   routineActive,
   routinePromptOf,
   routineTitle,
 } from '../domain/present';
+import { ResultTone, RunWhen } from './RoutineDetails';
 
 export interface RoutineInspectorPanelProps {
   job: RoutineJob;
@@ -27,6 +29,7 @@ export function RoutineInspectorPanel({
 }: RoutineInspectorPanelProps): ReactElement {
   const title = routineTitle(job, fallback);
   const schedule = humanScheduleOf(job) || '—';
+  const execution = lastExecutionOf(job);
 
   return (
     <aside className="hr-inspector" aria-label={`Details for ${title}`}>
@@ -47,12 +50,16 @@ export function RoutineInspectorPanel({
       <div className="hr-inspector-body">
         {/* Opaque mirror of the composer: the same sections and classes
             as RoutineComposerPanel with every control disabled, populated
-            from the stored row — and nothing the composer does not show.
-            No cron expression, no ids, no run metadata, no actions: this
-            window is for editing, and editing does not exist upstream yet.
+            from the stored row. No cron expression, no ids, no route
+            scope, no actions: this window is for editing, and editing does
+            not exist upstream yet.
             EDIT SEAM — when the backend exposes an update action, this
             panel gains editable/onSave props and these fields flip to
-            enabled; the layout already matches the form. */}
+            enabled; the layout already matches the form.
+
+            The LAST EXECUTION block below is the one exception, and it is
+            read-only by construction: it carries no control, only the
+            latest run's outcome, so it can never become an edit seam. */}
         <h3 className="hr-create-title">{title}</h3>
 
         {/* Active Toggle Card (disabled mirror) */}
@@ -105,6 +112,41 @@ export function RoutineInspectorPanel({
         <div className="hr-create-when-section">
           <div className="hr-create-section-label">WHEN TO RUN</div>
           <div className="hr-create-preview-sentence">{schedule}</div>
+        </div>
+
+        {/* LAST EXECUTION (read-only run outcome, separated from the
+            editable/configuration content above). Values come from
+            lastExecutionOf and render through the same components as the
+            expanded card, so the two surfaces cannot disagree. */}
+        <div className="hr-inspector-last-run">
+          <div className="hr-create-section-label">LAST EXECUTION</div>
+          {execution.lastRun !== null ? (
+            <div className="hr-detail">
+              <span className="hr-detail-label">Last run</span>
+              <RunWhen distance={execution.lastRun} />
+            </div>
+          ) : null}
+          <div className="hr-detail">
+            <span className="hr-detail-label">Last result</span>
+            {execution.known ? (
+              <ResultTone kind={execution.resultKind} text={execution.resultText} />
+            ) : (
+              // Stated in words, never as a placeholder that reads as data.
+              <span className="hr-muted">No runs yet.</span>
+            )}
+          </div>
+          {execution.issue !== null ? (
+            <div className="hr-detail">
+              <span className="hr-detail-label">Issue</span>
+              <span className="hr-detail-value hr-inspector-issue">{execution.issue}</span>
+            </div>
+          ) : null}
+          {execution.nextRun !== null ? (
+            <div className="hr-detail">
+              <span className="hr-detail-label">Next run</span>
+              <RunWhen distance={execution.nextRun} strong />
+            </div>
+          ) : null}
         </div>
       </div>
     </aside>

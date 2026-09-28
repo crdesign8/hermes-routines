@@ -53,7 +53,10 @@ Limits:
 - The routine backend exposes exactly five `cron.manage` actions — list, add,
   remove, pause, and resume — with no update and no run action.
 - The inspector panel is a disabled, read-only mirror of the composer: it
-  reflects the selected routine but offers no editable controls.
+  reflects the selected routine but offers no editable controls. Below the
+  configuration it shows a separated, read-only `LAST EXECUTION` block with
+  the latest run, its outcome, the failure reason when the run failed, and
+  the next run while the routine can still fire.
 
 ## Screenshots
 
