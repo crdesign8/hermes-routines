@@ -694,3 +694,111 @@ describe('routines-view registration and render', () => {
     assert.equal(src.includes('<select'), false, 'no native selector: the plugin follows the active profile');
   });
 });
+
+describe('routine-health status indicator (issue #51)', () => {
+  function paint(state) {
+    const noop = () => {};
+    // RoutinesPage hooks: [state, routesNonce]
+    reactStub.__presetStates([[state, noop], [0, noop]]);
+    return renderView();
+  }
+
+  function readyWith(jobs) {
+    return reduce([
+      loaded([ROUTE, ROUTE_B], 'p1', 'c1'),
+      { type: 'list-loaded', jobs, key: 'c1::p1' },
+    ]);
+  }
+
+  function statusNodes(tree) {
+    return collect(tree).filter(
+      (n) => typeof n.props?.className === 'string' && n.props.className.includes('hr-status-indicator'),
+    );
+  }
+
+  function svgClasses(tree) {
+    return collect(tree)
+      .filter((n) => n.type === 'svg')
+      .map((n) => (typeof n.props?.className === 'string' ? n.props.className : ''));
+  }
+
+  it('active + failed renders hr-status-failed without the green clock', () => {
+    const tree = paint(readyWith([
+      { job_id: 'aa01', name: 'Failing routine', schedule: '0 9 * * *', last_status: 'failed' },
+    ]));
+    const indicators = statusNodes(tree);
+    assert.equal(indicators.length, 1);
+    assert.match(indicators[0].props.className, /hr-status-failed/);
+    assert.equal(svgClasses(tree).some((c) => c.includes('hr-status-svg-active')), false);
+    assert.ok(svgClasses(tree).some((c) => c.includes('hr-status-svg-failed')));
+    assert.ok(texts(tree).join(' ').includes('Active — last run failed'));
+  });
+
+  it('active + success stays green', () => {
+    const tree = paint(readyWith([
+      { job_id: 'aa02', name: 'Healthy routine', schedule: '0 9 * * *', last_status: 'success' },
+    ]));
+    const indicators = statusNodes(tree);
+    assert.equal(indicators.length, 1);
+    assert.match(indicators[0].props.className, /hr-status-active/);
+    assert.ok(svgClasses(tree).some((c) => c.includes('hr-status-svg-active')));
+    assert.ok(texts(tree).join(' ').includes('Active'));
+  });
+
+  it('paused + failed keeps the paused tone with a failed label', () => {
+    const tree = paint(readyWith([
+      { job_id: 'aa03', name: 'Paused routine', schedule: '0 9 * * *', disabled: true, last_status: 'failed' },
+    ]));
+    const indicators = statusNodes(tree);
+    assert.equal(indicators.length, 1);
+    assert.match(indicators[0].props.className, /hr-status-paused/);
+    assert.equal(indicators[0].props.className.includes('hr-status-failed'), false);
+    assert.ok(texts(tree).join(' ').includes('Paused — last run failed'));
+  });
+
+  it('paused without failure is unchanged', () => {
+    const tree = paint(readyWith([
+      { job_id: 'aa04', name: 'Paused routine', schedule: '0 9 * * *', disabled: true },
+    ]));
+    const indicators = statusNodes(tree);
+    assert.equal(indicators.length, 1);
+    assert.match(indicators[0].props.className, /hr-status-paused/);
+    assert.ok(texts(tree).join(' ').includes('Paused'));
+  });
+
+  it('paused with a benign paused_reason and no failed last_status renders pure Paused', () => {
+    const tree = paint(readyWith([
+      { job_id: 'aa04b', name: 'Paused routine', schedule: '0 9 * * *', disabled: true, paused_reason: 'paused by user' },
+    ]));
+    const indicators = statusNodes(tree);
+    assert.equal(indicators.length, 1);
+    assert.match(indicators[0].props.className, /hr-status-paused/);
+    assert.ok(texts(tree).join(' ').includes('Paused'));
+    assert.equal(
+      texts(tree).join(' ').includes('last run failed'),
+      false,
+      'a clean pause with a benign reason must not claim the last run failed',
+    );
+  });
+
+  it('active with no run is neutral unknown labeled Active', () => {
+    const tree = paint(readyWith([
+      { job_id: 'aa05', name: 'Fresh routine', schedule: '0 9 * * *' },
+    ]));
+    const indicators = statusNodes(tree);
+    assert.equal(indicators.length, 1);
+    assert.match(indicators[0].props.className, /hr-status-unknown/);
+    assert.equal(svgClasses(tree).some((c) => c.includes('hr-status-svg-active')), false);
+    assert.ok(texts(tree).join(' ').includes('Active'));
+  });
+
+  it('Last-result outcome stays intact alongside the indicator', () => {
+    assert.deepEqual(routines.lastResultOf({ last_status: 'failed' }), { kind: 'error', text: 'Failed' });
+    assert.deepEqual(routines.lastResultOf({ last_status: 'success' }), { kind: 'success', text: 'Success' });
+    assert.equal(routines.lastResultOf({}).kind, 'neutral');
+    const tree = paint(readyWith([
+      { job_id: 'aa06', name: 'Failing routine', schedule: '0 9 * * *', last_status: 'failed' },
+    ]));
+    assert.match(texts(tree).join(' '), /Every day at 09:00/);
+  });
+});
