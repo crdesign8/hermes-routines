@@ -404,7 +404,10 @@ export function RoutinesPage() {
   // create result, and a loading/unavailable state are the page's visible
   // operational signal. Only the settled READY count restates text the
   // page already shows on screen (the toolbar count, the empty state), so
-  // it is announced but not painted a second time.
+  // it is announced but not painted a second time. The count must be built
+  // from the SAME rows the toolbar paints (filteredJobs), never from the
+  // status-filter-only list: with a search active those two disagree and a
+  // screen reader would hear a count that does not match the screen.
   let liveText = '';
   let liveRestatesVisible = false;
   if (state.error) liveText = state.error;
@@ -417,7 +420,7 @@ export function RoutinesPage() {
       liveText = 'No routines yet.';
       liveRestatesVisible = true;
     } else {
-      liveText = `Showing ${shown.length} of ${state.jobs.length} routines.`;
+      liveText = `Showing ${filteredJobs.length} of ${state.jobs.length} routines.`;
       liveRestatesVisible = true;
     }
   }

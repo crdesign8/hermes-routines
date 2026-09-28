@@ -109,6 +109,24 @@ function paint(state) {
   return renderView();
 }
 
+/**
+ * Same, with a search typed into the box. RoutinesPage's useState order is
+ * [state, routesNonce, searchQuery, selectedJobKey, isCreating], so the
+ * third slot carries the query.
+ */
+function paintSearching(state, query) {
+  const noop = () => {};
+  reactStub.__presetStates([[state, noop], [0, noop], [query, noop], [null, noop], [false, noop]]);
+  return renderView();
+}
+
+/** The single painted count, in the toolbar. */
+function toolbarCount(tree) {
+  const node = collect(tree).find((n) => n.type === 'span' && n.props.className === 'hr-count-right');
+  assert.ok(node, 'the visible toolbar count must exist');
+  return node.props.children;
+}
+
 function readyWith(jobs, extra = []) {
   return reduce([loaded([ROUTE, ROUTE_B], 'p1', 'c1'), { type: 'list-loaded', jobs, key: 'c1::p1' }, ...extra]);
 }
@@ -180,6 +198,88 @@ describe('status line: the count is announced once, painted once', () => {
       assert.equal(live.props['aria-live'], 'polite');
       assert.equal(live.props.tabIndex, -1, 'the region stays a programmatic focus target');
     }
+  });
+});
+
+describe('status line: the announced count matches the painted one while searching', () => {
+  // Issue #56: the live region counted `shown` (status filter only) while
+  // the toolbar counted `filteredJobs` (status filter + search), so an
+  // announced number could contradict the rows actually on screen.
+  const JOBS_3 = [
+    { job_id: '84c47f11a2bd', name: 'Morning brief', schedule: '0 9 * * *' },
+    { job_id: '19bd7c0a3f11', name: 'Evening digest', schedule: '0 18 * * *' },
+    { job_id: '5c1f0a77b2e4', name: 'Weekly report', schedule: '0 8 * * 1' },
+  ];
+
+  /** The number the toolbar paints: "Showing all 3" or "Showing 1 of 3". */
+  function paintedCount(tree) {
+    const text = toolbarCount(tree);
+    const match = /^Showing (?:all )?(\d+)/.exec(text);
+    assert.ok(match, `unexpected toolbar count copy: ${text}`);
+    return Number(match[1]);
+  }
+
+  /** The number the live region announces. */
+  function announcedCount(tree) {
+    const live = liveRegion(tree);
+    assert.ok(live, 'live region required');
+    const match = /^Showing (\d+) of (\d+) routines\.$/.exec(live.props.children);
+    assert.ok(match, `unexpected announced copy: ${live.props.children}`);
+    return { shown: Number(match[1]), total: Number(match[2]) };
+  }
+
+  it('a narrowing search announces the same count the toolbar shows', () => {
+    const tree = paintSearching(readyWith(JOBS_3), 'digest');
+    assert.equal(announcedCount(tree).shown, 1);
+    assert.equal(announcedCount(tree).shown, paintedCount(tree));
+    assert.equal(toolbarCount(tree), 'Showing 1 of 3 routines.');
+  });
+
+  it('a search matching nothing announces zero, not the unfiltered total', () => {
+    const tree = paintSearching(readyWith(JOBS_3), 'zzz');
+    assert.equal(announcedCount(tree).shown, 0, 'no row on screen means zero announced');
+    assert.equal(announcedCount(tree).shown, paintedCount(tree));
+    assert.equal(toolbarCount(tree), 'Showing 0 of 3 routines.');
+    // The zero-match case the issue calls out: the empty-filter panel is
+    // painted next to a count that must not claim 3.
+    assert.ok(visibleTexts(tree).join(' ').includes('Showing 0 of 3 routines.'));
+  });
+
+  it('a search matching everything announces the full count once', () => {
+    const tree = paintSearching(readyWith(JOBS_3), '');
+    assert.equal(announcedCount(tree).shown, 3);
+    assert.equal(announcedCount(tree).shown, paintedCount(tree));
+  });
+
+  it('search and status filter compose: the announced count tracks both', () => {
+    // One paused row among the three, so the filter alone is non-trivial.
+    const state = {
+      ...readyWith([
+        ...JOBS_3,
+        { job_id: '7a2b91c40d13', name: 'Paused sweep', schedule: '0 7 * * *', disabled: true },
+      ]),
+      filter: 'paused',
+    };
+    // Filter alone: the paused row survives.
+    const all = paintSearching(state, '');
+    assert.equal(announcedCount(all).shown, 1);
+    assert.equal(announcedCount(all).shown, paintedCount(all));
+    // Filter + a search that misses it: zero on screen, zero announced.
+    const none = paintSearching(state, 'zzz');
+    assert.equal(announcedCount(none).shown, 0);
+    assert.equal(announcedCount(none).shown, paintedCount(none));
+    // Filter + a search that hits it: still the one row, announced as one.
+    const hit = paintSearching(state, 'sweep');
+    assert.equal(announcedCount(hit).shown, 1);
+    assert.equal(announcedCount(hit).shown, paintedCount(hit));
+  });
+
+  it('announces the searched count without painting it a second time', () => {
+    const tree = paintSearching(readyWith(JOBS_3), 'digest');
+    const live = liveRegion(tree);
+    assert.match(live.props.className, /hr-sr-only/, 'the announced copy stays screen-reader only');
+    const visible = visibleTexts(tree).filter((t) => /\bShowing\b.*routines\./.test(t));
+    assert.equal(visible.length, 1, 'exactly one visible count line, in the toolbar');
   });
 });
 
