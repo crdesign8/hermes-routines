@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A guided configuration handoff: a routine created with **Configure with
+  Hermes** is created **paused**, and from that state the page can open a
+  Hermes Desktop chat already bound to that exact routine. The path is
+  `createProvisionalRoutine` → `launchGuidedConfiguration` →
+  `openGuidedRoutineChat`, composed by `GuidedRoutinePanel`.
+
+  The composer gained a **Configure with Hermes** toggle (on by default
+  where the path exists, off entirely when it does not, so the ordinary
+  form is unchanged). The guided path is not a variation of the Active
+  toggle: it always creates paused, and the Active switch is hidden rather
+  than shown-but-ignored.
+
+  The opening prompt is a versioned configuration envelope
+  (`HERMES_ROUTINE_CONFIG_V1`) carrying the authoritative `job_id`, the
+  owning `connection_id`, the backend `profile`, the current name,
+  schedule, instruction, delivery and model override, and the literal
+  state `paused` — followed by standing instructions to clarify what is
+  missing, not to activate the routine, and not to treat prose as persisted
+  configuration. Field order is fixed, so the serialization is byte-stable
+  and assertable; `delivery` and `model_override` render as `(none)` when
+  absent rather than being invented.
+
+  Two invariants make the envelope a gate rather than a formatter. Without
+  a usable `job_id`, or without a route that can be keyed, there is no
+  envelope and no chat: a session not bound to an authoritative identity
+  could configure the wrong routine, and names are not unique upstream, so
+  duplicate names across profiles cannot collide. And every value is
+  flattened to a single line — a name or instruction containing a newline
+  would otherwise be able to forge a `state: active` or a second `job_id:`
+  line in the middle of the envelope. `state` is a literal type on top of
+  that, built only from a handle that came back proven paused.
+
+  Routing uses the `PluginProfileRoute` retained by the provisional create,
+  never the profile active at click time, so a chat for a job on another
+  connection lands on the connection that owns it. The panel states the
+  routine is **Paused · needs configuration** and shows its `job_id`; it
+  never implies the configuration is complete because a chat opened. A
+  refused launch is a report that keeps the `job_id`, and the retry reopens
+  a chat for that same job instead of creating another routine. The first
+  launch may auto-send; a retry always drafts.
+
 - A provisional creation path,
   `createProvisionalRoutine({ route, name, schedule, prompt })`, for a
   guided configuration conversation that needs a routine identity before

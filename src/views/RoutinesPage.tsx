@@ -19,12 +19,15 @@ import {
   isSafeOptimistic,
 } from '../gateway/cronParams';
 import { listProfileRoutes, listRoutines, requestCronForRoute } from '../gateway/cronGateway';
-import { cronOutcomeOf } from '../domain/provisional';
+import { createProvisionalRoutine } from '../gateway/provisionalCreate';
+import { launchGuidedConfiguration, type GuidedLaunchResult } from '../gateway/guidedLaunch';
+import { cronOutcomeOf, type ProvisionalRoutine } from '../domain/provisional';
 import { ROUTINES_CSS } from './routinesStyles';
 import { FilterNav } from './FilterNav';
 import { RoutineList } from './RoutineList';
 import { RoutineInspectorPanel } from './RoutineInspectorPanel';
 import { RoutineComposerPanel } from './RoutineComposerPanel';
+import { GuidedRoutinePanel } from './GuidedRoutinePanel';
 import { StatusLine } from './panels';
 import {
   EmptyFilterState,
@@ -105,6 +108,16 @@ export function RoutinesPage() {
   // else its positional label). Display only — never a mutation identity.
   const [selectedJobKey, setSelectedJobKey] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  // Guided path state. The handle holds the authoritative job_id and the
+  // owning route, so the launch (and every retry) stays bound to the job
+  // the backend minted — never to a name, and never to whichever profile
+  // is active when the user clicks.
+  const [guided, setGuided] = useState<{
+    routine: ProvisionalRoutine;
+    name: string;
+    schedule: string;
+    prompt: string;
+  } | null>(null);
 
   // Clear selected job if it is no longer present in the jobs inventory
   useEffect(() => {
@@ -359,6 +372,62 @@ export function RoutinesPage() {
     }
   }
 
+  /**
+   * Guided creation: create the routine PAUSED, then hand its authoritative
+   * handle to the guided panel. The chat is NOT launched from here — the
+   * panel owns the launch (and the retry) so a failed launch keeps the same
+   * job_id instead of starting over.
+   *
+   * The route is the one the create was scoped to, and the create itself
+   * proves the pause. Nothing here resumes or activates the routine.
+   */
+  async function handleCreateGuided(
+    name: string,
+    schedule: string,
+    prompt: string,
+  ): Promise<boolean> {
+    if (!activeRoute) {
+      dispatch({ type: 'mutation-error', error: 'the active profile route is no longer available' });
+      return false;
+    }
+    const createSlot = '';
+    dispatch({ type: 'mutate-start', jobId: createSlot });
+    try {
+      const result = await createProvisionalRoutine({ route: activeRoute, name, schedule, prompt });
+      dispatch({ type: 'mutate-end', jobId: createSlot });
+      dispatch({ type: 'retry-list' });
+      if (result.ok === false) {
+        dispatch({ type: 'mutation-error', error: 'failed to create routine: ' + result.message });
+        return false;
+      }
+      setGuided({ routine: result.routine, name, schedule, prompt });
+      setIsCreating(false);
+      setSelectedJobKey(null);
+      // Honest copy: the routine EXISTS and is paused; nothing about its
+      // configuration has been decided yet.
+      dispatch({ type: 'notice', notice: 'routine ' + name + ' created paused — it needs configuration' });
+      return true;
+    } catch (err) {
+      dispatch({ type: 'mutate-end', jobId: createSlot });
+      dispatch({ type: 'mutation-error', error: wrapHostError(err, 'failed to create routine').message });
+      return false;
+    }
+  }
+
+  /**
+   * Open (or re-open) the guided configuration chat for a handle. Routed
+   * through the launch boundary, which binds the chat to the handle's own
+   * route and job_id. Returns the honest outcome so the panel can offer a
+   * retry; the routine stays paused either way.
+   */
+  async function handleGuidedLaunch(
+    routine: ProvisionalRoutine,
+    submitted: { name: string; schedule: string; prompt: string },
+    autoSubmit: boolean,
+  ): Promise<GuidedLaunchResult> {
+    return launchGuidedConfiguration({ routine, submitted, autoSubmit });
+  }
+
   function renderList(): ReactNode {
     const totalCount = state.jobs.length;
     const shownCount = filteredJobs.length;
@@ -419,7 +488,10 @@ export function RoutinesPage() {
             inspectedId={selectedJobKey}
             onInspect={(key) => {
               setSelectedJobKey(key);
-              if (key) setIsCreating(false);
+              if (key) {
+                setIsCreating(false);
+                setGuided(null);
+              }
             }}
             onPause={handlePause}
             onResume={handleResume}
@@ -508,7 +580,7 @@ export function RoutinesPage() {
     <section id="hermes-routines-root" className="hr-root" aria-labelledby="hermes-routines-heading">
       <style>{ROUTINES_CSS}</style>
       <div className="hr-workspace">
-        <div className={`hr-feed-column${!selectedJob && !isCreating ? ' hr-feed-contained' : ''}`}>
+        <div className={`hr-feed-column${!selectedJob && !guided && !isCreating ? ' hr-feed-contained' : ''}`}>
           <header className="hr-header">
             <div className="hr-header-top">
               <h2 id="hermes-routines-heading" ref={headingRef} tabIndex={-1} className="hr-title">
@@ -519,6 +591,7 @@ export function RoutinesPage() {
                 className="hr-btn-new"
                 onClick={() => {
                   setSelectedJobKey(null);
+                  setGuided(null);
                   setIsCreating(true);
                 }}
                 aria-label="New routine"
@@ -559,6 +632,15 @@ export function RoutinesPage() {
             onPause={() => handlePause(selectedJobId, selectedJobLabel)}
             onResume={() => handleResume(selectedJobId, selectedJobLabel)}
           />
+        ) : guided ? (
+          <GuidedRoutinePanel
+            routine={guided.routine}
+            submittedName={guided.name}
+            submittedSchedule={guided.schedule}
+            submittedPrompt={guided.prompt}
+            onLaunch={handleGuidedLaunch}
+            onClose={() => setGuided(null)}
+          />
         ) : isCreating ? (
           <RoutineComposerPanel
             activeRoute={activeRoute}
@@ -566,6 +648,7 @@ export function RoutinesPage() {
             disabled={locked}
             onClose={() => setIsCreating(false)}
             onSubmit={handleCreateRoutine}
+            onSubmitGuided={handleCreateGuided}
           />
         ) : null}
       </div>
