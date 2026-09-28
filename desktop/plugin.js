@@ -1300,6 +1300,120 @@ async function listRoutines(route) {
   });
 }
 
+// src/domain/provisional.ts
+function cronOutcomeOf(answer) {
+  if (answer === null || typeof answer !== "object") {
+    return { ok: false, error: "the backend returned no result" };
+  }
+  const row = answer;
+  if (row.success !== false) return { ok: true, error: "" };
+  const detail = typeof row.error === "string" ? row.error.trim() : "";
+  return { ok: false, error: detail || "the backend rejected the request" };
+}
+function pausedConfirmedBy(answer) {
+  if (answer === null || typeof answer !== "object") return false;
+  const job = answer.job;
+  if (job === null || typeof job !== "object") return false;
+  return job.enabled === false;
+}
+function rowOf(answer) {
+  if (answer === null || typeof answer !== "object") return null;
+  const job = answer.job;
+  return job !== null && typeof job === "object" ? job : null;
+}
+function scopeOf(route) {
+  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
+  return backendTargetProfile(route, "") || null;
+}
+function mintedRoutineFrom(route, addAnswer) {
+  const backendProfile = scopeOf(route);
+  if (!route || !backendProfile) {
+    return {
+      ok: false,
+      reason: "no_route",
+      message: "Provisional creation requires a resolved profile route",
+      jobId: "",
+      route: null,
+      backendProfile: null,
+      createdPaused: false
+    };
+  }
+  const created = cronOutcomeOf(addAnswer);
+  if (!created.ok) {
+    return {
+      ok: false,
+      reason: "create_rejected",
+      message: "the backend refused to create the routine: " + created.error,
+      jobId: "",
+      route,
+      backendProfile,
+      createdPaused: false
+    };
+  }
+  const jobId = jobIdFromResponse(addAnswer);
+  if (!jobId) {
+    return {
+      ok: false,
+      reason: "identity_unresolved",
+      message: "the routine was created but the backend returned no job id, so it cannot be addressed \u2014 check the routines list before configuring it",
+      jobId: "",
+      route,
+      backendProfile,
+      createdPaused: false
+    };
+  }
+  return { ok: true, jobId, route, backendProfile, job: rowOf(addAnswer) };
+}
+function resolveProvisionalCreate(input) {
+  const minted = mintedRoutineFrom(input.route, input.addAnswer);
+  if (minted.ok === false) return minted;
+  const { jobId, route, backendProfile } = minted;
+  if (input.pause.status === "rejected") {
+    return {
+      ok: false,
+      reason: "pause_rejected",
+      message: "the routine was created but pausing it failed (" + input.pause.message + ") \u2014 it may still run on its schedule; check it before the first run",
+      jobId,
+      route,
+      backendProfile,
+      createdPaused: false
+    };
+  }
+  const paused = cronOutcomeOf(input.pause.answer);
+  if (!paused.ok) {
+    return {
+      ok: false,
+      reason: "pause_rejected",
+      message: "the routine was created but the backend refused to pause it: " + paused.error,
+      jobId,
+      route,
+      backendProfile,
+      createdPaused: false
+    };
+  }
+  if (!pausedConfirmedBy(input.pause.answer)) {
+    return {
+      ok: false,
+      reason: "pause_unconfirmed",
+      message: "the routine was created but the backend did not confirm it is paused \u2014 check it before its first run",
+      jobId,
+      route,
+      backendProfile,
+      createdPaused: false
+    };
+  }
+  return {
+    ok: true,
+    routine: {
+      jobId,
+      route,
+      backendProfile,
+      createdPaused: true,
+      job: rowOf(input.pause.answer) ?? minted.job
+    }
+  };
+}
+
 // src/views/routinesStyles.ts
 var ROUTINES_CSS = [
   "/* Base Root & Reset */",
@@ -3066,6 +3180,12 @@ function RoutinesPage() {
       const created = await requestCronForRoute(route, "cron.manage", addParams, void 0, {
         spawnPriority: "foreground"
       });
+      const outcome = cronOutcomeOf(created);
+      if (!outcome.ok) {
+        dispatch({ type: "mutate-end", jobId: createSlot });
+        dispatch({ type: "mutation-error", error: "failed to create routine: " + outcome.error });
+        return false;
+      }
       if (!active) {
         const createdId = jobIdFromResponse(created);
         if (!createdId) {
@@ -3079,9 +3199,20 @@ function RoutinesPage() {
           return true;
         }
         const pauseParams = buildPauseParams(route, createdId);
-        await requestCronForRoute(route, "cron.manage", pauseParams, void 0, {
+        const paused = await requestCronForRoute(route, "cron.manage", pauseParams, void 0, {
           spawnPriority: "foreground"
         });
+        const pauseOutcome = cronOutcomeOf(paused);
+        if (!pauseOutcome.ok) {
+          dispatch({ type: "mutate-end", jobId: createSlot });
+          dispatch({ type: "retry-list" });
+          setIsCreating(false);
+          dispatch({
+            type: "mutation-error",
+            error: "routine " + name + " was created but the backend refused to pause it (" + pauseOutcome.error + ") \u2014 it may still run on its schedule"
+          });
+          return false;
+        }
       }
       dispatch({ type: "mutate-end", jobId: createSlot });
       dispatch({ type: "notice", notice: "routine " + name + " created" });
@@ -3336,6 +3467,43 @@ async function openGuidedRoutineChat(request) {
   return { ok: true, routeKey: key, autoSubmitted: sent };
 }
 
+// src/gateway/provisionalCreate.ts
+async function createProvisionalRoutine(request) {
+  const { route, name, schedule, prompt } = request;
+  let addParams;
+  let pauseOf;
+  try {
+    addParams = buildAddParams(route, { name, schedule, prompt });
+    pauseOf = (jobId) => buildPauseParams(route, jobId);
+  } catch (err) {
+    return resolveProvisionalCreate({ route, addAnswer: null, pause: { status: "rejected", message: messageOf(err) } });
+  }
+  let addAnswer;
+  try {
+    addAnswer = await requestCronForRoute(route, "cron.manage", addParams, void 0, {
+      spawnPriority: "foreground"
+    });
+  } catch (err) {
+    return resolveProvisionalCreate({ route, addAnswer: null, pause: { status: "rejected", message: messageOf(err) } });
+  }
+  const minted = mintedRoutineFrom(route, addAnswer);
+  if (minted.ok === false) return minted;
+  let pause;
+  try {
+    const pauseAnswer = await requestCronForRoute(
+      route,
+      "cron.manage",
+      pauseOf(minted.jobId),
+      void 0,
+      { spawnPriority: "foreground" }
+    );
+    pause = { status: "answered", answer: pauseAnswer };
+  } catch (err) {
+    pause = { status: "rejected", message: messageOf(err) };
+  }
+  return resolveProvisionalCreate({ route, addAnswer, pause });
+}
+
 // src/plugin.tsx
 import { jsx as jsx12 } from "react/jsx-runtime";
 function register(ctx) {
@@ -3399,6 +3567,8 @@ export {
   buildResumeParams,
   coerceRoutes,
   collapsedSubtitleOf,
+  createProvisionalRoutine,
+  cronOutcomeOf,
   plugin_default as default,
   describeSchedule2 as describeSchedule,
   describeScheduleConfig,
@@ -3425,11 +3595,13 @@ export {
   listProfileRoutes,
   listRoutines,
   messageOf,
+  mintedRoutineFrom,
   nextRunIso,
   normalizeJobs,
   openGuidedRoutineChat,
   parseTimestamp,
   pauseJob,
+  pausedConfirmedBy,
   plugin,
   profileRoute,
   rawScheduleOf,
@@ -3438,6 +3610,7 @@ export {
   requestCronForRoute,
   resolveActiveRoute,
   resolveProfileRoute,
+  resolveProvisionalCreate,
   resumeJob,
   routeKey,
   routineActive,
