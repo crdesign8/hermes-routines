@@ -19,6 +19,7 @@ import {
   isSafeOptimistic,
 } from '../gateway/cronParams';
 import { listProfileRoutes, listRoutines, requestCronForRoute } from '../gateway/cronGateway';
+import { cronOutcomeOf } from '../domain/provisional';
 import { ROUTINES_CSS } from './routinesStyles';
 import { FilterNav } from './FilterNav';
 import { RoutineList } from './RoutineList';
@@ -298,6 +299,17 @@ export function RoutinesPage() {
       const created = await requestCronForRoute(route, 'cron.manage', addParams, undefined, {
         spawnPriority: 'foreground',
       });
+      // `cron.manage` reports a refused mutation INSIDE a successful
+      // JSON-RPC frame (`{"success": false, "error": ...}` wrapped by
+      // `_ok`). A rejected create therefore resolves like a happy one, so
+      // the verdict is read from the answer — treating "did not throw" as
+      // "created" would announce a routine that does not exist.
+      const outcome = cronOutcomeOf(created);
+      if (!outcome.ok) {
+        dispatch({ type: 'mutate-end', jobId: createSlot });
+        dispatch({ type: 'mutation-error', error: 'failed to create routine: ' + outcome.error });
+        return false;
+      }
       if (!active) {
         // Creating on hold needs a second call against the row the backend
         // just minted: pause by its canonical job_id, never by the name.
@@ -314,9 +326,26 @@ export function RoutinesPage() {
           return true;
         }
         const pauseParams = buildPauseParams(route, createdId);
-        await requestCronForRoute(route, 'cron.manage', pauseParams, undefined, {
+        const paused = await requestCronForRoute(route, 'cron.manage', pauseParams, undefined, {
           spawnPriority: 'foreground',
         });
+        // Same in-band verdict on the pause: a create-on-hold that ends
+        // here must not be announced as "created on hold" when the pause
+        // was refused. The job is already minted, so this reports the real
+        // state instead of hiding it.
+        const pauseOutcome = cronOutcomeOf(paused);
+        if (!pauseOutcome.ok) {
+          dispatch({ type: 'mutate-end', jobId: createSlot });
+          dispatch({ type: 'retry-list' });
+          setIsCreating(false);
+          dispatch({
+            type: 'mutation-error',
+            error:
+              'routine ' + name + ' was created but the backend refused to pause it (' +
+              pauseOutcome.error + ') — it may still run on its schedule',
+          });
+          return false;
+        }
       }
       dispatch({ type: 'mutate-end', jobId: createSlot });
       dispatch({ type: 'notice', notice: 'routine ' + name + ' created' });

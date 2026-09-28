@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A provisional creation path,
+  `createProvisionalRoutine({ route, name, schedule, prompt })`, for a
+  guided configuration conversation that needs a routine identity before
+  it starts. It returns a handle carrying the authoritative `job_id` the
+  backend minted, the owning route, the backend profile, and
+  `createdPaused: true` — the invariant being that a routine exists, is
+  addressable, and is proven unable to run while clarification is still
+  incomplete. The route is preserved with the identity so later session
+  and mutation work targets the same owner.
+
+  It is two round trips, and the second is not optional. The `cron.manage`
+  wire declares its params with unknown keys rejected and carries no
+  paused/disabled key, so `add` always creates a runnable job: this
+  surface has no create-me-inert verb. The paused state is therefore
+  reached by pausing the id the backend just minted and then PROVING the
+  pause took, since an accepted call is not the same as a paused job.
+
+  Identity stays `job_id`-only and comes from the backend's own answer,
+  never from the submitted title — names are not unique upstream, so a
+  name lookup could only ever be a guess. An answer with no usable id is a
+  blocking failure rather than a reason to search by name. Every failure
+  mode is a report, not a throw, and a partial failure keeps the minted
+  `job_id` and route so the job stays addressable and recoverable: a
+  refused create, a refused or unconfirmed pause, an unusable route, and a
+  thrown round trip all report honestly that the routine was created but
+  may still run. Ordinary form creation is unchanged and still available.
+
 - A guided routine-configuration chat boundary,
   `openGuidedRoutineChat({ route, initialPrompt, autoSubmit })`. It opens a
   fresh Desktop chat on a concrete profile route and seats the opening
@@ -50,6 +77,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tested normally.
 
 ### Fixed
+
+- A mutation the backend refused was reported as applied. `cron.manage`
+  reports a tool-level failure INSIDE a successful JSON-RPC frame
+  (`{"success": false, "error": ...}`), so a rejected create resolved
+  exactly like a successful one and the composer announced
+  "routine X created" for a routine that did not exist. Create and
+  create-on-hold now read the backend's own verdict, and a pause that was
+  refused is reported as the real state it left behind instead of being
+  folded into a success notice. A missing `success` flag from an older
+  gateway is still tolerated, since the load-bearing proofs are the minted
+  `job_id` and the paused snapshot.
 
 - Pause/resume addressed routines by their human-readable name, so any
   routine whose title was not a valid technical id was rejected locally
