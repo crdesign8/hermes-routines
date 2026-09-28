@@ -16,8 +16,8 @@ var SIDEBAR_LABEL = "Routines";
 var SIDEBAR_CODICON = "history";
 
 // src/views/RoutinesPage.tsx
-import { useCallback, useEffect as useEffect3, useMemo as useMemo2, useRef as useRef2, useState as useState4 } from "react";
-import { host as host2, useValue } from "@hermes/plugin-sdk";
+import { useCallback, useEffect as useEffect3, useMemo as useMemo2, useRef as useRef2, useState as useState5 } from "react";
+import { host as host3, useValue } from "@hermes/plugin-sdk";
 
 // src/domain/routing.ts
 function assertPlainObject(value, label) {
@@ -847,20 +847,20 @@ function parseStrictInt(token) {
   if (!Number.isSafeInteger(value)) return null;
   return value;
 }
-function isUniformMinuteStep(field) {
-  const step = field.explicitStep ?? field.step;
+function isUniformMinuteStep(field2) {
+  const step = field2.explicitStep ?? field2.step;
   if (step === null || step <= 1) return false;
-  if (field.values[0] !== 0) return false;
+  if (field2.values[0] !== 0) return false;
   return 60 % step === 0;
 }
-function isUniformHourStep(field) {
-  const step = field.explicitStep ?? field.step;
+function isUniformHourStep(field2) {
+  const step = field2.explicitStep ?? field2.step;
   if (step === null || step <= 1) return false;
-  if (field.values[0] !== 0) return false;
+  if (field2.values[0] !== 0) return false;
   return 24 % step === 0;
 }
-function parseField(field, min, max) {
-  const trimmed = field.trim();
+function parseField(field2, min, max) {
+  const trimmed = field2.trim();
   if (!trimmed) return null;
   let step = null;
   let base = trimmed;
@@ -1203,7 +1203,7 @@ function plural(value, unit) {
 function looksLikeCronExpression(value) {
   const fields = value.trim().split(/\s+/);
   if (fields.length < 5 || fields.length > 6) return false;
-  return fields.every((field) => /^[\d*,/\-*]+$/.test(field));
+  return fields.every((field2) => /^[\d*,/\-*]+$/.test(field2));
 }
 function describeSchedule2(expr) {
   return describeSchedule(expr);
@@ -1411,6 +1411,232 @@ function resolveProvisionalCreate(input) {
       createdPaused: true,
       job: rowOf(input.pause.answer) ?? minted.job
     }
+  };
+}
+
+// src/gateway/provisionalCreate.ts
+async function createProvisionalRoutine(request) {
+  const { route, name, schedule, prompt } = request;
+  let addParams;
+  let pauseOf;
+  try {
+    addParams = buildAddParams(route, { name, schedule, prompt });
+    pauseOf = (jobId) => buildPauseParams(route, jobId);
+  } catch (err) {
+    return resolveProvisionalCreate({ route, addAnswer: null, pause: { status: "rejected", message: messageOf(err) } });
+  }
+  let addAnswer;
+  try {
+    addAnswer = await requestCronForRoute(route, "cron.manage", addParams, void 0, {
+      spawnPriority: "foreground"
+    });
+  } catch (err) {
+    return resolveProvisionalCreate({ route, addAnswer: null, pause: { status: "rejected", message: messageOf(err) } });
+  }
+  const minted = mintedRoutineFrom(route, addAnswer);
+  if (minted.ok === false) return minted;
+  let pause;
+  try {
+    const pauseAnswer = await requestCronForRoute(
+      route,
+      "cron.manage",
+      pauseOf(minted.jobId),
+      void 0,
+      { spawnPriority: "foreground" }
+    );
+    pause = { status: "answered", answer: pauseAnswer };
+  } catch (err) {
+    pause = { status: "rejected", message: messageOf(err) };
+  }
+  return resolveProvisionalCreate({ route, addAnswer, pause });
+}
+
+// src/domain/guidedEnvelope.ts
+var GUIDED_ENVELOPE_MARKER = "HERMES_ROUTINE_CONFIG_V1";
+function asRecord2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function optionalField(row, keys) {
+  if (row === null) return null;
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+function singleLine(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
+}
+function orNull(value) {
+  return value === "" ? null : value;
+}
+function field(value) {
+  return value === null ? "(none)" : value;
+}
+function buildGuidedEnvelope(routine, submitted) {
+  const jobId = singleLine(routine?.jobId);
+  if (!isValidJobId(jobId)) {
+    return {
+      ok: false,
+      reason: "no_job_id",
+      message: "This routine has no authoritative job id, so a configuration chat cannot be bound to it \u2014 check the routines list before configuring it"
+    };
+  }
+  const route = routine.route;
+  try {
+    routeKey(route);
+  } catch {
+    return {
+      ok: false,
+      reason: "no_route",
+      message: "This routine has no owning profile route, so its chat cannot be routed \u2014 it stays paused"
+    };
+  }
+  const connectionId = singleLine(route?.connectionId);
+  const row = asRecord2(routine.job);
+  const record = row;
+  const fallbackName = singleLine(submitted?.name);
+  const fallbackSchedule = singleLine(submitted?.schedule);
+  const fallbackPrompt = singleLine(submitted?.prompt);
+  const name = singleLine(
+    // The row's `name` only. NOT routineTitle's full chain: that falls back
+    // to `job_id` when a row carries no name, which would hand the agent a
+    // technical id in the `name:` field and hide the title the user typed.
+    // With no stored name, the submitted title is the truthful answer.
+    routineTitle(record && typeof record.name === "string" ? { name: record.name } : null, fallbackName)
+  );
+  const schedule = singleLine(rawScheduleOf(row)) || fallbackSchedule;
+  const instruction = singleLine(routinePromptOf(row)) || fallbackPrompt;
+  const profile = singleLine(routine.backendProfile) || singleLine(route?.targetProfile) || singleLine(route?.profile);
+  if (!connectionId || !profile) {
+    return {
+      ok: false,
+      reason: "no_route",
+      message: "This routine has no owning profile route, so its chat cannot be routed \u2014 it stays paused"
+    };
+  }
+  return {
+    ok: true,
+    envelope: {
+      jobId,
+      connectionId,
+      profile,
+      name,
+      schedule,
+      instruction,
+      // Delivery and model override exist upstream but are not part of the
+      // create form yet: absent is reported as absent, never invented.
+      delivery: orNull(
+        singleLine(optionalField(record, ["deliver", "delivery", "deliver_to", "deliverTo"]))
+      ),
+      modelOverride: orNull(
+        singleLine(optionalField(record, ["model", "model_override", "modelOverride", "override_model"]))
+      ),
+      state: "paused"
+    }
+  };
+}
+function serializeGuidedEnvelope(envelope) {
+  return [
+    GUIDED_ENVELOPE_MARKER,
+    "You are configuring an existing Hermes Routine.",
+    "",
+    `job_id: ${envelope.jobId}`,
+    `connection_id: ${envelope.connectionId}`,
+    `profile: ${envelope.profile}`,
+    `name: ${field(singleLine(envelope.name) || null)}`,
+    `schedule: ${field(singleLine(envelope.schedule) || null)}`,
+    `instruction: ${field(singleLine(envelope.instruction) || null)}`,
+    `delivery: ${field(envelope.delivery === null ? null : singleLine(envelope.delivery))}`,
+    `model_override: ${field(envelope.modelOverride === null ? null : singleLine(envelope.modelOverride))}`,
+    `state: ${envelope.state}`,
+    "",
+    "Goal:",
+    "Clarify the missing execution requirements with the user.",
+    "Do not activate this routine.",
+    "Do not treat free-form prose as persisted configuration.",
+    "When the configuration is complete, produce the structured handoff expected by Hermes Routines.",
+    "",
+    "Ask only for what this routine needs in order to be executable and safe:",
+    "- source, account, repository or channel scope;",
+    "- read-only vs mutation authority;",
+    "- delivery destination;",
+    "- model override, when it is materially useful;",
+    "- what to do when there is nothing to report;",
+    "- retry and failure expectations;",
+    '- thresholds such as "material" or "urgent";',
+    "- expected output format;",
+    "- any missing schedule or timezone detail.",
+    "",
+    "Do not force a questionnaire: if what is recorded above is already specific enough to run safely,",
+    "go straight to reviewing the configuration instead of asking anyway."
+  ].join("\n");
+}
+
+// src/gateway/guidedChat.ts
+import { host as host2 } from "@hermes/plugin-sdk";
+var GUIDED_CHAT_DRAFT = "new";
+function failure(reason, message) {
+  return { ok: false, reason, message };
+}
+async function openGuidedRoutineChat(request) {
+  let key;
+  try {
+    key = routeKey(request?.route);
+  } catch {
+    return failure("no_route", "Guided chat requires a concrete profile route");
+  }
+  const prompt = typeof request.initialPrompt === "string" ? request.initialPrompt.trim() : "";
+  if (!prompt) {
+    return failure("blank_prompt", "Guided chat requires an opening prompt");
+  }
+  if (typeof host2.newChat !== "function") {
+    return failure("no_new_chat", "Update Hermes Desktop to start a configuration chat");
+  }
+  if (typeof host2.composer?.setDraft !== "function") {
+    return failure("no_composer", "Update Hermes Desktop to start a configuration chat");
+  }
+  host2.newChat(request.route);
+  const seated = await host2.composer.setDraft(GUIDED_CHAT_DRAFT, prompt);
+  if (!seated) {
+    return failure("draft_not_claimed", "The new chat did not accept the prompt");
+  }
+  if (request.autoSubmit !== true) {
+    return { ok: true, routeKey: key, autoSubmitted: false };
+  }
+  const sent = host2.composer.submit(GUIDED_CHAT_DRAFT, prompt);
+  return { ok: true, routeKey: key, autoSubmitted: sent };
+}
+
+// src/gateway/guidedLaunch.ts
+async function launchGuidedConfiguration(request) {
+  const routine = request?.routine;
+  const jobId = typeof routine?.jobId === "string" ? routine.jobId : "";
+  const built = buildGuidedEnvelope(routine, request?.submitted);
+  if (built.ok === false) {
+    return {
+      ok: false,
+      reason: "envelope_unavailable",
+      message: built.message,
+      jobId
+    };
+  }
+  const prompt = serializeGuidedEnvelope(built.envelope);
+  const opened = await openGuidedRoutineChat({
+    route: routine.route,
+    initialPrompt: prompt,
+    autoSubmit: request.autoSubmit === true
+  });
+  if (opened.ok === false) {
+    return { ok: false, reason: opened.reason, message: opened.message, jobId };
+  }
+  return {
+    ok: true,
+    routeKey: opened.routeKey,
+    jobId: built.envelope.jobId,
+    autoSubmitted: opened.autoSubmitted,
+    prompt
   };
 }
 
@@ -2711,7 +2937,8 @@ import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
 function RoutineComposerPanel({
   disabled,
   onClose,
-  onSubmit
+  onSubmit,
+  onSubmitGuided
 }) {
   const [name, setName] = useState3("");
   const [prompt, setPrompt] = useState3("");
@@ -2719,6 +2946,7 @@ function RoutineComposerPanel({
   const [scheduleConfig, setScheduleConfig] = useState3(DEFAULT_SCHEDULE_CONFIG);
   const [submitting, setSubmitting] = useState3(false);
   const [error, setError] = useState3(null);
+  const [mode, setMode] = useState3(onSubmitGuided ? "guided" : "direct");
   const timeOptions = useMemo(
     () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
     []
@@ -2748,6 +2976,13 @@ function RoutineComposerPanel({
     setSubmitting(true);
     setError(null);
     try {
+      if (mode === "guided" && onSubmitGuided) {
+        const ok2 = await onSubmitGuided(trimmedName, cronExpr, promptText);
+        if (!ok2) {
+          setError("Failed to create routine. Please verify parameters.");
+        }
+        return;
+      }
       const ok = await onSubmit(trimmedName, cronExpr, promptText, active);
       if (!ok) {
         setError("Failed to create routine. Please verify parameters.");
@@ -2792,7 +3027,25 @@ function RoutineComposerPanel({
     ) }),
     /* @__PURE__ */ jsxs6("div", { className: "hr-inspector-body", children: [
       /* @__PURE__ */ jsx8("h3", { className: "hr-create-title", children: "Create Routine" }),
-      /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
+      onSubmitGuided ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
+        /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
+          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-title", children: "Configure with Hermes" }),
+          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-subtitle", children: mode === "guided" ? "Creates the routine paused, then opens a chat to finish configuring it." : "Creates the routine right away with the settings below." })
+        ] }),
+        /* @__PURE__ */ jsx8(
+          "button",
+          {
+            type: "button",
+            role: "switch",
+            "aria-checked": mode === "guided",
+            "aria-label": "Toggle guided configuration",
+            className: `hr-switch-pill ${mode === "guided" ? "hr-switch-active" : ""}`,
+            onClick: () => setMode(mode === "guided" ? "direct" : "guided"),
+            children: /* @__PURE__ */ jsx8("span", { className: "hr-switch-thumb" })
+          }
+        )
+      ] }) : null,
+      mode === "direct" ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
         /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
           /* @__PURE__ */ jsx8("span", { className: "hr-create-active-title", children: "Active" }),
           /* @__PURE__ */ jsx8("span", { className: "hr-create-active-subtitle", children: "This routine will run on the schedule below." })
@@ -2809,7 +3062,7 @@ function RoutineComposerPanel({
             children: /* @__PURE__ */ jsx8("span", { className: "hr-switch-thumb" })
           }
         )
-      ] }),
+      ] }) : null,
       /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
         /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "Name" }),
         /* @__PURE__ */ jsx8(
@@ -2938,7 +3191,142 @@ function RoutineComposerPanel({
             className: "hr-btn hr-btn-create-submit",
             disabled: !name.trim() || !prompt.trim() || submitting || disabled,
             onClick: handleSubmit,
-            children: submitting ? "Creating\u2026" : "Create Routine"
+            children: submitting ? "Creating\u2026" : mode === "guided" && onSubmitGuided ? "Create & Configure with Hermes" : "Create Routine"
+          }
+        )
+      ] })
+    ] })
+  ] });
+}
+
+// src/views/GuidedRoutinePanel.tsx
+import { useState as useState4 } from "react";
+import { jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
+function GuidedRoutinePanel({
+  routine,
+  submittedName,
+  submittedSchedule,
+  submittedPrompt,
+  autoSubmitOnFirstLaunch,
+  onLaunch,
+  onClose
+}) {
+  const [launching, setLaunching] = useState4(false);
+  const [launch, setLaunch] = useState4(null);
+  const [autoSubmit] = useState4(autoSubmitOnFirstLaunch === true);
+  const firstLaunch = launch === null;
+  const title = routineTitle(routine.job, submittedName || "Routine");
+  const schedule = humanScheduleOf(routine.job) || submittedSchedule || "\u2014";
+  const instruction = routinePromptOf(routine.job) ?? submittedPrompt;
+  async function handleLaunch() {
+    if (launching) return;
+    setLaunching(true);
+    try {
+      const result = await onLaunch(
+        routine,
+        { name: submittedName, schedule: submittedSchedule, prompt: submittedPrompt },
+        // Auto-send is a property of the FIRST launch only. A retry means
+        // the user is present and re-deciding, so it drafts and lets them
+        // send — a hidden second auto-send would start a conversation the
+        // user never asked for.
+        autoSubmit && firstLaunch
+      );
+      setLaunch(result);
+    } finally {
+      setLaunching(false);
+    }
+  }
+  const failed = launch !== null && launch.ok === false;
+  const opened = launch !== null && launch.ok === true;
+  return /* @__PURE__ */ jsxs7("aside", { className: "hr-inspector hr-create-inspector", "aria-label": "Configure routine with Hermes", children: [
+    /* @__PURE__ */ jsx9("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs7(
+      "button",
+      {
+        type: "button",
+        className: "hr-btn-action hr-btn-back",
+        onClick: onClose,
+        "aria-label": "Back to routines",
+        children: [
+          /* @__PURE__ */ jsx9(
+            "svg",
+            {
+              width: "12",
+              height: "12",
+              viewBox: "0 0 16 16",
+              fill: "currentColor",
+              "aria-hidden": "true",
+              style: { flexShrink: 0 },
+              children: /* @__PURE__ */ jsx9(
+                "path",
+                {
+                  fillRule: "evenodd",
+                  d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"
+                }
+              )
+            }
+          ),
+          /* @__PURE__ */ jsx9("span", { children: "Back to routines" })
+        ]
+      }
+    ) }),
+    /* @__PURE__ */ jsxs7("div", { className: "hr-inspector-body", children: [
+      /* @__PURE__ */ jsx9("h3", { className: "hr-create-title", children: title }),
+      /* @__PURE__ */ jsx9("div", { className: "hr-create-active-card", children: /* @__PURE__ */ jsxs7("div", { className: "hr-create-active-info", children: [
+        /* @__PURE__ */ jsx9("span", { className: "hr-create-active-title", children: "Paused \xB7 needs configuration" }),
+        /* @__PURE__ */ jsxs7("span", { className: "hr-create-active-subtitle", children: [
+          "The routine was created on ",
+          backendTargetProfile(routine.route, routine.backendProfile),
+          " and will not run until its configuration is finished."
+        ] })
+      ] }) }),
+      /* @__PURE__ */ jsxs7("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx9("label", { className: "hr-field-label", children: "Job id" }),
+        /* @__PURE__ */ jsx9(
+          "input",
+          {
+            type: "text",
+            className: "hr-create-input",
+            value: routine.jobId,
+            disabled: true,
+            readOnly: true,
+            "aria-label": "Routine job id"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxs7("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx9("label", { className: "hr-field-label", children: "What should this routine do?" }),
+        /* @__PURE__ */ jsx9(
+          "textarea",
+          {
+            className: "hr-create-textarea",
+            rows: 3,
+            value: instruction ?? "",
+            disabled: true,
+            readOnly: true,
+            "aria-label": "What this routine does",
+            placeholder: "No instruction stored for this routine."
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxs7("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx9("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
+        /* @__PURE__ */ jsx9("div", { className: "hr-create-preview-sentence", children: schedule })
+      ] }),
+      failed ? /* @__PURE__ */ jsxs7("div", { className: "hr-create-error", role: "alert", children: [
+        launch.message,
+        launch.jobId ? " The routine is still paused." : ""
+      ] }) : null,
+      opened ? /* @__PURE__ */ jsx9("div", { className: "hr-create-preview-sentence", role: "status", children: launch.autoSubmitted ? "Chat opened on this profile and the configuration envelope was sent." : "Chat opened on this profile with the configuration envelope ready to send." }) : null,
+      /* @__PURE__ */ jsxs7("div", { className: "hr-create-actions", children: [
+        /* @__PURE__ */ jsx9("button", { type: "button", className: "hr-btn hr-btn-back-routines", onClick: onClose, children: "Close" }),
+        /* @__PURE__ */ jsx9(
+          "button",
+          {
+            type: "button",
+            className: "hr-btn hr-btn-create-submit",
+            disabled: launching,
+            onClick: () => void handleLaunch(),
+            children: launching ? "Opening\u2026" : failed ? "Retry chat" : "Configure with Hermes"
           }
         )
       ] })
@@ -2947,9 +3335,9 @@ function RoutineComposerPanel({
 }
 
 // src/views/panels.tsx
-import { Fragment as Fragment2, jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
+import { Fragment as Fragment2, jsx as jsx10, jsxs as jsxs8 } from "react/jsx-runtime";
 function StatusLine({ text, statusRef, restatesVisibleState }) {
-  return /* @__PURE__ */ jsx9(
+  return /* @__PURE__ */ jsx10(
     "p",
     {
       ref: statusRef,
@@ -2963,23 +3351,23 @@ function StatusLine({ text, statusRef, restatesVisibleState }) {
 }
 
 // src/views/RoutineStates.tsx
-import { jsx as jsx10, jsxs as jsxs8 } from "react/jsx-runtime";
+import { jsx as jsx11, jsxs as jsxs9 } from "react/jsx-runtime";
 function LoadingState({ text }) {
-  return /* @__PURE__ */ jsxs8("div", { className: "hr-state", role: "status", "aria-live": "polite", "aria-busy": "true", children: [
-    /* @__PURE__ */ jsx10("span", { className: "hr-spinner", "aria-hidden": "true" }),
-    /* @__PURE__ */ jsx10("p", { className: "hr-state-text", children: text })
+  return /* @__PURE__ */ jsxs9("div", { className: "hr-state", role: "status", "aria-live": "polite", "aria-busy": "true", children: [
+    /* @__PURE__ */ jsx11("span", { className: "hr-spinner", "aria-hidden": "true" }),
+    /* @__PURE__ */ jsx11("p", { className: "hr-state-text", children: text })
   ] });
 }
 function EmptyState() {
-  return /* @__PURE__ */ jsxs8("div", { className: "hr-state", children: [
-    /* @__PURE__ */ jsx10("p", { className: "hr-state-title", children: "No routines yet" }),
-    /* @__PURE__ */ jsx10("p", { className: "hr-state-text", children: "Scheduled jobs for this profile will appear here." })
+  return /* @__PURE__ */ jsxs9("div", { className: "hr-state", children: [
+    /* @__PURE__ */ jsx11("p", { className: "hr-state-title", children: "No routines yet" }),
+    /* @__PURE__ */ jsx11("p", { className: "hr-state-text", children: "Scheduled jobs for this profile will appear here." })
   ] });
 }
 function EmptyFilterState() {
-  return /* @__PURE__ */ jsxs8("div", { className: "hr-state", children: [
-    /* @__PURE__ */ jsx10("p", { className: "hr-state-title", children: "No routines match this filter" }),
-    /* @__PURE__ */ jsx10("p", { className: "hr-state-text", children: "Try a different filter to see more routines." })
+  return /* @__PURE__ */ jsxs9("div", { className: "hr-state", children: [
+    /* @__PURE__ */ jsx11("p", { className: "hr-state-title", children: "No routines match this filter" }),
+    /* @__PURE__ */ jsx11("p", { className: "hr-state-text", children: "Try a different filter to see more routines." })
   ] });
 }
 function ErrorState({
@@ -2987,44 +3375,44 @@ function ErrorState({
   message,
   onRetry
 }) {
-  return /* @__PURE__ */ jsxs8("div", { className: "hr-error", role: "alert", children: [
-    /* @__PURE__ */ jsx10("strong", { children: title }),
-    /* @__PURE__ */ jsx10("p", { className: "hr-row-meta", children: message }),
-    /* @__PURE__ */ jsx10("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
+  return /* @__PURE__ */ jsxs9("div", { className: "hr-error", role: "alert", children: [
+    /* @__PURE__ */ jsx11("strong", { children: title }),
+    /* @__PURE__ */ jsx11("p", { className: "hr-row-meta", children: message }),
+    /* @__PURE__ */ jsx11("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
   ] });
 }
 function UnavailableState({
   profile,
   onRetry
 }) {
-  return /* @__PURE__ */ jsxs8("div", { className: "hr-error", role: "alert", children: [
-    /* @__PURE__ */ jsx10("strong", { children: "Routines unavailable for this profile." }),
-    /* @__PURE__ */ jsx10("p", { className: "hr-row-meta", children: profile ? `The Desktop profile \u201C${profile}\u201D has no routines route right now. Connect the profile, then retry.` : "The active Desktop profile has no routines route right now. Select a profile, then retry." }),
-    /* @__PURE__ */ jsx10("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
+  return /* @__PURE__ */ jsxs9("div", { className: "hr-error", role: "alert", children: [
+    /* @__PURE__ */ jsx11("strong", { children: "Routines unavailable for this profile." }),
+    /* @__PURE__ */ jsx11("p", { className: "hr-row-meta", children: profile ? `The Desktop profile \u201C${profile}\u201D has no routines route right now. Connect the profile, then retry.` : "The active Desktop profile has no routines route right now. Select a profile, then retry." }),
+    /* @__PURE__ */ jsx11("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
   ] });
 }
 function StaleBanner({ onRetry }) {
-  return /* @__PURE__ */ jsxs8("div", { className: "hr-stale", role: "status", children: [
-    /* @__PURE__ */ jsx10("span", { children: "Showing last loaded jobs." }),
-    /* @__PURE__ */ jsx10("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
+  return /* @__PURE__ */ jsxs9("div", { className: "hr-stale", role: "status", children: [
+    /* @__PURE__ */ jsx11("span", { children: "Showing last loaded jobs." }),
+    /* @__PURE__ */ jsx11("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
   ] });
 }
 
 // src/views/RoutinesPage.tsx
-import { Fragment as Fragment3, jsx as jsx11, jsxs as jsxs9 } from "react/jsx-runtime";
+import { Fragment as Fragment3, jsx as jsx12, jsxs as jsxs10 } from "react/jsx-runtime";
 function pastTense(kind) {
   if (kind === "pause") return "paused";
   if (kind === "resume") return "resumed";
   return "saved";
 }
 function RoutinesPage() {
-  const [state, setState] = useState4(initialRoutinesState);
-  const [routesNonce, setRoutesNonce] = useState4(0);
+  const [state, setState] = useState5(initialRoutinesState);
+  const [routesNonce, setRoutesNonce] = useState5(0);
   const headingRef = useRef2(null);
   const statusRef = useRef2(null);
   const generationRef = useRef2(0);
-  const activeProfile = useValue(host2.state.profile);
-  const activeConnectionId = useValue(host2.state.connectionId);
+  const activeProfile = useValue(host3.state.profile);
+  const activeConnectionId = useValue(host3.state.connectionId);
   const dispatch = useCallback((event) => {
     setState((prev) => routinesViewReducer(prev, event));
   }, []);
@@ -3032,9 +3420,10 @@ function RoutinesPage() {
   const locked = state.pending.length !== 0;
   const shown = visibleJobs(state.jobs, state.filter);
   const S = ROUTINES_VIEW_STATUS;
-  const [searchQuery, setSearchQuery] = useState4("");
-  const [selectedJobKey, setSelectedJobKey] = useState4(null);
-  const [isCreating, setIsCreating] = useState4(false);
+  const [searchQuery, setSearchQuery] = useState5("");
+  const [selectedJobKey, setSelectedJobKey] = useState5(null);
+  const [isCreating, setIsCreating] = useState5(false);
+  const [guided, setGuided] = useState5(null);
   useEffect3(() => {
     if (selectedJobKey === null) return;
     const stillThere = state.jobs.some(
@@ -3069,8 +3458,8 @@ function RoutinesPage() {
         dispatch({
           type: "routes-loaded",
           routes,
-          profile: host2.state.profile.get(),
-          connectionId: host2.state.connectionId.get()
+          profile: host3.state.profile.get(),
+          connectionId: host3.state.connectionId.get()
         });
       } catch (err) {
         if (!cancelled) {
@@ -3225,15 +3614,44 @@ function RoutinesPage() {
       return false;
     }
   }
+  async function handleCreateGuided(name, schedule, prompt) {
+    if (!activeRoute) {
+      dispatch({ type: "mutation-error", error: "the active profile route is no longer available" });
+      return false;
+    }
+    const createSlot = "";
+    dispatch({ type: "mutate-start", jobId: createSlot });
+    try {
+      const result = await createProvisionalRoutine({ route: activeRoute, name, schedule, prompt });
+      dispatch({ type: "mutate-end", jobId: createSlot });
+      dispatch({ type: "retry-list" });
+      if (result.ok === false) {
+        dispatch({ type: "mutation-error", error: "failed to create routine: " + result.message });
+        return false;
+      }
+      setGuided({ routine: result.routine, name, schedule, prompt });
+      setIsCreating(false);
+      setSelectedJobKey(null);
+      dispatch({ type: "notice", notice: "routine " + name + " created paused \u2014 it needs configuration" });
+      return true;
+    } catch (err) {
+      dispatch({ type: "mutate-end", jobId: createSlot });
+      dispatch({ type: "mutation-error", error: wrapHostError(err, "failed to create routine").message });
+      return false;
+    }
+  }
+  async function handleGuidedLaunch(routine, submitted, autoSubmit) {
+    return launchGuidedConfiguration({ routine, submitted, autoSubmit });
+  }
   function renderList() {
     const totalCount = state.jobs.length;
     const shownCount = filteredJobs.length;
     const isReduced = shownCount < totalCount;
     const countText = isReduced ? `Showing ${shownCount} of ${totalCount} routines.` : `Showing all ${totalCount} routines.`;
-    return /* @__PURE__ */ jsxs9(Fragment3, { children: [
-      /* @__PURE__ */ jsxs9("div", { className: "hr-toolbar", children: [
-        /* @__PURE__ */ jsxs9("div", { className: "hr-search-wrap", children: [
-          /* @__PURE__ */ jsx11(
+    return /* @__PURE__ */ jsxs10(Fragment3, { children: [
+      /* @__PURE__ */ jsxs10("div", { className: "hr-toolbar", children: [
+        /* @__PURE__ */ jsxs10("div", { className: "hr-search-wrap", children: [
+          /* @__PURE__ */ jsx12(
             "input",
             {
               type: "text",
@@ -3244,19 +3662,19 @@ function RoutinesPage() {
               "aria-label": "Search routines"
             }
           ),
-          searchQuery ? /* @__PURE__ */ jsx11(
+          searchQuery ? /* @__PURE__ */ jsx12(
             "button",
             {
               type: "button",
               className: "hr-search-clear",
               onClick: () => setSearchQuery(""),
               "aria-label": "Clear search",
-              children: /* @__PURE__ */ jsx11("svg", { width: "10", height: "10", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", children: /* @__PURE__ */ jsx11("path", { d: "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" }) })
+              children: /* @__PURE__ */ jsx12("svg", { width: "10", height: "10", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", children: /* @__PURE__ */ jsx12("path", { d: "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" }) })
             }
           ) : null
         ] }),
-        /* @__PURE__ */ jsxs9("div", { className: "hr-filters-col", children: [
-          /* @__PURE__ */ jsx11(
+        /* @__PURE__ */ jsxs10("div", { className: "hr-filters-col", children: [
+          /* @__PURE__ */ jsx12(
             FilterNav,
             {
               filter: state.filter,
@@ -3264,10 +3682,10 @@ function RoutinesPage() {
               onSelect: (value) => dispatch({ type: "filter-changed", filter: value })
             }
           ),
-          state.status === S.READY && totalCount > 0 ? /* @__PURE__ */ jsx11("span", { className: "hr-count-right", children: countText }) : null
+          state.status === S.READY && totalCount > 0 ? /* @__PURE__ */ jsx12("span", { className: "hr-count-right", children: countText }) : null
         ] })
       ] }),
-      filteredJobs.length === 0 ? state.jobs.length === 0 ? /* @__PURE__ */ jsx11(EmptyState, {}) : /* @__PURE__ */ jsx11(EmptyFilterState, {}) : /* @__PURE__ */ jsx11(
+      filteredJobs.length === 0 ? state.jobs.length === 0 ? /* @__PURE__ */ jsx12(EmptyState, {}) : /* @__PURE__ */ jsx12(EmptyFilterState, {}) : /* @__PURE__ */ jsx12(
         RoutineList,
         {
           jobs: filteredJobs,
@@ -3276,7 +3694,10 @@ function RoutinesPage() {
           inspectedId: selectedJobKey,
           onInspect: (key) => {
             setSelectedJobKey(key);
-            if (key) setIsCreating(false);
+            if (key) {
+              setIsCreating(false);
+              setGuided(null);
+            }
           },
           onPause: handlePause,
           onResume: handleResume
@@ -3302,10 +3723,10 @@ function RoutinesPage() {
   }
   const body = [];
   if (state.status === S.ROUTES_LOADING) {
-    body.push(/* @__PURE__ */ jsx11(LoadingState, { text: "Loading routines." }, "routes-loading"));
+    body.push(/* @__PURE__ */ jsx12(LoadingState, { text: "Loading routines." }, "routes-loading"));
   } else if (state.status === S.ROUTES_ERROR) {
     body.push(
-      /* @__PURE__ */ jsx11(
+      /* @__PURE__ */ jsx12(
         ErrorState,
         {
           title: "Could not list routines.",
@@ -3317,7 +3738,7 @@ function RoutinesPage() {
     );
   } else if (state.status === S.ROUTE_UNAVAILABLE) {
     body.push(
-      /* @__PURE__ */ jsx11(
+      /* @__PURE__ */ jsx12(
         UnavailableState,
         {
           profile: state.activeProfile ?? (typeof activeProfile === "string" ? activeProfile : null),
@@ -3329,21 +3750,21 @@ function RoutinesPage() {
   } else if (state.status === S.LIST_LOADING) {
     if (state.jobs.length > 0) {
       body.push(
-        /* @__PURE__ */ jsx11(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-loading")
+        /* @__PURE__ */ jsx12(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-loading")
       );
-      body.push(/* @__PURE__ */ jsx11("div", { children: renderList() }, "stale-list"));
+      body.push(/* @__PURE__ */ jsx12("div", { children: renderList() }, "stale-list"));
     } else {
-      body.push(/* @__PURE__ */ jsx11(LoadingState, { text: "Loading routines." }, "list-loading"));
+      body.push(/* @__PURE__ */ jsx12(LoadingState, { text: "Loading routines." }, "list-loading"));
     }
   } else if (state.status === S.LIST_ERROR) {
     if (state.jobs.length > 0) {
       body.push(
-        /* @__PURE__ */ jsx11(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-error")
+        /* @__PURE__ */ jsx12(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-error")
       );
-      body.push(/* @__PURE__ */ jsx11("div", { children: renderList() }, "stale-list-error"));
+      body.push(/* @__PURE__ */ jsx12("div", { children: renderList() }, "stale-list-error"));
     }
     body.push(
-      /* @__PURE__ */ jsx11(
+      /* @__PURE__ */ jsx12(
         ErrorState,
         {
           title: "Could not load routines.",
@@ -3354,28 +3775,29 @@ function RoutinesPage() {
       )
     );
   } else if (state.status === S.READY) {
-    body.push(/* @__PURE__ */ jsx11("div", { children: renderList() }, "ready-list"));
+    body.push(/* @__PURE__ */ jsx12("div", { children: renderList() }, "ready-list"));
   }
   const profileLabel = typeof activeProfile === "string" && activeProfile ? activeProfile : "\u2014";
-  return /* @__PURE__ */ jsxs9("section", { id: "hermes-routines-root", className: "hr-root", "aria-labelledby": "hermes-routines-heading", children: [
-    /* @__PURE__ */ jsx11("style", { children: ROUTINES_CSS }),
-    /* @__PURE__ */ jsxs9("div", { className: "hr-workspace", children: [
-      /* @__PURE__ */ jsxs9("div", { className: `hr-feed-column${!selectedJob && !isCreating ? " hr-feed-contained" : ""}`, children: [
-        /* @__PURE__ */ jsxs9("header", { className: "hr-header", children: [
-          /* @__PURE__ */ jsxs9("div", { className: "hr-header-top", children: [
-            /* @__PURE__ */ jsx11("h2", { id: "hermes-routines-heading", ref: headingRef, tabIndex: -1, className: "hr-title", children: "Routines" }),
-            /* @__PURE__ */ jsx11(
+  return /* @__PURE__ */ jsxs10("section", { id: "hermes-routines-root", className: "hr-root", "aria-labelledby": "hermes-routines-heading", children: [
+    /* @__PURE__ */ jsx12("style", { children: ROUTINES_CSS }),
+    /* @__PURE__ */ jsxs10("div", { className: "hr-workspace", children: [
+      /* @__PURE__ */ jsxs10("div", { className: `hr-feed-column${!selectedJob && !guided && !isCreating ? " hr-feed-contained" : ""}`, children: [
+        /* @__PURE__ */ jsxs10("header", { className: "hr-header", children: [
+          /* @__PURE__ */ jsxs10("div", { className: "hr-header-top", children: [
+            /* @__PURE__ */ jsx12("h2", { id: "hermes-routines-heading", ref: headingRef, tabIndex: -1, className: "hr-title", children: "Routines" }),
+            /* @__PURE__ */ jsx12(
               "button",
               {
                 type: "button",
                 className: "hr-btn-new",
                 onClick: () => {
                   setSelectedJobKey(null);
+                  setGuided(null);
                   setIsCreating(true);
                 },
                 "aria-label": "New routine",
                 title: "New routine",
-                children: /* @__PURE__ */ jsxs9(
+                children: /* @__PURE__ */ jsxs10(
                   "svg",
                   {
                     width: "18",
@@ -3388,23 +3810,23 @@ function RoutinesPage() {
                     strokeLinejoin: "round",
                     "aria-hidden": "true",
                     children: [
-                      /* @__PURE__ */ jsx11("line", { x1: "12", y1: "5", x2: "12", y2: "19" }),
-                      /* @__PURE__ */ jsx11("line", { x1: "5", y1: "12", x2: "19", y2: "12" })
+                      /* @__PURE__ */ jsx12("line", { x1: "12", y1: "5", x2: "12", y2: "19" }),
+                      /* @__PURE__ */ jsx12("line", { x1: "5", y1: "12", x2: "19", y2: "12" })
                     ]
                   }
                 )
               }
             ),
-            /* @__PURE__ */ jsxs9("span", { className: "hr-sr-only", children: [
+            /* @__PURE__ */ jsxs10("span", { className: "hr-sr-only", children: [
               "Profile: ",
               profileLabel
             ] })
           ] }),
-          /* @__PURE__ */ jsx11("p", { className: "hr-sub", children: "Routines are scheduled jobs this profile runs to do recurring tasks." })
+          /* @__PURE__ */ jsx12("p", { className: "hr-sub", children: "Routines are scheduled jobs this profile runs to do recurring tasks." })
         ] }),
         body
       ] }),
-      selectedJob ? /* @__PURE__ */ jsx11(
+      selectedJob ? /* @__PURE__ */ jsx12(
         RoutineInspectorPanel,
         {
           job: selectedJob,
@@ -3417,101 +3839,40 @@ function RoutinesPage() {
           onPause: () => handlePause(selectedJobId, selectedJobLabel),
           onResume: () => handleResume(selectedJobId, selectedJobLabel)
         }
-      ) : isCreating ? /* @__PURE__ */ jsx11(
+      ) : guided ? /* @__PURE__ */ jsx12(
+        GuidedRoutinePanel,
+        {
+          routine: guided.routine,
+          submittedName: guided.name,
+          submittedSchedule: guided.schedule,
+          submittedPrompt: guided.prompt,
+          onLaunch: handleGuidedLaunch,
+          onClose: () => setGuided(null)
+        }
+      ) : isCreating ? /* @__PURE__ */ jsx12(
         RoutineComposerPanel,
         {
           activeRoute,
           activeProfile: state.activeProfile ?? (typeof activeProfile === "string" ? activeProfile : null),
           disabled: locked,
           onClose: () => setIsCreating(false),
-          onSubmit: handleCreateRoutine
+          onSubmit: handleCreateRoutine,
+          onSubmitGuided: handleCreateGuided
         }
       ) : null
     ] }),
-    /* @__PURE__ */ jsx11(StatusLine, { text: liveText, statusRef, restatesVisibleState: liveRestatesVisible })
+    /* @__PURE__ */ jsx12(StatusLine, { text: liveText, statusRef, restatesVisibleState: liveRestatesVisible })
   ] });
 }
 
-// src/gateway/guidedChat.ts
-import { host as host3 } from "@hermes/plugin-sdk";
-var GUIDED_CHAT_DRAFT = "new";
-function failure(reason, message) {
-  return { ok: false, reason, message };
-}
-async function openGuidedRoutineChat(request) {
-  let key;
-  try {
-    key = routeKey(request?.route);
-  } catch {
-    return failure("no_route", "Guided chat requires a concrete profile route");
-  }
-  const prompt = typeof request.initialPrompt === "string" ? request.initialPrompt.trim() : "";
-  if (!prompt) {
-    return failure("blank_prompt", "Guided chat requires an opening prompt");
-  }
-  if (typeof host3.newChat !== "function") {
-    return failure("no_new_chat", "Update Hermes Desktop to start a configuration chat");
-  }
-  if (typeof host3.composer?.setDraft !== "function") {
-    return failure("no_composer", "Update Hermes Desktop to start a configuration chat");
-  }
-  host3.newChat(request.route);
-  const seated = await host3.composer.setDraft(GUIDED_CHAT_DRAFT, prompt);
-  if (!seated) {
-    return failure("draft_not_claimed", "The new chat did not accept the prompt");
-  }
-  if (request.autoSubmit !== true) {
-    return { ok: true, routeKey: key, autoSubmitted: false };
-  }
-  const sent = host3.composer.submit(GUIDED_CHAT_DRAFT, prompt);
-  return { ok: true, routeKey: key, autoSubmitted: sent };
-}
-
-// src/gateway/provisionalCreate.ts
-async function createProvisionalRoutine(request) {
-  const { route, name, schedule, prompt } = request;
-  let addParams;
-  let pauseOf;
-  try {
-    addParams = buildAddParams(route, { name, schedule, prompt });
-    pauseOf = (jobId) => buildPauseParams(route, jobId);
-  } catch (err) {
-    return resolveProvisionalCreate({ route, addAnswer: null, pause: { status: "rejected", message: messageOf(err) } });
-  }
-  let addAnswer;
-  try {
-    addAnswer = await requestCronForRoute(route, "cron.manage", addParams, void 0, {
-      spawnPriority: "foreground"
-    });
-  } catch (err) {
-    return resolveProvisionalCreate({ route, addAnswer: null, pause: { status: "rejected", message: messageOf(err) } });
-  }
-  const minted = mintedRoutineFrom(route, addAnswer);
-  if (minted.ok === false) return minted;
-  let pause;
-  try {
-    const pauseAnswer = await requestCronForRoute(
-      route,
-      "cron.manage",
-      pauseOf(minted.jobId),
-      void 0,
-      { spawnPriority: "foreground" }
-    );
-    pause = { status: "answered", answer: pauseAnswer };
-  } catch (err) {
-    pause = { status: "rejected", message: messageOf(err) };
-  }
-  return resolveProvisionalCreate({ route, addAnswer, pause });
-}
-
 // src/plugin.tsx
-import { jsx as jsx12 } from "react/jsx-runtime";
+import { jsx as jsx13 } from "react/jsx-runtime";
 function register(ctx) {
   ctx.register({
     id: ROUTE_ID,
     area: ROUTES_AREA,
     data: { path: ROUTE_PATH },
-    render: () => /* @__PURE__ */ jsx12(RoutinesPage, {})
+    render: () => /* @__PURE__ */ jsx13(RoutinesPage, {})
   });
   ctx.register({
     id: SIDEBAR_ID,
@@ -3534,6 +3895,8 @@ export {
   DAYS_OF_WEEK,
   DEFAULT_SCHEDULE_CONFIG,
   GUIDED_CHAT_DRAFT,
+  GUIDED_ENVELOPE_MARKER,
+  GuidedRoutinePanel,
   INTERVAL_UNITS,
   INTERVAL_VALUES,
   PLUGIN_ID,
@@ -3561,6 +3924,7 @@ export {
   backendTargetProfile,
   buildAddParams,
   buildCronExpression,
+  buildGuidedEnvelope,
   buildListParams,
   buildPauseParams,
   buildRemoveParams,
@@ -3591,6 +3955,7 @@ export {
   lastResultOf,
   lastRunIso,
   lastStatusOf,
+  launchGuidedConfiguration,
   listJobs,
   listProfileRoutes,
   listRoutines,
@@ -3626,6 +3991,8 @@ export {
   routinesViewReducer,
   runDistanceOf,
   scopedCronParams,
+  serializeGuidedEnvelope,
+  singleLine,
   toOrdinal,
   validateScheduleConfig,
   visibleJobs,

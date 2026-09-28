@@ -23,12 +23,19 @@ export interface RoutineComposerPanelProps {
   disabled: boolean;
   onClose: () => void;
   onSubmit: (name: string, schedule: string, prompt: string, active: boolean) => Promise<boolean>;
+  /**
+   * Guided path: create the routine PAUSED and hand back its authoritative
+   * handle so the page can open a configuration chat for it. Omitted (or
+   * refused by the caller) keeps the ordinary form path untouched.
+   */
+  onSubmitGuided?: (name: string, schedule: string, prompt: string) => Promise<boolean>;
 }
 
 export function RoutineComposerPanel({
   disabled,
   onClose,
   onSubmit,
+  onSubmitGuided,
 }: RoutineComposerPanelProps): ReactElement {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -36,6 +43,7 @@ export function RoutineComposerPanel({
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>(DEFAULT_SCHEDULE_CONFIG);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<'direct' | 'guided'>(onSubmitGuided ? 'guided' : 'direct');
 
   const timeOptions: Array<SelectOption<string>> = useMemo(
     () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
@@ -75,6 +83,16 @@ export function RoutineComposerPanel({
     setSubmitting(true);
     setError(null);
     try {
+      if (mode === 'guided' && onSubmitGuided) {
+        // The guided path is deliberately not a variation of the Active
+        // toggle: it always creates PAUSED, because a routine whose
+        // configuration is an unfinished conversation must not be runnable.
+        const ok = await onSubmitGuided(trimmedName, cronExpr, promptText);
+        if (!ok) {
+          setError('Failed to create routine. Please verify parameters.');
+        }
+        return;
+      }
       // The name is submitted as typed (trimmed): it is a human-readable
       // title, not a technical id — Hermes generates the job_id.
       const ok = await onSubmit(trimmedName, cronExpr, promptText, active);
@@ -118,23 +136,54 @@ export function RoutineComposerPanel({
       <div className="hr-inspector-body">
         <h3 className="hr-create-title">Create Routine</h3>
 
-        {/* Active Toggle Card */}
-        <div className="hr-create-active-card">
-          <div className="hr-create-active-info">
-            <span className="hr-create-active-title">Active</span>
-            <span className="hr-create-active-subtitle">This routine will run on the schedule below.</span>
+        {/* Creation path. The guided one creates the routine paused and
+            opens a Hermes chat to finish configuring it; the direct one is
+            the ordinary form. Both collect the same fields, so the only
+            difference the user sees is what happens next. */}
+        {onSubmitGuided ? (
+          <div className="hr-create-active-card">
+            <div className="hr-create-active-info">
+              <span className="hr-create-active-title">Configure with Hermes</span>
+              <span className="hr-create-active-subtitle">
+                {mode === 'guided'
+                  ? 'Creates the routine paused, then opens a chat to finish configuring it.'
+                  : 'Creates the routine right away with the settings below.'}
+              </span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={mode === 'guided'}
+              aria-label="Toggle guided configuration"
+              className={`hr-switch-pill ${mode === 'guided' ? 'hr-switch-active' : ''}`}
+              onClick={() => setMode(mode === 'guided' ? 'direct' : 'guided')}
+            >
+              <span className="hr-switch-thumb" />
+            </button>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={active}
-            aria-label="Toggle routine active state"
-            className={`hr-switch-pill ${active ? 'hr-switch-active' : ''}`}
-            onClick={() => setActive(!active)}
-          >
-            <span className="hr-switch-thumb" />
-          </button>
-        </div>
+        ) : null}
+
+        {/* Active Toggle Card — the direct path only. A guided routine is
+            always created paused, so a toggle here would promise something
+            the guided path does not do. */}
+        {mode === 'direct' ? (
+          <div className="hr-create-active-card">
+            <div className="hr-create-active-info">
+              <span className="hr-create-active-title">Active</span>
+              <span className="hr-create-active-subtitle">This routine will run on the schedule below.</span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={active}
+              aria-label="Toggle routine active state"
+              className={`hr-switch-pill ${active ? 'hr-switch-active' : ''}`}
+              onClick={() => setActive(!active)}
+            >
+              <span className="hr-switch-thumb" />
+            </button>
+          </div>
+        ) : null}
 
         {/* Name Input */}
         <div className="hr-create-field">
@@ -263,7 +312,11 @@ export function RoutineComposerPanel({
             disabled={!name.trim() || !prompt.trim() || submitting || disabled}
             onClick={handleSubmit}
           >
-            {submitting ? 'Creating…' : 'Create Routine'}
+            {submitting
+              ? 'Creating…'
+              : mode === 'guided' && onSubmitGuided
+                ? 'Create & Configure with Hermes'
+                : 'Create Routine'}
           </button>
         </div>
       </div>
