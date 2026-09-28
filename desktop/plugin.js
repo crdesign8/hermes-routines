@@ -1121,18 +1121,18 @@ function runDistanceOf(iso) {
 }
 function lastExecutionOf(job) {
   const result = lastResultOf(job);
-  const failed = result.kind === "error";
+  const failed2 = result.kind === "error";
   const known = lastRunIso(job) !== null || lastStatusOf(job) !== null;
   return {
     known,
     lastRun: runDistanceOf(lastRunIso(job)),
     resultKind: result.kind,
     // The failure detail moves to its own row; the badge keeps the outcome.
-    resultText: failed ? "Failed" : result.text,
+    resultText: failed2 ? "Failed" : result.text,
     // Gated on known so the block can never contradict itself: a row with no
     // execution shows the empty state and no issue row, even when the backend
     // parked a benign reason there (issueOf also reads paused_reason).
-    issue: known && failed ? issueOf(job) : null,
+    issue: known && failed2 ? issueOf(job) : null,
     nextRun: routineActive(job) ? runDistanceOf(nextRunIso(job)) : null
   };
 }
@@ -3236,7 +3236,7 @@ function GuidedRoutinePanel({
       setLaunching(false);
     }
   }
-  const failed = launch !== null && launch.ok === false;
+  const failed2 = launch !== null && launch.ok === false;
   const opened = launch !== null && launch.ok === true;
   return /* @__PURE__ */ jsxs7("aside", { className: "hr-inspector hr-create-inspector", "aria-label": "Configure routine with Hermes", children: [
     /* @__PURE__ */ jsx9("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs7(
@@ -3312,7 +3312,7 @@ function GuidedRoutinePanel({
         /* @__PURE__ */ jsx9("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
         /* @__PURE__ */ jsx9("div", { className: "hr-create-preview-sentence", children: schedule })
       ] }),
-      failed ? /* @__PURE__ */ jsxs7("div", { className: "hr-create-error", role: "alert", children: [
+      failed2 ? /* @__PURE__ */ jsxs7("div", { className: "hr-create-error", role: "alert", children: [
         launch.message,
         launch.jobId ? " The routine is still paused." : ""
       ] }) : null,
@@ -3326,7 +3326,7 @@ function GuidedRoutinePanel({
             className: "hr-btn hr-btn-create-submit",
             disabled: launching,
             onClick: () => void handleLaunch(),
-            children: launching ? "Opening\u2026" : failed ? "Retry chat" : "Configure with Hermes"
+            children: launching ? "Opening\u2026" : failed2 ? "Retry chat" : "Configure with Hermes"
           }
         )
       ] })
@@ -3865,6 +3865,444 @@ function RoutinesPage() {
   ] });
 }
 
+// src/domain/routineProposal.ts
+var MAX_NAME_LENGTH2 = 128;
+var MAX_SCHEDULE_LENGTH2 = 256;
+var MAX_PROMPT_LENGTH2 = 2e4;
+var CONTROL_CHARS_RE2 = /[\x00-\x1F\x7F]/;
+var ROUTINE_PROPOSAL_VERSION = 1;
+var PATCH_FIELDS = ["name", "prompt", "schedule"];
+var PROPOSAL_FIELDS = ["version", "jobId", "owner", "base", "patch", "desiredActive", "note", "validated"];
+function asRecord3(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function trimmedText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+function rowField(row, keys) {
+  if (row === null) return "";
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+function snapshotJobConfig(job) {
+  const row = asRecord3(job);
+  return {
+    name: rowField(row, ["name"]),
+    schedule: (rawScheduleOf(job ?? null) ?? "").trim(),
+    prompt: (routinePromptOf(job ?? null) ?? "").trim(),
+    // Same candidate keys the envelope reports (guidedEnvelope.ts) —
+    // absent reads as absent, never invented.
+    delivery: rowField(row, ["deliver", "delivery", "deliver_to", "deliverTo"]),
+    modelOverride: rowField(row, ["model", "model_override", "modelOverride", "override_model"]),
+    paused: routinePausedOf(job ?? null)
+  };
+}
+function fingerprintSnapshot(snapshot) {
+  const encoded = JSON.stringify([
+    "routine-proposal-base-v1",
+    snapshot.name,
+    snapshot.schedule,
+    snapshot.prompt,
+    snapshot.delivery,
+    snapshot.modelOverride,
+    snapshot.paused ? "paused" : "active"
+  ]);
+  let hash = 2166136261;
+  for (let i = 0; i < encoded.length; i += 1) {
+    hash ^= encoded.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+function fingerprintJob(job) {
+  return fingerprintSnapshot(snapshotJobConfig(job));
+}
+function isProposalStale(proposal, job) {
+  return fingerprintJob(job) !== proposal.base.fingerprint;
+}
+function refusal(code, message) {
+  return { ok: false, code, message };
+}
+function checkName(value) {
+  if (typeof value !== "string") return "proposal name must be text";
+  const text = value.trim();
+  if (!text) return "proposal name must not be empty";
+  if (text.length > MAX_NAME_LENGTH2) return "proposal name must be at most 128 chars";
+  if (CONTROL_CHARS_RE2.test(text)) return "proposal name must not contain control characters";
+  return null;
+}
+function checkSchedule(value) {
+  if (typeof value !== "string") return "proposal schedule must be text";
+  const text = value.trim();
+  if (!text) return "proposal schedule must not be empty";
+  if (text.length > MAX_SCHEDULE_LENGTH2) return "proposal schedule must be at most 256 chars";
+  if (CONTROL_CHARS_RE2.test(text)) return "proposal schedule must not contain control characters";
+  return null;
+}
+function checkPrompt(value) {
+  if (typeof value !== "string") return "proposal instruction must be text";
+  const text = value.trim();
+  if (!text) return "proposal instruction must not be empty";
+  if (text.length > MAX_PROMPT_LENGTH2) return "proposal instruction must be at most 20000 chars";
+  return null;
+}
+function validateProposal(input, expectedOwner = null) {
+  const root = asRecord3(input);
+  if (root === null) {
+    return refusal("not_an_object", "the proposal must be a structured object, not text or a list");
+  }
+  for (const key of Object.keys(root)) {
+    if (!PROPOSAL_FIELDS.includes(key)) {
+      return refusal("unknown_field", `unknown proposal field "${key}" \u2014 proposals carry only ${PROPOSAL_FIELDS.join(", ")}`);
+    }
+  }
+  if (root.version !== ROUTINE_PROPOSAL_VERSION) {
+    return refusal(
+      "unsupported_version",
+      `unsupported proposal version ${JSON.stringify(root.version)} \u2014 this plugin reads version 1`
+    );
+  }
+  if (!isValidJobId(root.jobId)) {
+    return refusal("bad_job_id", "the proposal must carry the authoritative job_id of the routine it configures");
+  }
+  const owner = asRecord3(root.owner);
+  const connectionId = owner === null ? "" : trimmedText(owner.connectionId);
+  const profile = owner === null ? "" : trimmedText(owner.profile);
+  if (!connectionId || !profile || Object.keys(owner ?? {}).some((k) => k !== "connectionId" && k !== "profile")) {
+    return refusal(
+      "bad_owner",
+      "the proposal must name its owning connection and profile as { connectionId, profile }"
+    );
+  }
+  if (expectedOwner !== null && (expectedOwner.connectionId !== connectionId || expectedOwner.profile !== profile)) {
+    return refusal(
+      "owner_mismatch",
+      `the proposal belongs to ${connectionId}::${profile} and cannot be applied elsewhere`
+    );
+  }
+  const base = asRecord3(root.base);
+  if (base === null || typeof base.fingerprint !== "string" || !base.fingerprint) {
+    return refusal(
+      "bad_base",
+      "the proposal must carry the base fingerprint of the configuration it was built from"
+    );
+  }
+  const patch = asRecord3(root.patch);
+  if (patch === null) {
+    return refusal("empty_patch", "the proposal must carry a patch object with at least one change");
+  }
+  const patchKeys = Object.keys(patch);
+  if (patchKeys.length === 0) {
+    return refusal("empty_patch", "the proposal patch is empty \u2014 a proposal that changes nothing is not a proposal");
+  }
+  for (const key of patchKeys) {
+    if (!PATCH_FIELDS.includes(key)) {
+      return refusal(
+        "unknown_patch_field",
+        `unknown patch field "${key}" \u2014 only ${PATCH_FIELDS.join(", ")} can be reconfigured` + (key === "delivery" || key === "deliver" || key === "modelOverride" || key === "model_override" || key === "model" ? "; delivery and model overrides are reported by the session but have no supported write path on this surface" : "")
+      );
+    }
+  }
+  const normalized = {};
+  if ("name" in patch) {
+    const bad = checkName(patch.name);
+    if (bad !== null) return refusal("bad_name", bad);
+    normalized.name = patch.name.trim();
+  }
+  if ("schedule" in patch) {
+    const bad = checkSchedule(patch.schedule);
+    if (bad !== null) return refusal("bad_schedule", bad);
+    normalized.schedule = patch.schedule.trim();
+  }
+  if ("prompt" in patch) {
+    const bad = checkPrompt(patch.prompt);
+    if (bad !== null) return refusal("bad_prompt", bad);
+    normalized.prompt = patch.prompt.trim();
+  }
+  if (root.desiredActive !== false) {
+    return refusal(
+      "activation_not_supported",
+      "proposals never activate a routine \u2014 the configured routine stays paused until it is resumed explicitly"
+    );
+  }
+  let note;
+  if (root.note !== void 0) {
+    if (typeof root.note !== "string") {
+      return refusal("bad_note", "the proposal note is display-only text or absent");
+    }
+    note = root.note;
+  }
+  return {
+    ok: true,
+    proposal: {
+      version: 1,
+      jobId: root.jobId,
+      owner: { connectionId, profile },
+      base: { fingerprint: base.fingerprint },
+      patch: normalized,
+      desiredActive: false,
+      ...note === void 0 ? {} : { note },
+      validated: true
+    }
+  };
+}
+function submitProposalHandoff(input) {
+  if (typeof input === "string" || asRecord3(input) === null) {
+    return refusal(
+      "handoff_must_be_structured",
+      "the handoff is a structured proposal object \u2014 free-form text is never parsed into routine configuration"
+    );
+  }
+  return validateProposal(input, null);
+}
+
+// src/gateway/proposalApply.ts
+function scopeOf2(route) {
+  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
+  return backendTargetProfile(route, "") || null;
+}
+function failed(reason, message, jobId, backendProfile, replacementJobId = null) {
+  return { ok: false, reason, message, jobId, replacementJobId, backendProfile };
+}
+async function applyValidatedProposal(request) {
+  const route = request?.route;
+  const backendProfile = scopeOf2(route);
+  if (!route || !backendProfile) {
+    return failed(
+      "no_route",
+      "applying a proposal requires the resolved profile route that owns the routine",
+      "",
+      null
+    );
+  }
+  const checked = validateProposal(request?.proposal, null);
+  if (checked.ok === false) {
+    return failed("invalid_proposal", "the proposal is not valid: " + checked.message, "", backendProfile);
+  }
+  const proposal = checked.proposal;
+  const jobId = proposal.jobId;
+  if (route.connectionId !== proposal.owner.connectionId || route.profile !== proposal.owner.profile && route.targetProfile !== proposal.owner.profile) {
+    return failed(
+      "owner_mismatch",
+      `the proposal belongs to ${proposal.owner.connectionId}::${proposal.owner.profile} and cannot be applied on ${route.connectionId}::${route.profile}`,
+      jobId,
+      backendProfile
+    );
+  }
+  let rows;
+  try {
+    rows = normalizeJobs(await listRoutines(route));
+  } catch (err) {
+    return failed("list_failed", "the routines list could not be read: " + messageOf(err), jobId, backendProfile);
+  }
+  const current = rows.find((row) => jobIdOf(row) === jobId) ?? null;
+  if (current === null) {
+    return failed(
+      "job_not_found",
+      "the routine no longer exists on its owning profile \u2014 check the routines list before reapplying",
+      jobId,
+      backendProfile
+    );
+  }
+  if (isProposalStale(proposal, current)) {
+    return failed(
+      "stale_base",
+      "the routine changed since the configuration session started \u2014 review the current values and build a new proposal instead of overwriting newer state",
+      jobId,
+      backendProfile
+    );
+  }
+  const snapshot = snapshotJobConfig(current);
+  if (!snapshot.paused) {
+    return failed(
+      "not_paused",
+      "only a paused routine can be reconfigured \u2014 the routine is currently active, so the proposal no longer describes a safe target",
+      jobId,
+      backendProfile
+    );
+  }
+  const name = proposal.patch.name ?? snapshot.name;
+  const schedule = proposal.patch.schedule ?? snapshot.schedule;
+  const prompt = proposal.patch.prompt ?? snapshot.prompt;
+  if (!name || !schedule || !prompt) {
+    return failed(
+      "unapplyable_base",
+      "the routine carries no usable name, schedule or instruction to carry forward \u2014 fill every field in the proposal",
+      jobId,
+      backendProfile
+    );
+  }
+  if (name === snapshot.name && schedule === snapshot.schedule && prompt === snapshot.prompt) {
+    return { ok: true, jobId, previousJobId: "", changed: false, backendProfile };
+  }
+  let addParams;
+  try {
+    addParams = buildAddParams(route, { name, schedule, prompt });
+  } catch (err) {
+    return failed("invalid_proposal", "the patched configuration is not valid: " + messageOf(err), jobId, backendProfile);
+  }
+  let addAnswer;
+  try {
+    addAnswer = await requestCronForRoute(route, "cron.manage", addParams, void 0, {
+      spawnPriority: "foreground"
+    });
+  } catch (err) {
+    return failed(
+      "create_rejected",
+      "the backend refused to create the replacement routine (" + messageOf(err) + ") \u2014 the original is untouched",
+      jobId,
+      backendProfile
+    );
+  }
+  const created = cronOutcomeOf(addAnswer);
+  if (!created.ok) {
+    return failed(
+      "create_rejected",
+      "the backend refused to create the replacement routine: " + created.error + " \u2014 the original is untouched",
+      jobId,
+      backendProfile
+    );
+  }
+  const replacementId = jobIdFromResponse(addAnswer);
+  if (!replacementId) {
+    return failed(
+      "identity_unresolved",
+      "the backend created a replacement but returned no job id, so it cannot be addressed \u2014 the original is untouched; check the routines list",
+      jobId,
+      backendProfile
+    );
+  }
+  let pauseParams;
+  try {
+    pauseParams = buildPauseParams(route, replacementId);
+  } catch (err) {
+    const cleanup = await removeQuietly(route, replacementId);
+    return failed(
+      "replacement_not_paused",
+      `the replacement ${replacementId} could not be addressed for pausing (${messageOf(err)}) \u2014 the original ${jobId} is untouched` + (cleanup ? " and the replacement was removed" : "; the replacement may still exist \u2014 check the routines list"),
+      jobId,
+      backendProfile,
+      cleanup ? null : replacementId
+    );
+  }
+  let pauseAnswer;
+  try {
+    pauseAnswer = await requestCronForRoute(route, "cron.manage", pauseParams, void 0, {
+      spawnPriority: "foreground"
+    });
+  } catch (err) {
+    const cleanup = await removeQuietly(route, replacementId);
+    return failed(
+      "replacement_not_paused",
+      `the replacement routine could not be paused (${messageOf(err)}) \u2014 the original ${jobId} is untouched` + (cleanup ? " and the unpaused replacement was removed" : "; the unpaused replacement may still exist \u2014 check the routines list"),
+      jobId,
+      backendProfile,
+      cleanup ? null : replacementId
+    );
+  }
+  if (!cronOutcomeOf(pauseAnswer).ok || !pausedConfirmedBy(pauseAnswer)) {
+    const cleanup = await removeQuietly(route, replacementId);
+    return failed(
+      "replacement_not_paused",
+      "the backend did not confirm the replacement is paused \u2014 the original " + jobId + " is untouched" + (cleanup ? " and the replacement was removed" : "; the replacement may still exist \u2014 check the routines list"),
+      jobId,
+      backendProfile,
+      cleanup ? null : replacementId
+    );
+  }
+  let removeParams;
+  try {
+    removeParams = buildRemoveParams(route, jobId);
+  } catch (err) {
+    return failed(
+      "supersede_incomplete",
+      `the replacement ${replacementId} is configured and paused, but the superseded ${jobId} could not be addressed for removal (${messageOf(err)}) \u2014 remove it by id; nothing was lost`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  let removeAnswer;
+  try {
+    removeAnswer = await requestCronForRoute(route, "cron.manage", removeParams, void 0, {
+      spawnPriority: "foreground"
+    });
+  } catch (err) {
+    return failed(
+      "supersede_incomplete",
+      `the replacement ${replacementId} is configured and paused, but removing the superseded ${jobId} failed (${messageOf(err)}) \u2014 remove it by id; nothing was lost`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  if (!cronOutcomeOf(removeAnswer).ok) {
+    const detail = cronOutcomeOf(removeAnswer).error;
+    return failed(
+      "supersede_incomplete",
+      `the replacement ${replacementId} is configured and paused, but the backend refused to remove the superseded ${jobId}: ${detail} \u2014 remove it by id; nothing was lost`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  let fresh;
+  try {
+    fresh = normalizeJobs(await listRoutines(route));
+  } catch (err) {
+    return failed(
+      "truth_unconfirmed",
+      `the replacement ${replacementId} is configured and paused, but the routines list could not be re-read (${messageOf(err)}) \u2014 verify it before the first run`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  const confirmed = fresh.find((row) => jobIdOf(row) === replacementId) ?? null;
+  if (confirmed === null || fingerprintSnapshot(snapshotJobConfig(confirmed)) === proposal.base.fingerprint) {
+    return failed(
+      "truth_unconfirmed",
+      `the replacement ${replacementId} was applied but the re-read list does not show the new configuration \u2014 verify it before the first run`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  const confirmedSnapshot = snapshotJobConfig(confirmed);
+  if (confirmedSnapshot.name !== name || confirmedSnapshot.schedule !== schedule || confirmedSnapshot.prompt !== prompt) {
+    return failed(
+      "truth_unconfirmed",
+      `the re-read list shows the replacement ${replacementId} with different values than requested \u2014 verify it before the first run`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  if (!confirmedSnapshot.paused) {
+    return failed(
+      "truth_unconfirmed",
+      `the re-read list does not show the replacement ${replacementId} as paused \u2014 check it before its first run`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  return { ok: true, jobId: replacementId, previousJobId: jobId, changed: true, backendProfile };
+}
+async function removeQuietly(route, jobId) {
+  try {
+    const answer = await requestCronForRoute(route, "cron.manage", buildRemoveParams(route, jobId), void 0, {
+      spawnPriority: "foreground"
+    });
+    return cronOutcomeOf(answer).ok;
+  } catch {
+    return false;
+  }
+}
+
 // src/plugin.tsx
 import { jsx as jsx13 } from "react/jsx-runtime";
 function register(ctx) {
@@ -3904,6 +4342,7 @@ export {
   ROUTE_ID,
   ROUTE_PATH,
   ROUTINES_VIEW_STATUS,
+  ROUTINE_PROPOSAL_VERSION,
   ResultTone,
   RoutineComposerPanel,
   RoutineDetails,
@@ -3919,6 +4358,7 @@ export {
   TRIGGER_OPTIONS,
   activeRouteKey,
   addJob,
+  applyValidatedProposal,
   assertRoutingOptions,
   assertTimeoutMs,
   backendTargetProfile,
@@ -3937,12 +4377,15 @@ export {
   describeSchedule2 as describeSchedule,
   describeScheduleConfig,
   findRouteByKey,
+  fingerprintJob,
+  fingerprintSnapshot,
   formatDate,
   formatWhen,
   generateTimeSlots,
   humanScheduleOf,
   initialRoutinesState,
   isFailedStatus,
+  isProposalStale,
   isSafeOptimistic,
   isValidJobId,
   issueOf,
@@ -3993,7 +4436,10 @@ export {
   scopedCronParams,
   serializeGuidedEnvelope,
   singleLine,
+  snapshotJobConfig,
+  submitProposalHandoff,
   toOrdinal,
+  validateProposal,
   validateScheduleConfig,
   visibleJobs,
   withPausedFlag,

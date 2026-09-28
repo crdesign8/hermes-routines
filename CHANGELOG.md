@@ -103,6 +103,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   successful run never surfaces a stale `last_fire_error`. No backend or
   gateway contract change.
 
+- A structured routine-configuration proposal contract plus deterministic
+  apply (`RoutineConfigurationProposalV1`, `validateProposal` /
+  `submitProposalHandoff`, `applyValidatedProposal`). The proposal is a
+  versioned object carrying the authoritative `job_id`, the exact owner
+  (`connectionId` + `profile`), a base fingerprint of the configuration
+  the session started from, a patch limited to `name` / `prompt` /
+  `schedule`, and the literal `desiredActive: false` — proposals can only
+  ever describe "stays paused". Free-form text is never authoritative
+  state: the handoff boundary accepts only structured objects and refuses
+  strings without parsing them, and no transcript/DOM scraping was added.
+  `delivery` and `modelOverride` stay read-only (reported by the session,
+  rejected in a patch) because no verified write key exists on this
+  surface. Validation is strict and deterministic (schema/version, exact
+  owner, allowed fields only, wire-contract limits, no activation); the
+  stale guard compares a deterministic fingerprint of the normalized
+  configuration, ignoring run metadata. Apply is a supervised replacement
+  — the backend exposes no update verb — ordered add → prove paused →
+  remove superseded → re-read truth, add-first so any pre-remove failure
+  leaves the original untouched, never resumes, never matches by name,
+  and reports partial states with both ids. Round-trip seam status: the
+  declared SDK exposes only outbound doors (`host.newChat`,
+  `host.composer`), so no agent→plugin structured return exists upstream
+  yet; this contract is the narrow prerequisite that seam will carry (see
+  `docs/proposal-handoff.md`).
+
 ### Changed
 
 - Declared Linux as the only verified supported platform for building,
