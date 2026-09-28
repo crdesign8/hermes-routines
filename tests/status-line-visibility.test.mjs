@@ -221,10 +221,14 @@ describe('status line: transient feedback stays visible', () => {
   });
 
   it('transient feedback outranks a settled count still in state', () => {
-    // A notice survives the retry that follows a mutation, so the visible
-    // signal must be the notice even while the list is READY with rows.
+    // The notice must win the live region even while the list is READY
+    // with rows, so a pause confirmation is never replaced by the count.
+    // (In production runMutation dispatches `notice` and then
+    // `retry-list`, which nulls the notice — this covers the precedence
+    // itself, not that wipe; see the notice/retry ordering issue.)
     const live = feedbackTree(readyWith(JOBS, [{ type: 'notice', notice: 'routine Morning brief paused' }]));
     assert.equal(live.props.children, 'routine Morning brief paused');
+    assert.doesNotMatch(live.props.className, /hr-sr-only/);
   });
 });
 
