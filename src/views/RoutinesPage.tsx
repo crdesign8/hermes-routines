@@ -400,15 +400,26 @@ export function RoutinesPage() {
     );
   }
 
+  // Live-region copy. Transient feedback wins: an error, a pause/resume or
+  // create result, and a loading/unavailable state are the page's visible
+  // operational signal. Only the settled READY count restates text the
+  // page already shows on screen (the toolbar count, the empty state), so
+  // it is announced but not painted a second time.
   let liveText = '';
+  let liveRestatesVisible = false;
   if (state.error) liveText = state.error;
   else if (state.notice) liveText = state.notice;
   else if (state.status === S.ROUTES_LOADING) liveText = 'Loading routines.';
   else if (state.status === S.LIST_LOADING) liveText = 'Loading routines.';
   else if (state.status === S.ROUTE_UNAVAILABLE) liveText = 'Routines unavailable for this profile.';
   else if (state.status === S.READY) {
-    if (state.jobs.length === 0) liveText = 'No routines yet.';
-    else liveText = `Showing ${shown.length} of ${state.jobs.length} routines.`;
+    if (state.jobs.length === 0) {
+      liveText = 'No routines yet.';
+      liveRestatesVisible = true;
+    } else {
+      liveText = `Showing ${shown.length} of ${state.jobs.length} routines.`;
+      liveRestatesVisible = true;
+    }
   }
 
   const body: ReactNode[] = [];
@@ -527,7 +538,7 @@ export function RoutinesPage() {
         ) : null}
       </div>
 
-      <StatusLine text={liveText} statusRef={statusRef} />
+      <StatusLine text={liveText} statusRef={statusRef} restatesVisibleState={liveRestatesVisible} />
     </section>
   );
 }

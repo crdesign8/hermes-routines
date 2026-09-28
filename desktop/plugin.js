@@ -1728,6 +1728,11 @@ var ROUTINES_CSS = [
   ".hr-stale { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.1)); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; background: var(--ui-bg-tertiary, rgba(255,255,255,0.02)); color: var(--ui-text-secondary, #ccc); font-size: 12px; }",
   ".hr-muted { color: var(--ui-text-tertiary, #888); font-size: 13px; line-height: 1.4; }",
   ".hr-status { margin-top: 10px; color: var(--ui-text-tertiary, #888); font-size: 12px; }",
+  // A status line that only restates what the page already shows (the
+  // toolbar count, the empty state) keeps its role, text and focus target
+  // but takes no visual footprint. Declared after .hr-status on purpose:
+  // same specificity, so the clip wins over the status line's own spacing.
+  ".hr-status.hr-sr-only { margin: -1px; }",
   "",
   "/* New Routine Trigger Button */",
   ".hr-btn-new {",
@@ -2767,8 +2772,18 @@ function RoutineComposerPanel({
 
 // src/views/panels.tsx
 import { Fragment as Fragment2, jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
-function StatusLine({ text, statusRef }) {
-  return /* @__PURE__ */ jsx9("p", { ref: statusRef, tabIndex: -1, className: "hr-status", role: "status", "aria-live": "polite", children: text || "Routines ready." });
+function StatusLine({ text, statusRef, restatesVisibleState }) {
+  return /* @__PURE__ */ jsx9(
+    "p",
+    {
+      ref: statusRef,
+      tabIndex: -1,
+      className: restatesVisibleState ? "hr-status hr-sr-only" : "hr-status",
+      role: "status",
+      "aria-live": "polite",
+      children: text || "Routines ready."
+    }
+  );
 }
 
 // src/views/RoutineStates.tsx
@@ -3077,14 +3092,20 @@ function RoutinesPage() {
     ] });
   }
   let liveText = "";
+  let liveRestatesVisible = false;
   if (state.error) liveText = state.error;
   else if (state.notice) liveText = state.notice;
   else if (state.status === S.ROUTES_LOADING) liveText = "Loading routines.";
   else if (state.status === S.LIST_LOADING) liveText = "Loading routines.";
   else if (state.status === S.ROUTE_UNAVAILABLE) liveText = "Routines unavailable for this profile.";
   else if (state.status === S.READY) {
-    if (state.jobs.length === 0) liveText = "No routines yet.";
-    else liveText = `Showing ${shown.length} of ${state.jobs.length} routines.`;
+    if (state.jobs.length === 0) {
+      liveText = "No routines yet.";
+      liveRestatesVisible = true;
+    } else {
+      liveText = `Showing ${shown.length} of ${state.jobs.length} routines.`;
+      liveRestatesVisible = true;
+    }
   }
   const body = [];
   if (state.status === S.ROUTES_LOADING) {
@@ -3214,7 +3235,7 @@ function RoutinesPage() {
         }
       ) : null
     ] }),
-    /* @__PURE__ */ jsx11(StatusLine, { text: liveText, statusRef })
+    /* @__PURE__ */ jsx11(StatusLine, { text: liveText, statusRef, restatesVisibleState: liveRestatesVisible })
   ] });
 }
 

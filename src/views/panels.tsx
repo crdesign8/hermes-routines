@@ -48,12 +48,27 @@ export function EmptyPanel({ message, actionLabel, onAction }: EmptyPanelProps) 
 export interface StatusLineProps {
   text: string;
   statusRef: RefObject<HTMLParagraphElement | null>;
+  /**
+   * The page already states this text persistently somewhere else (the
+   * toolbar count, the empty state). The live region keeps its node, its
+   * role and its text so assistive tech still hears the announcement, but
+   * it stops painting a second, permanent copy on screen. Transient
+   * feedback (loading, errors, pause/resume/create results) must not set
+   * this — it is the page's visible operational signal.
+   */
+  restatesVisibleState?: boolean;
 }
 
 /** Polite live region: every state change reaches assistive tech here. */
-export function StatusLine({ text, statusRef }: StatusLineProps) {
+export function StatusLine({ text, statusRef, restatesVisibleState }: StatusLineProps) {
   return (
-    <p ref={statusRef} tabIndex={-1} className="hr-status" role="status" aria-live="polite">
+    <p
+      ref={statusRef}
+      tabIndex={-1}
+      className={restatesVisibleState ? 'hr-status hr-sr-only' : 'hr-status'}
+      role="status"
+      aria-live="polite"
+    >
       {text || 'Routines ready.'}
     </p>
   );
