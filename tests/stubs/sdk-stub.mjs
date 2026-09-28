@@ -2,10 +2,17 @@ const impl = {
   profileRoutes: async () => [],
   requestProfile: async () => ({ jobs: [] }),
   request: async () => ({ jobs: [] }),
+  newChat: () => undefined,
 };
 
+// Composer verbs are acknowledged through a per-verb result the tests
+// steer: `false` reproduces the upstream fail-closed answer for an address
+// no mounted surface owns (an empty string keys the wildcard).
+const composerResult = { setDraft: true, submit: true };
+
 const calls = [];
-const DOORS = ['profileRoutes', 'requestProfile', 'request'];
+const DOORS = ['profileRoutes', 'requestProfile', 'request', 'newChat'];
+const COMPOSER_DOORS = ['setDraft', 'submit'];
 
 export const ROUTES_AREA = 'routes';
 export const SIDEBAR_NAV_AREA = 'sidebar.nav';
@@ -33,6 +40,17 @@ host.state = {
   connectionId: makeAtom(() => active.connectionId),
 };
 
+// Mirrors the upstream composer face: every verb is fail-closed on its
+// address, so the stub answers through the steerable composerResult.
+host.composer = {};
+for (const verb of COMPOSER_DOORS) {
+  host.composer[verb] = (...args) => {
+    calls.push({ door: `composer.${verb}`, args });
+
+    return verb === 'setDraft' ? Promise.resolve(composerResult.setDraft) : composerResult.submit;
+  };
+}
+
 export function useValue(atom) {
   return atom.get();
 }
@@ -40,6 +58,10 @@ export function useValue(atom) {
 export function __setActive(profile, connectionId) {
   active.profile = profile;
   active.connectionId = connectionId;
+}
+
+export function __setComposerResult(next) {
+  Object.assign(composerResult, next);
 }
 
 function installDoor(name) {
@@ -56,6 +78,11 @@ export function __setHost(next) {
 }
 
 export function __dropDoor(name) {
+  if (name.startsWith('composer.')) {
+    delete host.composer[name.slice('composer.'.length)];
+
+    return;
+  }
   delete host[name];
 }
 
@@ -67,8 +94,20 @@ export function __reset() {
   calls.length = 0;
   active.profile = 'p1';
   active.connectionId = 'c1';
+  composerResult.setDraft = true;
+  composerResult.submit = true;
   for (const door of DOORS) {
     if (typeof host[door] !== 'function') installDoor(door);
+  }
+  if (!host.composer) host.composer = {};
+  for (const verb of COMPOSER_DOORS) {
+    if (typeof host.composer[verb] !== 'function') {
+      host.composer[verb] = (...args) => {
+        calls.push({ door: `composer.${verb}`, args });
+
+        return verb === 'setDraft' ? Promise.resolve(composerResult.setDraft) : composerResult.submit;
+      };
+    }
   }
   if (!host.state) {
     host.state = {

@@ -3301,6 +3301,41 @@ function RoutinesPage() {
   ] });
 }
 
+// src/gateway/guidedChat.ts
+import { host as host3 } from "@hermes/plugin-sdk";
+var GUIDED_CHAT_DRAFT = "new";
+function failure(reason, message) {
+  return { ok: false, reason, message };
+}
+async function openGuidedRoutineChat(request) {
+  let key;
+  try {
+    key = routeKey(request?.route);
+  } catch {
+    return failure("no_route", "Guided chat requires a concrete profile route");
+  }
+  const prompt = typeof request.initialPrompt === "string" ? request.initialPrompt.trim() : "";
+  if (!prompt) {
+    return failure("blank_prompt", "Guided chat requires an opening prompt");
+  }
+  if (typeof host3.newChat !== "function") {
+    return failure("no_new_chat", "Update Hermes Desktop to start a configuration chat");
+  }
+  if (typeof host3.composer?.setDraft !== "function") {
+    return failure("no_composer", "Update Hermes Desktop to start a configuration chat");
+  }
+  host3.newChat(request.route);
+  const seated = await host3.composer.setDraft(GUIDED_CHAT_DRAFT, prompt);
+  if (!seated) {
+    return failure("draft_not_claimed", "The new chat did not accept the prompt");
+  }
+  if (request.autoSubmit !== true) {
+    return { ok: true, routeKey: key, autoSubmitted: false };
+  }
+  const sent = host3.composer.submit(GUIDED_CHAT_DRAFT, prompt);
+  return { ok: true, routeKey: key, autoSubmitted: sent };
+}
+
 // src/plugin.tsx
 import { jsx as jsx12 } from "react/jsx-runtime";
 function register(ctx) {
@@ -3330,6 +3365,7 @@ export {
   DAYS_OF_MONTH,
   DAYS_OF_WEEK,
   DEFAULT_SCHEDULE_CONFIG,
+  GUIDED_CHAT_DRAFT,
   INTERVAL_UNITS,
   INTERVAL_VALUES,
   PLUGIN_ID,
@@ -3391,6 +3427,7 @@ export {
   messageOf,
   nextRunIso,
   normalizeJobs,
+  openGuidedRoutineChat,
   parseTimestamp,
   pauseJob,
   plugin,
