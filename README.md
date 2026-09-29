@@ -68,7 +68,7 @@ The images below are captures of the plugin running inside Hermes Desktop. Routi
 
 ![Create Routine panel: a toggle, a Name field, a prompt field, and a Trigger set to Weekdays at 07:45](docs/assets/hermes-routines-02.png)
 
-*Composer — create a routine from a name, schedule, and prompt, or hand the draft to Hermes to finish. This capture predates the composer reframe in issue #72, where **Finish with Hermes** became a card beside the final actions and creation-time state was worded **Start enabled**.*
+*Composer — create a routine from a name, schedule, and prompt, where results go, or hand the draft to Hermes to finish. This capture predates the composer reframe in issue #72, where **Finish with Hermes** became a card beside the final actions and creation-time state was worded **Start enabled**, and the **Advanced → Delivery** override in issue #73, which became **Results** — a picker that asks where results should go and offers only destinations the profile can actually reach.*
 
 ![Routines page with the routine inspector open beside the list, showing the selected routine's schedule and stored instruction](docs/assets/hermes-routines-03.png)
 

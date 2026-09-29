@@ -13,6 +13,7 @@ import {
   readStoredDelivery,
   readStoredModelOverride,
 } from '../domain/advancedSettings';
+import { describeDestination } from '../domain/destinations';
 import { guidedConfigCandidateOf } from '../domain/provisional';
 import { ResultTone, RunWhen } from './RoutineDetails';
 
@@ -44,6 +45,12 @@ export function RoutineInspectorPanel({
   const row = (job ?? null) as unknown as Record<string, unknown> | null;
   const storedDelivery = readStoredDelivery(row);
   const storedModelOverride = readStoredModelOverride(row);
+  // The stored target is DESCRIBED, not echoed (issue #73): the panel
+  // answers "where do this routine's results go" the way the composer
+  // asked it. A value this profile cannot name (an explicit platform
+  // target written elsewhere) keeps its verbatim form rather than being
+  // hidden — an unexplained destination is honest, a missing one is not.
+  const describedDelivery = describeDestination(storedDelivery);
   // Incomplete configuration (issue #65 Part B, scenario 1): paused and
   // never run means no complete configuration to preserve. Read-only
   // text — never a control, never a resume: the reopen action lives on
@@ -149,20 +156,29 @@ export function RoutineInspectorPanel({
 
         {/* ADVANCED (stored values only, and only when they differ from
             the defaults). Mirrors the composer's secondary section with
-            every value read-only: the delivery the backend holds, and the
-            model override labelled as not settable on this surface (D2).
-            No control, no button — this block can never become an edit
-            seam by accident. */}
-        {storedDelivery !== null || storedModelOverride !== null ? (
+            every value read-only: where the results go, in the same human
+            words the composer offered, and the model override labelled as
+            not settable on this surface (D2). No control, no button —
+            this block can never become an edit seam by accident. */}
+        {describedDelivery !== null || storedModelOverride !== null ? (
           <div className="hr-create-when-section">
             <div className="hr-create-section-label">ADVANCED</div>
-            {storedDelivery !== null ? (
+            {describedDelivery !== null ? (
               <div className="hr-create-field">
-                <label className="hr-field-label">Delivery</label>
+                <label className="hr-field-label">Results go to</label>
+                <div className="hr-create-preview-sentence">
+                  {describedDelivery.resolved ? describedDelivery.label : storedDelivery}
+                </div>
+                {describedDelivery.detail ? (
+                  <div className="hr-create-preview-sentence">{describedDelivery.detail}</div>
+                ) : null}
+                {/* The raw backend value stays available, read-only: it
+                    is what the backend actually holds, and hiding it
+                    would make an unexplained target unfalsifiable. */}
                 <input
                   type="text"
                   className="hr-create-input"
-                  value={storedDelivery}
+                  value={storedDelivery ?? ''}
                   disabled
                   readOnly
                   aria-label="Stored delivery"

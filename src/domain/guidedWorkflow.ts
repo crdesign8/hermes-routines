@@ -610,7 +610,11 @@ const REVIEW_LABELS: Readonly<Record<ReviewField, string>> = Object.freeze({
   name: 'Name',
   schedule: 'Schedule',
   prompt: 'Instruction',
-  delivery: 'Delivery',
+  // Issue #73: the review answers the same question the composer asks.
+  // The VALUE in the cells is still the backend truth (`local`, `all`,
+  // `bot-chat` plus a profile name) — a review that showed a prettified value would
+  // not be comparing what the backend holds.
+  delivery: 'Results go to',
   modelOverride: 'Model override',
 });
 

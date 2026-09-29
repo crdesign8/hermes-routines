@@ -61,6 +61,7 @@ export default plugin;
 export * from './constants';
 export * from './domain/cronShapes';
 export * from './domain/routing';
+export * from './domain/destinations';
 export * from './domain/jobs';
 export * from './domain/provisional';
 export * from './domain/guidedEnvelope';

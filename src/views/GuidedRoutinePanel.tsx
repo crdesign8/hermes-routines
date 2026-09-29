@@ -3,6 +3,7 @@ import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import type { GuidedLaunchResult } from '../gateway/guidedLaunch';
 import type { ProvisionalRoutine } from '../domain/provisional';
 import { backendTargetProfile } from '../domain/routing';
+import { describeDestination } from '../domain/destinations';
 import { humanScheduleOf, routinePromptOf, routineTitle } from '../domain/present';
 import { submitProposalForRoutine } from '../domain/routineProposal';
 import {
@@ -525,13 +526,16 @@ export function GuidedRoutinePanel({
               <div className="hr-create-preview-sentence">{schedule}</div>
             </div>
 
-            {/* Submitted delivery, shown only when it differs from the
-                backend default. Read-only text, never a control: the
+            {/* Submitted destination, shown only when it differs from the
+                profile default, in the same human words the composer
+                offered (issue #73). Read-only text, never a control: the
                 provisional shell already carries it. */}
             {submittedDelivery ? (
               <div className="hr-create-field">
-                <label className="hr-field-label">Delivery</label>
-                <div className="hr-create-preview-sentence">{submittedDelivery}</div>
+                <label className="hr-field-label">Results go to</label>
+                <div className="hr-create-preview-sentence">
+                  {describeDestination(submittedDelivery)?.label ?? submittedDelivery}
+                </div>
               </div>
             ) : null}
           </>

@@ -1,9 +1,10 @@
-// Advanced settings UX (issue #65, phase 3, Part A).
+// Results destination UX (issue #65 phase 3 Part A + issue #73).
 //
 // Drives the BUILT bundle through the composer / inspector / review:
-// a secondary Advanced section in the composer (delivery only, no model
-// picker), stored advanced values in the inspector only when they differ
-// from the defaults, and review rows that read patchability off the row.
+// a RESULTS section in the composer that asks where results should go and
+// offers only destinations the profile really exposes, stored advanced
+// values in the inspector described in the same human words, and review
+// rows that read patchability off the row.
 //
 // Fixtures are contract-realistic throughout: a technical `job_id` AND a
 // distinct human title on the same row (issue #45 lesson).
@@ -18,6 +19,10 @@ const reactStub = await import('./stubs/react-stub.mjs');
 
 const ROUTE = { connectionId: 'c1', mode: 'remote', profile: 'p1', targetProfile: 't1' };
 const OWNER = { connectionId: 'c1', profile: 't1' };
+// The destination roster the page hands down. A LOCAL route resolves a
+// `bot-chat:` token on the job's own machine; a REMOTE one does not, so it
+// must not appear in the picker (dead destination, #73).
+const LOCAL_ROUTE = { connectionId: 'local', mode: 'local', profile: 'matias', targetProfile: 'matias' };
 const noop = () => {};
 const CONFIG = routines.DEFAULT_SCHEDULE_CONFIG;
 
@@ -63,11 +68,22 @@ function texts(tree) {
 }
 
 /**
- * Composer useState order (issue #72): name, prompt, startEnabled,
- * scheduleConfig, pendingPath, error, deliveryChoice, deliveryCustom.
- * The creation path is no longer a slot: it is the act each button performs.
+ * Composer useState order (issue #72, extended by #73): name, prompt,
+ * startEnabled, scheduleConfig, pendingPath, error, then the destination
+ * slots — destinationChoice, advancedPlatform, advancedChatId,
+ * advancedThreadId, broadcastConfirmed. The creation path is no longer a
+ * slot: it is the act each button performs.
  */
-function presetComposer({ name, prompt, deliveryChoice, deliveryCustom, errorSlot } = {}) {
+function presetComposer({
+  name,
+  prompt,
+  destinationChoice,
+  advancedPlatform = '',
+  advancedChatId = '',
+  advancedThreadId = '',
+  broadcastConfirmed = false,
+  errorSlot,
+} = {}) {
   reactStub.__presetStates([
     [name ?? 'Ops Digest', noop],
     [prompt ?? 'Summarize yesterday.', noop],
@@ -75,27 +91,15 @@ function presetComposer({ name, prompt, deliveryChoice, deliveryCustom, errorSlo
     [CONFIG, noop],
     [null, noop],
     [null, errorSlot ?? noop],
-    [deliveryChoice ?? '', noop],
-    [deliveryCustom ?? '', noop],
+    [destinationChoice ?? '', noop],
+    [advancedPlatform, noop],
+    [advancedChatId, noop],
+    [advancedThreadId, noop],
+    [broadcastConfirmed, noop],
   ]);
 }
 
-/** The same slots, with one creation act in flight (or none at null). */
-function presetComposerPending(pendingPath, overrides = {}) {
-  const { name = 'Ops Digest', prompt = 'Summarize yesterday.', deliveryChoice = '', deliveryCustom = '' } = overrides;
-  reactStub.__presetStates([
-    [name, noop],
-    [prompt, noop],
-    [true, noop],
-    [CONFIG, noop],
-    [pendingPath, noop],
-    [null, noop],
-    [deliveryChoice, noop],
-    [deliveryCustom, noop],
-  ]);
-}
-
-function renderComposer({ onSubmit, onSubmitGuided } = {}) {
+function renderComposer({ onSubmit, onSubmitGuided, destinationRoutes = [LOCAL_ROUTE] } = {}) {
   return routines.RoutineComposerPanel({
     activeProfile: 'p1',
     activeRoute: ROUTE,
@@ -107,6 +111,7 @@ function renderComposer({ onSubmit, onSubmitGuided } = {}) {
         throw new Error('onSubmit must be stubbed per test');
       }),
     ...(onSubmitGuided ? { onSubmitGuided } : {}),
+    destinationRoutes,
   });
 }
 
@@ -118,11 +123,11 @@ function submitButton(element) {
   return found;
 }
 
-function deliverySelect(element) {
+function destinationSelect(element) {
   const found = collect(element).find(
-    (n) => n.type === routines.SelectField && n.props.label === 'Delivery',
+    (n) => n.type === routines.SelectField && n.props.label === 'Where should results go?',
   );
-  assert.ok(found, 'Delivery control must exist');
+  assert.ok(found, 'the results destination control must exist');
   return found;
 }
 
@@ -190,7 +195,7 @@ function reviewTexts(tree) {
 }
 
 describe('advanced-ui composer', () => {
-  it('keeps the primary composer focused; delivery defaults to absent', async () => {
+  it('keeps the primary composer focused; the destination defaults to the profile default', async () => {
     presetComposer();
     let submitted = null;
     const element = renderComposer({
@@ -203,11 +208,11 @@ describe('advanced-ui composer', () => {
     assert.match(body, /Name/);
     assert.match(body, /What should this routine do\?/);
     assert.match(body, /WHEN TO RUN/);
-    assert.match(body, /ADVANCED/);
+    assert.match(body, /RESULTS/);
     assert.match(body, /cannot be set from this surface/);
-    // The Delivery preset control is a SelectField: its label lives in
-    // props (expanded by collect), not in text children.
-    deliverySelect(element);
+    // The destination control is a SelectField: its label lives in props
+    // (expanded by collect), not in text children.
+    destinationSelect(element);
     await submitButton(element).props.onClick();
     assert.deepEqual(submitted, {
       name: 'Ops Digest',
@@ -218,8 +223,8 @@ describe('advanced-ui composer', () => {
     });
   });
 
-  it('passes an explicit delivery override to submit', async () => {
-    presetComposer({ deliveryChoice: 'all' });
+  it('passes an explicit destination override to submit', async () => {
+    presetComposer({ destinationChoice: 'all', broadcastConfirmed: true });
     let submitted = null;
     const element = renderComposer({
       onSubmit: async (name, schedule, prompt, active, delivery) => {
@@ -231,8 +236,8 @@ describe('advanced-ui composer', () => {
     assert.equal(submitted.delivery, 'all');
   });
 
-  it('passes a custom explicit target to the guided submit', async () => {
-    presetComposerPending(null, { deliveryChoice: 'custom', deliveryCustom: 'telegram:-1001234567890' });
+  it('resolves a chosen Bot Chat into the backend representation the guided path also uses', async () => {
+    presetComposer({ destinationChoice: 'bot-chat:matias' });
     let submitted = null;
     const element = renderComposer({
       onSubmit: async () => true,
@@ -250,15 +255,33 @@ describe('advanced-ui composer', () => {
       name: 'Ops Digest',
       schedule: routines.buildCronExpression(CONFIG),
       prompt: 'Summarize yesterday.',
-      delivery: 'telegram:-1001234567890',
+      delivery: 'bot-chat:matias',
     });
   });
 
-  it('refuses an unsupported typed value with a visible error and never submits', async () => {
+  it('builds a specific destination from the structured override, never a typed protocol string', async () => {
+    presetComposer({
+      destinationChoice: 'advanced',
+      advancedPlatform: 'telegram',
+      advancedChatId: '-1001234567890',
+    });
+    let submitted = null;
+    const element = renderComposer({
+      onSubmit: async (name, schedule, prompt, active, delivery) => {
+        submitted = { name, schedule, prompt, active, delivery };
+        return true;
+      },
+    });
+    await submitButton(element).props.onClick();
+    assert.equal(submitted.delivery, 'telegram:-1001234567890');
+  });
+
+  it('refuses an incomplete structured override with a visible error and never submits', async () => {
     let reported = null;
     presetComposer({
-      deliveryChoice: 'custom',
-      deliveryCustom: '!!! not a target !!!',
+      destinationChoice: 'advanced',
+      advancedPlatform: 'telegram',
+      advancedChatId: '',
       errorSlot: (message) => {
         reported = message;
       },
@@ -271,18 +294,39 @@ describe('advanced-ui composer', () => {
       },
     });
     await submitButton(element).props.onClick();
-    assert.equal(calls, 0, 'an invalid delivery must never reach submit');
+    assert.equal(calls, 0, 'an invalid destination must never reach submit');
     assert.ok(reported, 'the refusal must surface a visible error');
-    assert.match(reported, /unsupported delivery/);
-    assert.match(reported, /local/);
+    assert.match(reported, /address/i);
   });
 
-  it('does not offer origin and ships no model picker', async () => {
+  it('refuses a structured field that smuggles a separator instead of splitting on it', async () => {
+    let reported = null;
+    presetComposer({
+      destinationChoice: 'advanced',
+      advancedPlatform: 'telegram:-1',
+      advancedChatId: 'ops',
+      errorSlot: (message) => {
+        reported = message;
+      },
+    });
+    let calls = 0;
+    const element = renderComposer({
+      onSubmit: async () => {
+        calls += 1;
+        return true;
+      },
+    });
+    await submitButton(element).props.onClick();
+    assert.equal(calls, 0, 'a malformed override must never reach submit');
+    assert.ok(reported, 'the refusal must surface a visible error');
+  });
+
+  it('does not offer origin, invents no destination, and ships no model picker', async () => {
     presetComposer();
     const element = renderComposer({ onSubmit: async () => true });
-    const select = deliverySelect(element);
+    const select = destinationSelect(element);
     const options = select.props.options;
-    assert.ok(Array.isArray(options) && options.length >= 4);
+    assert.ok(Array.isArray(options) && options.length >= 3);
     for (const opt of options) {
       assert.doesNotMatch(String(opt.value), /origin/i);
       assert.doesNotMatch(String(opt.label), /origin/i);
@@ -301,31 +345,162 @@ describe('advanced-ui composer', () => {
     );
   });
 
-  it('reveals the free-text slot only for a custom target', async () => {
+  it('offers no typed-protocol input in the ordinary flow (#73)', async () => {
     presetComposer();
-    const preset = deliverySelect(renderComposer({ onSubmit: async () => true }));
+    const nodes = collect(renderComposer({ onSubmit: async () => true }));
+    assert.ok(
+      !nodes.some((n) => n.type === 'input' && /chat_id|bot-chat:/i.test(n.props.placeholder ?? '')),
+      'no free-text protocol-slot may exist outside the advanced override',
+    );
+    // The override itself is structured: one field per part, no single
+    // string that must be typed as a protocol.
+    presetComposer({ destinationChoice: 'advanced' });
+    const advanced = collect(renderComposer({ onSubmit: async () => true }));
+    const labels = advanced
+      .filter((n) => n.type === 'input')
+      .map((n) => n.props['aria-label'] ?? '');
+    assert.deepEqual(labels.filter((l) => /advanced destination/i.test(l)).sort(), [
+      'Advanced destination channel or chat id',
+      'Advanced destination platform',
+      'Advanced destination thread id',
+    ]);
+  });
+
+  it('reveals the structured override only for the advanced choice', async () => {
+    presetComposer();
+    const preset = destinationSelect(renderComposer({ onSubmit: async () => true }));
     assert.deepEqual(
       preset.props.options.map((o) => o.value),
-      ['', 'local', 'all', 'bot-chat', 'custom'],
+      ['', 'local', 'bot-chat:matias', 'all', 'advanced'],
     );
-    presetComposer({ deliveryChoice: 'custom' });
+    presetComposer({ destinationChoice: 'advanced' });
     const custom = collect(renderComposer({ onSubmit: async () => true })).find(
-      (n) => n.type === 'input' && n.props['aria-label'] === 'Custom delivery target',
+      (n) => n.type === 'input' && n.props['aria-label'] === 'Advanced destination platform',
     );
-    assert.ok(custom, 'custom choice must reveal the free-text slot');
+    assert.ok(custom, 'the advanced choice must reveal the structured fields');
+  });
+
+  it('hides an unreachable destination and lists a resolvable one by name (#73)', async () => {
+    presetComposer();
+    const element = renderComposer({
+      onSubmit: async () => true,
+      // The active route is remote: its backend profile lives on another
+      // machine, where the token cannot resolve.
+      destinationRoutes: [ROUTE, LOCAL_ROUTE],
+    });
+    const labels = destinationSelect(element).props.options.map((o) => o.label);
+    assert.ok(labels.includes('Bot Chat → matias'), 'a local destination is offered by name');
+    assert.ok(
+      !labels.some((l) => /t1/.test(l)),
+      'a remote route must not be offered as a destination',
+    );
+    assert.ok(
+      !labels.some((l) => /Backend default|no override|Custom target/i.test(l)),
+      'backend vocabulary must be gone from the picker',
+    );
+  });
+
+  it('offers only the always-available choices when nothing was discovered', async () => {
+    presetComposer();
+    const element = renderComposer({ onSubmit: async () => true, destinationRoutes: [] });
+    assert.deepEqual(
+      destinationSelect(element).props.options.map((o) => o.value),
+      ['', 'local', 'all', 'advanced'],
+    );
+  });
+});
+
+describe('advanced-ui broadcast guard', () => {
+  it('requires an explicit acknowledgement before any create can proceed', async () => {
+    presetComposer({ destinationChoice: 'all' });
+    let calls = 0;
+    const element = renderComposer({
+      onSubmit: async () => {
+        calls += 1;
+        return true;
+      },
+      onSubmitGuided: async () => {
+        calls += 1;
+        return true;
+      },
+    });
+    // The acknowledgement is painted and states the impact in words.
+    const check = collect(element).find(
+      (n) => n.type === 'input' && n.type !== undefined && n.props.type === 'checkbox',
+    );
+    assert.ok(check, 'the fan-out choice must render an acknowledgement');
+    assert.match(texts(element).join(' '), /every connected channel/i);
+    // Every create act is disabled while it is unacknowledged...
+    for (const label of ['Create Routine', 'Finish with Hermes']) {
+      const button = collect(element).find(
+        (n) => n.type === 'button' && texts(n).join('').includes(label),
+      );
+      assert.equal(button.props.disabled, true, `${label} must be blocked`);
+    }
+    // ...and the handler refuses too, so the guard is not only a disabled
+    // button that some other route could bypass.
+    let reported = null;
+    presetComposer({
+      destinationChoice: 'all',
+      errorSlot: (message) => {
+        reported = message;
+      },
+    });
+    const guard = renderComposer({
+      onSubmit: async () => {
+        calls += 1;
+        return true;
+      },
+    });
+    await submitButton(guard).props.onClick();
+    assert.equal(calls, 0, 'an unacknowledged fan-out must never reach submit');
+    assert.match(reported, /every connected channel/i);
+  });
+
+  it('lets the create through once the fan-out is acknowledged', async () => {
+    presetComposer({ destinationChoice: 'all', broadcastConfirmed: true });
+    let submitted = null;
+    const element = renderComposer({
+      onSubmit: async (name, schedule, prompt, active, delivery) => {
+        submitted = { name, schedule, prompt, active, delivery };
+        return true;
+      },
+    });
+    assert.equal(submitButton(element).props.disabled, false);
+    await submitButton(element).props.onClick();
+    assert.equal(submitted.delivery, 'all');
+  });
+
+  it('shows no acknowledgement for a quiet destination', async () => {
+    presetComposer({ destinationChoice: 'local' });
+    const element = renderComposer({ onSubmit: async () => true });
+    assert.ok(
+      !collect(element).some((n) => n.type === 'input' && n.props.type === 'checkbox'),
+      'keeping results local must not demand a fan-out acknowledgement',
+    );
+    assert.equal(submitButton(element).props.disabled, false);
   });
 });
 
 describe('advanced-ui inspector', () => {
-  it('shows a stored non-default delivery', async () => {
-    const tree = renderInspector({ ...BASE_JOB, deliver: 'all' });
+  it('describes a stored non-default destination in human words', async () => {
+    const tree = renderInspector({ ...BASE_JOB, deliver: 'bot-chat:matias' });
     const body = texts(tree).join(' ');
     assert.match(body, /ADVANCED/);
-    assert.match(body, /Delivery/);
+    assert.match(body, /Results go to/);
+    assert.match(body, /Bot Chat → matias/);
+    // The backend value stays readable, so an unexplained target is
+    // falsifiable rather than merely hidden.
     const input = collect(tree).find((n) => n.type === 'input' && n.props['aria-label'] === 'Stored delivery');
     assert.ok(input, 'stored delivery must render');
-    assert.equal(input.props.value, 'all');
+    assert.equal(input.props.value, 'bot-chat:matias');
     assert.equal(input.props.disabled, true);
+  });
+
+  it('names a stored fan-out destination and keeps it marked as a fan-out', async () => {
+    const body = texts(renderInspector({ ...BASE_JOB, deliver: 'all' })).join(' ');
+    assert.match(body, /every connected channel/i);
+    assert.doesNotMatch(body, /\bplatform:chat_id\b/);
   });
 
   it('shows a stored model override as read-only with the not-settable wording', async () => {
@@ -375,7 +550,9 @@ describe('advanced-ui review', () => {
     assert.equal(delivery.patchable, true);
     assert.equal(delivery.changed, true);
     const body = reviewTexts(renderReview(review));
-    assert.match(body, /Delivery/);
+    // The label asks the user's question; the cells keep the backend
+    // truth, because this table IS the comparison against stored values.
+    assert.match(body, /Results go to/);
     assert.match(body, /editable/);
   });
 
@@ -416,8 +593,8 @@ describe('advanced-ui guided panel', () => {
     });
   }
 
-  it('shows a submitted non-default delivery and hides the default', async () => {
-    assert.match(texts(renderGuided('all')).join(' '), /all/);
-    assert.doesNotMatch(texts(renderGuided(undefined)).join(' '), /Delivery/);
+  it('shows a submitted non-default destination in human words and hides the default', async () => {
+    assert.match(texts(renderGuided('bot-chat:matias')).join(' '), /Bot Chat → matias/);
+    assert.doesNotMatch(texts(renderGuided(undefined)).join(' '), /Results go to/);
   });
 });
