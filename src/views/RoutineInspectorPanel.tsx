@@ -13,6 +13,7 @@ import { describeDestination } from '../domain/destinations';
 import { explainFailureOf } from '../domain/failureExplain';
 import { guidedConfigCandidateOf } from '../domain/provisional';
 import { ResultTone, RunWhen } from './RunOutcome';
+import { PanelNav } from './PanelNav';
 
 /**
  * Id of the detail surface the list rows disclose. Declared once here and
@@ -73,17 +74,11 @@ export function RoutineInspectorPanel({
   return (
     <aside className="hr-inspector" id={id} aria-label={`Details for ${title}`}>
       <header className="hr-inspector-header">
-        <button
-          type="button"
-          className="hr-btn-action hr-btn-back"
-          onClick={onClose}
-          aria-label="Back to routines"
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style={{ flexShrink: 0 }}>
-            <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
-          </svg>
-          <span>Back to routines</span>
-        </button>
+        {/* Split view: the list is still beside this panel, so the action is
+            a dismiss, not a back navigation (issue #78). On a narrow
+            viewport the same control reads as Back, because there the panel
+            does cover the list. */}
+        <PanelNav closeLabel={`Close details for ${title}`} onClose={onClose} />
       </header>
 
       <div className="hr-inspector-body">

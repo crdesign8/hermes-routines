@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Panel navigation now follows the layout. The routines list stays on screen
+  beside the right-side panel in the split view, so the header control no
+  longer reads **Back to routines** there — that wording promised a
+  navigation the user never made, because nothing was ever left. The split
+  view gets an explicit **dismiss** control: a close icon whose accessible
+  name says what it closes (*Close details for _routine_*, *Cancel and close
+  the create form*, *Close configuration and return to routines*), never a
+  bare "×".
+
+  Below the existing 820px breakpoint the panel takes the full width and
+  covers the list, and there the same control is honestly a back navigation
+  — so **Back to routines** is kept exactly where it is true. Which control
+  is offered is decided by the stylesheet, in the one media query the
+  workspace already used: no `matchMedia` handler duplicates the number in
+  JS, so the two layouts cannot drift apart. The control that a layout does
+  not offer is `display: none`, which takes it out of the accessibility tree
+  *and* out of the tab order — `visibility: hidden` would have left a
+  focusable ghost behind.
+
+  **Escape** now dismisses the open panel, and only the open panel: with
+  nothing open the key is not handled at all, so it cannot steal a
+  keystroke from the search box. A focused text field or an open dropdown
+  keeps its own Escape (the composer is built from dropdowns) — a key that
+  closed the form the instant it closed a menu inside it would resolve two
+  intents at once, and only the first is recoverable. The handler lives on
+  the split workspace, so focus may be anywhere inside it.
+
+  Closing hands focus back where the user would continue: the row the
+  inspector belonged to (its Details control now carries a stable id derived
+  from the same key the inspector uses), or the control that opened the
+  panel. The guided configuration panel returns focus to nothing, because
+  the notice action that opened it unmounts behind the panel — "where
+  practical", never a guess.
+
+  The same header control shape replaces three hand-copied back buttons
+  (inspector, composer, guided panel), so the four panel surfaces can no
+  longer drift apart in wording, icon or behavior.
+
 - Routine rows stay compact, and the inspector owns the detail. Selecting a
   routine used to expand the list row into a full detail block — Schedule,
   Next run, Last run, Last result — that restated the lateral inspector

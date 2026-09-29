@@ -19,6 +19,12 @@ export interface RoutineCardProps {
   disabled: boolean;
   /** Id of the panel the disclosure controls — the inspector, beside the list. */
   inspectorId: string;
+  /**
+   * Id for the row's own disclosure control, so dismissing the panel can
+   * hand focus back to the row the user came from. Optional: a caller
+   * without focus restoration simply omits it.
+   */
+  controlId?: string;
   onSelect: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -34,7 +40,7 @@ export interface RoutineCardProps {
  * single line whose height is identical whether or not the row is selected.
  */
 export function RoutineCard(props: RoutineCardProps): ReactElement {
-  const { job, fallback, inspected = false, busy, disabled, inspectorId } = props;
+  const { job, fallback, inspected = false, busy, disabled, inspectorId, controlId } = props;
   const title = routineTitle(job, fallback);
   const paused = routinePausedOf(job);
   const terminal = routineTerminal(job);
@@ -117,6 +123,7 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
 
           <button
             type="button"
+            id={controlId}
             className={`hr-icon-btn hr-icon-btn-edit${inspected ? ' hr-icon-btn-active' : ''}`}
             aria-expanded={inspected}
             aria-controls={inspected ? inspectorId : undefined}

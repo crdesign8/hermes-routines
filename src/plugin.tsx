@@ -84,6 +84,7 @@ export * from './views/RunOutcome';
 export * from './views/RoutineList';
 export * from './views/RoutineCard';
 export * from './views/RoutineInspectorPanel';
+export * from './views/PanelNav';
 export * from './views/GuidedRoutinePanel';
 export * from './views/GuidedProposalReview';
 export * from './views/SelectField';
