@@ -98,15 +98,15 @@ export function RoutineInspectorPanel({
 
         {/* Paused and never run: its configuration is incomplete. Stated
             in words so the list/inspector answer scenario 1 even after a
-            reload wiped the guided panel state. */}
+            reload wiped the guided panel state. Quiet by the
+            attention-budget rule: information, not a state to act on here
+            (the reopen action lives on the list). */}
         {needsConfiguration ? (
-          <div className="hr-create-active-card">
-            <div className="hr-create-active-info">
-              <span className="hr-create-active-title">Paused · needs configuration</span>
-              <span className="hr-create-active-subtitle">
-                This routine is paused and has never run — its configuration is incomplete.
-              </span>
-            </div>
+          <div className="hr-inspector-note">
+            <span className="hr-create-active-title">Paused · needs configuration</span>
+            <span className="hr-create-active-subtitle">
+              This routine is paused and has never run — its configuration is incomplete.
+            </span>
           </div>
         ) : null}
 

@@ -430,7 +430,10 @@ export function RoutineComposerPanel({
               <div className="hr-create-preview-sentence">
                 {selectedDestination?.detail ?? ''}
               </div>
-              <div className="hr-create-broadcast-card">
+              {/* Quiet opt-in: asking for the fan-out guard is not itself a
+                  risk, so it takes no bordered surface. The bordered card
+                  below is reserved for the acknowledged fan-out state. */}
+              <div className="hr-create-broadcast-quiet">
                 <p className="hr-create-broadcast-note">
                   Sending to every connected channel is not a normal destination.
                 </p>
@@ -514,25 +517,21 @@ export function RoutineComposerPanel({
           </div>
         ) : null}
 
-        {/* Finish with Hermes — the secondary COMPLETION path, next to the
-            final actions. It is a button, not a switch, because choosing
-            it is an act (create paused, then open a configuration chat),
-            not a property the routine keeps. The card says what Hermes
-            does and why the user would pick it, and it accepts a partial
-            draft: anything left vague is exactly what the session asks
-            about, and nothing vague can run because the routine is paused
+        {/* Finish with Hermes — the secondary completion path, next to the
+            final actions. It is a quiet secondary act, not a card: the
+            attention-budget rule (CONTRIBUTING.md) reserves highlighted
+            containers for the primary action, failure/risk, and immediate
+            attention, and this optional path is none of those. One button
+            plus one sentence carry it; the value is in the chat after the
+            click, not in the size of the surface. It accepts a partial
+            draft: anything left vague is what the session asks about, and
+            nothing vague can run because the routine is created paused
             until a proposal is reviewed and applied. */}
         {onSubmitGuided ? (
-          <section className="hr-create-hermes-card" aria-labelledby="hr-create-hermes-title">
-            <div className="hr-create-hermes-info">
-              <span className="hr-create-hermes-title" id="hr-create-hermes-title">
-                Finish with Hermes
-              </span>
-              <span className="hr-create-hermes-subtitle">
-                Hermes reviews this draft in a chat, asks about whatever is still missing, and
-                completes the setup for you. Nothing here has to be finished first.
-              </span>
-            </div>
+          <section className="hr-create-hermes-quiet" aria-labelledby="hr-create-hermes-title">
+            <span id="hr-create-hermes-title" className="hr-sr-only">
+              Finish with Hermes
+            </span>
             <button
               type="button"
               className="hr-btn hr-btn-create-hermes"
@@ -540,13 +539,11 @@ export function RoutineComposerPanel({
               disabled={!draftReady || busy || broadcastBlocked}
               onClick={() => void handleSubmit('guided')}
             >
-              {pendingPath === 'guided' ? 'Starting…' : 'Finish with Hermes'}
+              {pendingPath === 'guided' ? 'Starting…' : 'Finish with Hermes →'}
             </button>
-            <span className="hr-create-hermes-hint">
-              {draftReady
-                ? 'The routine is created paused and stays paused until you review what Hermes proposes.'
-                : 'Add a name and an instruction, and the rest is what the conversation is for.'}
-            </span>
+            <p className="hr-create-hermes-note">
+              Let Hermes review this paused routine in chat before you enable it.
+            </p>
           </section>
         ) : null}
 

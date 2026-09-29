@@ -3941,6 +3941,9 @@ var ROUTINES_CSS = [
   "  color: var(--ui-text-primary, #fff);",
   "  margin: 0 0 16px 0;",
   "}",
+  // Already chromeless (transparent, no border): creation-time state is a
+  // quiet row, not a card. Typography stays below the section titles so the
+  // mechanism never outranks the intent (attention budget, issue #92).
   ".hr-create-active-card {",
   "  display: flex;",
   "  align-items: center;",
@@ -3957,7 +3960,7 @@ var ROUTINES_CSS = [
   "  gap: 2px;",
   "}",
   ".hr-create-active-title {",
-  "  font-size: 14px;",
+  "  font-size: 13px;",
   "  font-weight: 600;",
   "  color: var(--ui-text-primary, #fff);",
   "}",
@@ -4008,62 +4011,82 @@ var ROUTINES_CSS = [
   "  opacity: 0.65;",
   "  cursor: not-allowed;",
   "}",
-  // Finish with Hermes: a distinct, bordered card ABOVE the final actions,
-  // so the secondary completion path reads as a separate offering rather
-  // than another field of the form. It is a card and not a switch because
-  // it is an act, and a switch-shaped control would promise a property the
-  // routine never keeps.
-  ".hr-create-hermes-card {",
+  // Finish with Hermes: a quiet secondary act ABOVE the final actions, so
+  // the secondary completion path reads as a separate offering without
+  // competing with the primary action (attention budget, issue #92). No
+  // border, no fill: spacing and typography do the grouping. The button
+  // itself is borderless accent text (clearly secondary next to the filled
+  // Create Routine action), followed by exactly one supporting sentence.
+  ".hr-create-hermes-quiet {",
   "  display: flex;",
   "  flex-direction: column;",
-  "  gap: 10px;",
-  "  padding: 12px 14px;",
-  "  margin-top: 16px;",
-  "  border: 1px dashed var(--ui-stroke-secondary, var(--dt-border, rgba(255, 255, 255, 0.16)));",
-  "  border-radius: 10px;",
-  "  background: var(--ui-bg-secondary, color-mix(in srgb, var(--dt-card, #1c1917) 35%, transparent));",
-  "}",
-  ".hr-create-hermes-info {",
-  "  display: flex;",
-  "  flex-direction: column;",
+  "  align-items: flex-start;",
   "  gap: 4px;",
+  "  margin-top: 16px;",
   "}",
-  ".hr-create-hermes-title {",
-  "  font-size: 13px;",
-  "  font-weight: 600;",
-  "  color: var(--ui-text-primary, #fff);",
-  "}",
-  ".hr-create-hermes-subtitle {",
+  ".hr-create-hermes-note {",
+  "  margin: 0;",
   "  font-size: 12px;",
   "  line-height: 1.45;",
-  "  color: var(--ui-text-secondary, #a1a1aa);",
-  "}",
-  ".hr-create-hermes-hint {",
-  "  font-size: 11px;",
-  "  line-height: 1.4;",
   "  color: var(--ui-text-tertiary, #888);",
   "}",
   ".hr-btn-create-hermes {",
-  "  width: 100%;",
-  "  height: 34px;",
-  "  border-radius: 8px;",
+  "  background: transparent;",
+  "  border: none;",
+  "  padding: 6px 0;",
   "  font-size: 13px;",
   "  font-weight: 600;",
-  "  color: var(--ui-text-primary, #fff);",
-  "  background: transparent;",
-  "  border: 1px solid var(--ui-stroke-secondary, var(--dt-border, rgba(255, 255, 255, 0.22)));",
+  "  color: var(--dt-primary, var(--ui-accent, #ea580c));",
   "  cursor: pointer;",
-  "  transition: opacity 0.15s ease, background 0.15s ease;",
-  "  display: flex;",
+  "  transition: opacity 0.15s ease;",
+  "  display: inline-flex;",
   "  align-items: center;",
-  "  justify-content: center;",
   "}",
   ".hr-btn-create-hermes:hover:not(:disabled) {",
-  "  background: var(--chrome-action-hover, rgba(255, 255, 255, 0.06));",
+  "  background: transparent;",
+  "  text-decoration: underline;",
+  "  text-underline-offset: 3px;",
   "}",
   ".hr-btn-create-hermes:disabled {",
   "  opacity: 0.5;",
   "  cursor: not-allowed;",
+  "  text-decoration: none;",
+  "}",
+  // Quiet broadcast opt-in (issue #92). Asking for the fan-out guard is not
+  // itself a risk, so the pre-opt-in block takes no bordered surface — only
+  // the acknowledged fan-out state below keeps the bordered card, because
+  // delivering to every connected channel is a real risk.
+  ".hr-create-broadcast-quiet {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  align-items: flex-start;",
+  "  gap: 6px;",
+  "  margin: 10px 0 14px 0;",
+  "}",
+  ".hr-create-broadcast-quiet .hr-btn {",
+  "  background: transparent;",
+  "}",
+  // Quiet inspector note (issue #92): information with no action on this
+  // surface, so spacing and type carry it instead of a card.
+  ".hr-inspector-note {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  gap: 2px;",
+  "  padding: 0;",
+  "}",
+  // Quiet needs-configuration notice (issue #92): this names paused rows
+  // that can be (re)opened, not a failure — so it takes no bordered band.
+  // The StaleBanner keeps .hr-stale; errors and the attention band keep
+  // their stronger treatment.
+  ".hr-config-note {",
+  "  display: flex;",
+  "  gap: 8px;",
+  "  align-items: center;",
+  "  flex-wrap: wrap;",
+  "  padding: 4px 0;",
+  "  margin: 0 0 12px;",
+  "  color: var(--ui-text-secondary, #ccc);",
+  "  font-size: 12px;",
   "}",
   // Fan-out guard (issue #90). The card is painted only inside the advanced
   // path, after an explicit opt-in: delivering to every connected channel
@@ -4756,10 +4779,10 @@ function RoutineInspectorPanel({
     /* @__PURE__ */ jsx6("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsx6(PanelNav, { closeLabel: `Close details for ${title}`, onClose }) }),
     /* @__PURE__ */ jsxs6("div", { className: "hr-inspector-body", children: [
       /* @__PURE__ */ jsx6("h3", { className: "hr-create-title", children: title }),
-      needsConfiguration ? /* @__PURE__ */ jsx6("div", { className: "hr-create-active-card", children: /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
+      needsConfiguration ? /* @__PURE__ */ jsxs6("div", { className: "hr-inspector-note", children: [
         /* @__PURE__ */ jsx6("span", { className: "hr-create-active-title", children: "Paused \xB7 needs configuration" }),
         /* @__PURE__ */ jsx6("span", { className: "hr-create-active-subtitle", children: "This routine is paused and has never run \u2014 its configuration is incomplete." })
-      ] }) }) : null,
+      ] }) : null,
       /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
         /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
           /* @__PURE__ */ jsx6("span", { className: "hr-create-active-title", children: "Active" }),
@@ -5321,7 +5344,7 @@ function RoutineComposerPanel({
             }
           ),
           /* @__PURE__ */ jsx9("div", { className: "hr-create-preview-sentence", children: selectedDestination?.detail ?? "" }),
-          /* @__PURE__ */ jsxs8("div", { className: "hr-create-broadcast-card", children: [
+          /* @__PURE__ */ jsxs8("div", { className: "hr-create-broadcast-quiet", children: [
             /* @__PURE__ */ jsx9("p", { className: "hr-create-broadcast-note", children: "Sending to every connected channel is not a normal destination." }),
             /* @__PURE__ */ jsx9(
               "button",
@@ -5384,11 +5407,8 @@ function RoutineComposerPanel({
         )
       ] }),
       error ? /* @__PURE__ */ jsx9("div", { className: "hr-create-error", role: "alert", children: error }) : null,
-      onSubmitGuided ? /* @__PURE__ */ jsxs8("section", { className: "hr-create-hermes-card", "aria-labelledby": "hr-create-hermes-title", children: [
-        /* @__PURE__ */ jsxs8("div", { className: "hr-create-hermes-info", children: [
-          /* @__PURE__ */ jsx9("span", { className: "hr-create-hermes-title", id: "hr-create-hermes-title", children: "Finish with Hermes" }),
-          /* @__PURE__ */ jsx9("span", { className: "hr-create-hermes-subtitle", children: "Hermes reviews this draft in a chat, asks about whatever is still missing, and completes the setup for you. Nothing here has to be finished first." })
-        ] }),
+      onSubmitGuided ? /* @__PURE__ */ jsxs8("section", { className: "hr-create-hermes-quiet", "aria-labelledby": "hr-create-hermes-title", children: [
+        /* @__PURE__ */ jsx9("span", { id: "hr-create-hermes-title", className: "hr-sr-only", children: "Finish with Hermes" }),
         /* @__PURE__ */ jsx9(
           "button",
           {
@@ -5397,10 +5417,10 @@ function RoutineComposerPanel({
             "aria-label": "Create this routine and finish the setup with Hermes",
             disabled: !draftReady || busy || broadcastBlocked,
             onClick: () => void handleSubmit("guided"),
-            children: pendingPath === "guided" ? "Starting\u2026" : "Finish with Hermes"
+            children: pendingPath === "guided" ? "Starting\u2026" : "Finish with Hermes \u2192"
           }
         ),
-        /* @__PURE__ */ jsx9("span", { className: "hr-create-hermes-hint", children: draftReady ? "The routine is created paused and stays paused until you review what Hermes proposes." : "Add a name and an instruction, and the rest is what the conversation is for." })
+        /* @__PURE__ */ jsx9("p", { className: "hr-create-hermes-note", children: "Let Hermes review this paused routine in chat before you enable it." })
       ] }) : null,
       /* @__PURE__ */ jsxs8("div", { className: "hr-create-actions", children: [
         /* @__PURE__ */ jsx9(
@@ -6005,7 +6025,7 @@ function NeedsConfigurationNotice({
   onConfigure
 }) {
   if (targets.length === 0) return null;
-  return /* @__PURE__ */ jsxs12("div", { className: "hr-stale", role: "status", children: [
+  return /* @__PURE__ */ jsxs12("div", { className: "hr-config-note", role: "status", children: [
     /* @__PURE__ */ jsx13("span", { children: targets.length === 1 ? "One paused routine needs configuration." : `${targets.length} paused routines need configuration.` }),
     targets.map((target) => /* @__PURE__ */ jsx13(
       "button",

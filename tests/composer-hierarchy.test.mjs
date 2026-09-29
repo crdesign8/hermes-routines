@@ -1,16 +1,17 @@
-// Composer hierarchy (issue #72).
+// Composer hierarchy (issue #72) under the attention budget (issue #92).
 //
 // Drives the BUILT bundle — the artifact the Desktop loads — and pins the
 // two questions the issue turns on:
 //
 //   1. HIERARCHY. The form starts with what the routine should do and when
-//      it runs. Hermes-assisted configuration is a distinct completion card
-//      next to the final actions, never a first control and never a
-//      persistent on/off property of the routine.
-//   2. HONESTY. Choosing the assisted path is an ACT, so the copy says what
-//      Hermes does, what happens to the routine (created paused, activated
-//      only after a reviewed proposal), and the same draft that feeds one
-//      path feeds the other without redundant field completion.
+//      it runs. Hermes-assisted configuration is a quiet secondary act
+//      next to the final actions (a borderless button plus one sentence),
+//      never a first control, never a card, and never a persistent on/off
+//      property of the routine.
+//   2. HONESTY. Choosing the assisted path is an ACT, so the single
+//      sentence says what happens to the routine (paused until enabled),
+//      and the same draft that feeds one path feeds the other without
+//      redundant field completion.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
@@ -24,7 +25,9 @@ const ROUTE = { connectionId: 'c1', mode: 'remote', profile: 'p1', targetProfile
 const noop = () => {};
 const CONFIG = routines.DEFAULT_SCHEDULE_CONFIG;
 const HERMES_CLASS = 'hr-btn hr-btn-create-hermes';
-const HERMES_CARD = 'hr-create-hermes-card';
+const HERMES_QUIET = 'hr-create-hermes-quiet';
+const HERMES_NOTE = 'hr-create-hermes-note';
+const HERMES_SENTENCE = 'Let Hermes review this paused routine in chat before you enable it.';
 
 /** Composer useState order: name, prompt, startEnabled, scheduleConfig, pendingPath, error, deliveryChoice, deliveryCustom. */
 function presetDraft({ name, prompt, pendingPath = null, deliveryChoice = '', deliveryCustom = '' } = {}) {
@@ -132,7 +135,7 @@ describe('composer hierarchy (issue #72)', () => {
       (n) => n.type === 'button' && n.props['aria-label'] === 'Start the routine enabled',
       'start-enabled switch',
     );
-    const hermes = indexOf((n) => n.props && n.props.className === HERMES_CARD, 'Hermes completion card');
+    const hermes = indexOf((n) => n.props && n.props.className === HERMES_QUIET, 'Hermes quiet act');
     const actions = indexOf(
       (n) => n.type === 'div' && n.props.className === 'hr-create-actions',
       'final actions',
@@ -159,19 +162,30 @@ describe('composer hierarchy (issue #72)', () => {
     assert.doesNotMatch(textOf(renderGuided()), /Configure with Hermes/);
   });
 
-  it('explains the assisted path, and keeps the paused invariant visible', () => {
+  it('explains the assisted path in exactly one sentence, and stays quiet', () => {
     const element = renderGuided();
     const copy = textOf(element);
     assert.match(copy, /Finish with Hermes/);
-    assert.match(copy, /Hermes reviews this draft in a chat/);
-    assert.match(copy, /asks about whatever is still missing/);
-    assert.match(copy, /Nothing here has to be finished first/);
-    // The safety rule stated at the point of choice, not buried in the
-    // panel it leads to.
-    assert.match(copy, /created paused/);
-    assert.match(copy, /stays paused until you review what Hermes proposes/);
+    // The one supporting sentence: paused, in chat, before enabling.
+    assert.match(copy, /Let Hermes review this paused routine in chat before you enable it\./);
+    // No card chrome and no second explanation: the retired card, subtitle,
+    // and per-draft hint must all be gone.
+    const nodes = documentOrder(element);
+    assert.equal(
+      nodes.some((n) => n.props && n.props.className === 'hr-create-hermes-card'),
+      false,
+      'no highlighted card around the assisted path',
+    );
+    assert.doesNotMatch(copy, /Hermes reviews this draft in a chat/);
+    assert.doesNotMatch(copy, /Nothing here has to be finished first/);
+    assert.doesNotMatch(copy, /stays paused until you review what Hermes proposes/);
+    assert.doesNotMatch(copy, /Add a name and an instruction/);
     // Never a claim of activation.
     assert.doesNotMatch(copy, /will be active|starts running|runs immediately/i);
+    // Exactly one supporting sentence node.
+    const notes = nodes.filter((n) => n.props && n.props.className === HERMES_NOTE);
+    assert.equal(notes.length, 1, 'exactly one supporting sentence');
+    assert.equal(textOf(notes[0]).trim(), HERMES_SENTENCE);
   });
 
   it('offers the assisted path on a partial draft, without redundant completion', () => {
@@ -184,7 +198,7 @@ describe('composer hierarchy (issue #72)', () => {
     assert.equal(finish.props.disabled, false, 'a name and an instruction are enough to ask Hermes');
   });
 
-  it('refuses an incomplete draft on both paths instead of dead-ending it', () => {
+  it('refuses an incomplete draft on both paths, quietly', () => {
     for (const draft of [{ name: '', prompt: 'Do the thing' }, { name: 'Ops Digest', prompt: '  ' }]) {
       presetDraft(draft);
       const element = renderComposer({ onSubmit: async () => true, onSubmitGuided: async () => true });
@@ -195,7 +209,10 @@ describe('composer hierarchy (issue #72)', () => {
       assert.ok(create, 'the direct action must exist');
       assert.equal(finish.props.disabled, true, 'an unusable draft cannot enter the assisted path');
       assert.equal(create.props.disabled, true, 'and cannot be created either');
-      assert.match(textOf(element), /Add a name and an instruction/, 'the reason is stated, not implied');
+      // The budget allows no second hint here: the single sentence stays,
+      // and the disabled acts refuse the draft without explaining twice.
+      assert.match(textOf(element), /Let Hermes review this paused routine in chat before you enable it\./);
+      assert.doesNotMatch(textOf(element), /Add a name and an instruction/);
     }
   });
 
@@ -290,7 +307,7 @@ describe('composer hierarchy (issue #72)', () => {
       );
       // The in-flight act states its own outcome; the other stays at its
       // resting label, and neither is clickable again.
-      assert.match(textOf(finish), pendingPath === 'guided' ? new RegExp(label) : /Finish with Hermes/);
+      assert.match(textOf(finish), pendingPath === 'guided' ? new RegExp(label) : /Finish with Hermes →/);
       assert.match(textOf(create), pendingPath === 'direct' ? new RegExp(label) : /Create Routine/);
       assert.equal(finish.props.disabled, true, 'an in-flight form takes no second submit');
       assert.equal(create.props.disabled, true);
@@ -349,7 +366,7 @@ describe('composer hierarchy (issue #72)', () => {
       },
     });
     assert.equal(
-      documentOrder(element).some((n) => n.props && n.props.className === HERMES_CARD),
+      documentOrder(element).some((n) => n.props && n.props.className === HERMES_QUIET),
       false,
       'no assisted act without a handler, so no fallthrough to reach',
     );
@@ -363,13 +380,16 @@ describe('composer hierarchy (issue #72)', () => {
     const finish = finishButton(nodes);
     assert.equal(finish.type, 'button');
     assert.equal(finish.props['aria-label'], 'Create this routine and finish the setup with Hermes');
-    // The card is a labelled region, so a screen reader can reach the
-    // explanation as a whole instead of three loose strings.
-    const card = nodes.find((n) => n.props && n.props.className === HERMES_CARD);
+    // The quiet block is a labelled region, so a screen reader can reach
+    // the explanation as a whole instead of loose strings. The visible
+    // label lives on the button; the title stays screen-reader-only so the
+    // name is not painted twice.
+    const card = nodes.find((n) => n.props && n.props.className === HERMES_QUIET);
     assert.equal(card.type, 'section');
     assert.equal(card.props['aria-labelledby'], 'hr-create-hermes-title');
     const title = nodes.find((n) => n.props && n.props.id === 'hr-create-hermes-title');
-    assert.ok(title, 'the card title must be the labelled target');
+    assert.ok(title, 'the quiet block title must be the labelled target');
+    assert.match(String(title.props.className || ''), /hr-sr-only/, 'the title adds no visible copy');
     // No positive tabindex anywhere: focus order stays the document order
     // the hierarchy above already defines.
     for (const node of nodes) {
@@ -387,7 +407,7 @@ describe('composer hierarchy (issue #72)', () => {
     presetDraft();
     const element = renderComposer();
     const nodes = documentOrder(element);
-    assert.equal(nodes.some((n) => n.props && n.props.className === HERMES_CARD), false);
+    assert.equal(nodes.some((n) => n.props && n.props.className === HERMES_QUIET), false);
     assert.doesNotMatch(textOf(element), /Finish with Hermes/);
     // The direct path is untouched, including the creation-time state.
     assert.match(textOf(element), /Start enabled/);
