@@ -93,6 +93,24 @@ export function withPausedFlag(job: RoutineJob, paused: boolean): RoutineJob {
   return next;
 }
 
+/**
+ * How many rows each filter would reveal (issue #79).
+ *
+ * Computed over whatever set the caller passes in — the page passes the
+ * SEARCH-matched rows, not the whole inventory, so a chip's number is the
+ * number of rows that chip would actually open. A count that ignores an
+ * active search is a count the user can see is wrong.
+ */
+export function filterCounts(jobs: unknown): Record<RoutineFilter, number> {
+  const list = Array.isArray(jobs) ? (jobs as RoutineJob[]) : [];
+  const counts: Record<RoutineFilter, number> = { all: list.length, active: 0, paused: 0 };
+  for (const job of list) {
+    if (jobPaused(job)) counts.paused += 1;
+    else counts.active += 1;
+  }
+  return counts;
+}
+
 /** Apply the active filter without mutating the source array. */
 export function visibleJobs(jobs: unknown, filter: RoutineFilter): RoutineJob[] {
   const list = Array.isArray(jobs) ? (jobs as RoutineJob[]) : [];

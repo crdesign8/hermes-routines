@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The routines list now labels its primary action and states each filter's
+  size. The creation control was a bare `+` whose meaning lived only in an
+  `aria-label`, so a sighted user had to already know what the glyph meant;
+  it now paints **New routine** beside the glyph, and its accessible name
+  comes from that visible text rather than a second label that could drift
+  from it.
+
+  Row action targets grew from 24x24 to 28x28 around an unchanged 13px
+  glyph — past the WCAG 2.2 minimum of 24x24 — and the search box and its
+  clear control (16x16, the smallest target on the page) moved to 28px and
+  24px. The filter chips went from a 24px underline with 2px of padding to
+  a 28px band with 6px. Row height is unchanged, so the compact list from
+  issue #77 stays compact. Every icon-only control keeps its per-routine
+  accessible name and tooltip, and the disabled/pending states are as they
+  were.
+
+  Each filter chip now carries its own count (`All 15 · Active 10 · Paused
+  5`), which replaces the *Showing all N routines.* toolbar line: that
+  sentence only ever restated the chip already marked as current, while the
+  chip counts say something it never did — how large every slice is. The
+  counts are computed over the search matches with NO status filter applied,
+  because a count taken from the already-filtered rows would report *Paused
+  0* while paused routines exist. The count is announced once through the
+  chip's accessible name, the settled count is still announced by the polite
+  live region, and neither is painted twice.
+
+  The labeled action is wider than the glyph it replaced, so the header row
+  is allowed to wrap, and below the existing 820px breakpoint the pill
+  tightens its padding rather than dropping its label.
+
 - Panel navigation now follows the layout. The routines list stays on screen
   beside the right-side panel in the split view, so the header control no
   longer reads **Back to routines** there — that wording promised a

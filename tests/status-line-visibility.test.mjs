@@ -1,10 +1,16 @@
 // Routine count must be stated once, but the polite live region must survive.
 //
 // Issue #52: the page showed the count twice — once in the toolbar
-// (hr-count-right) and again as a permanent bottom line. The live region
-// itself stays: assistive tech still hears the count, only the second
-// painted copy is gone. Transient feedback (pause/resume/create, loading,
-// errors) stays visible because it is the page's operational signal.
+// (hr-count-right) and again as a permanent bottom line.
+//
+// Issue #79 removed the remaining painted copy. "Showing all N routines."
+// sat under the filter chips and only ever restated the chip already marked
+// as current, so the number now lives ON the chips — All 15 / Active 10 /
+// Paused 5 — where it says something the toolbar sentence never did: how big
+// each slice is. The live region stays and still announces the settled
+// count, so the number is painted once (on the chip) and announced once.
+// Transient feedback (pause/resume/create, loading, errors) stays visible
+// because it is the page's operational signal.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -120,11 +126,29 @@ function paintSearching(state, query) {
   return renderView();
 }
 
-/** The single painted count, in the toolbar. */
-function toolbarCount(tree) {
-  const node = collect(tree).find((n) => n.type === 'span' && n.props.className === 'hr-count-right');
-  assert.ok(node, 'the visible toolbar count must exist');
-  return node.props.children;
+/**
+ * The painted counts, one per filter chip (issue #79). Keyed by chip label
+ * so a test reads what a user reads rather than the DOM order.
+ */
+function chipCounts(tree) {
+  const chips = collect(tree).filter((n) => n.type === 'button' && String(n.props.className).includes('hr-filter-chip'));
+  assert.equal(chips.length, 3, 'All / Active / Paused chips must exist');
+  const out = {};
+  for (const chip of chips) {
+    const [label, count] = chip.props.children;
+    out[label] = Number(count.props.children);
+  }
+  return out;
+}
+
+/** The chip marked as current, and the count it paints. */
+function currentChip(tree) {
+  const chip = collect(tree).find(
+    (n) => n.type === 'button' && n.props['aria-current'] === 'true',
+  );
+  assert.ok(chip, 'exactly one chip carries the current filter');
+  const [label, count] = chip.props.children;
+  return { label, count: Number(count.props.children) };
 }
 
 function readyWith(jobs, extra = []) {
@@ -161,11 +185,14 @@ describe('status line: the count is announced once, painted once', () => {
     assert.match(live.props.className, /hr-sr-only/, 'the restated count must be screen-reader only');
   });
 
-  it('the toolbar keeps the single visible count', () => {
+  it('the filter chips paint the counts, and the old sentence is gone', () => {
+    // Issue #79: the "Showing all N routines." line restated what the
+    // current chip already said. The counts now live on the chips, where
+    // each one tells the user how big that slice is.
     const tree = paint(readyWith(JOBS));
-    const toolbarCount = collect(tree).find((n) => n.type === 'span' && n.props.className === 'hr-count-right');
-    assert.ok(toolbarCount, 'the primary visible count must stay in the toolbar');
-    assert.equal(toolbarCount.props.children, 'Showing all 2 routines.');
+    assert.deepEqual(chipCounts(tree), { All: 2, Active: 1, Paused: 1 });
+    const painted = visibleTexts(tree).filter((t) => /\bShowing\b.*routines\./.test(t));
+    assert.deepEqual(painted, [], 'no "Showing ... routines." sentence is painted anywhere');
   });
 
   it('a filtered list announces the reduced count without painting it', () => {
@@ -211,12 +238,12 @@ describe('status line: the announced count matches the painted one while searchi
     { job_id: '5c1f0a77b2e4', name: 'Weekly report', schedule: '0 8 * * 1' },
   ];
 
-  /** The number the toolbar paints: "Showing all 3" or "Showing 1 of 3". */
+  /**
+   * The number the CURRENT CHIP paints — the count that must match what the
+   * live region announces, since the chip is the only painted copy now.
+   */
   function paintedCount(tree) {
-    const text = toolbarCount(tree);
-    const match = /^Showing (?:all )?(\d+)/.exec(text);
-    assert.ok(match, `unexpected toolbar count copy: ${text}`);
-    return Number(match[1]);
+    return currentChip(tree).count;
   }
 
   /** The number the live region announces. */
@@ -232,17 +259,22 @@ describe('status line: the announced count matches the painted one while searchi
     const tree = paintSearching(readyWith(JOBS_3), 'digest');
     assert.equal(announcedCount(tree).shown, 1);
     assert.equal(announcedCount(tree).shown, paintedCount(tree));
-    assert.equal(toolbarCount(tree), 'Showing 1 of 3 routines.');
+    // 'digest' matches one active row. Every chip is counted over the
+    // search matches, so Paused reports 0 — there is no paused digest —
+    // rather than inheriting the active filter's slice.
+    assert.deepEqual(chipCounts(tree), { All: 1, Active: 1, Paused: 0 });
+    assert.equal(currentChip(tree).count, 1);
   });
 
   it('a search matching nothing announces zero, not the unfiltered total', () => {
     const tree = paintSearching(readyWith(JOBS_3), 'zzz');
     assert.equal(announcedCount(tree).shown, 0, 'no row on screen means zero announced');
     assert.equal(announcedCount(tree).shown, paintedCount(tree));
-    assert.equal(toolbarCount(tree), 'Showing 0 of 3 routines.');
-    // The zero-match case the issue calls out: the empty-filter panel is
-    // painted next to a count that must not claim 3.
-    assert.ok(visibleTexts(tree).join(' ').includes('Showing 0 of 3 routines.'));
+    // The zero-match case the issue calls out: every chip reads 0, because
+    // the counts are computed over the SEARCH-matched rows. No chip may
+    // claim 3 when nothing on screen matched.
+    assert.deepEqual(chipCounts(tree), { All: 0, Active: 0, Paused: 0 });
+    assert.equal(currentChip(tree).count, 0);
   });
 
   it('a search matching everything announces the full count once', () => {
@@ -278,8 +310,11 @@ describe('status line: the announced count matches the painted one while searchi
     const tree = paintSearching(readyWith(JOBS_3), 'digest');
     const live = liveRegion(tree);
     assert.match(live.props.className, /hr-sr-only/, 'the announced copy stays screen-reader only');
+    // The chip count is painted; the live region restates it for assistive
+    // tech only. Neither paints the same sentence twice.
+    assert.equal(currentChip(tree).count, 1);
     const visible = visibleTexts(tree).filter((t) => /\bShowing\b.*routines\./.test(t));
-    assert.equal(visible.length, 1, 'exactly one visible count line, in the toolbar');
+    assert.equal(visible.length, 0, 'the count sentence is not painted at all any more');
   });
 });
 
@@ -335,16 +370,22 @@ describe('status line: transient feedback stays visible', () => {
 describe('status line: source contract', () => {
   it('the count is painted exactly once for a settled list', () => {
     // The real invariant, checked on the rendered tree rather than on
-    // source text: the count appears as visible copy in the toolbar and
-    // nowhere else. The live region still holds the same string, but
-    // under the sr-only utility, so it is announced and not painted.
+    // source text: each count is painted once, on its own chip, and the
+    // live region's restatement of the settled count is announced-only.
+    // The count for the current slice is the chip that owns it.
     for (const state of [readyWith(JOBS), { ...readyWith(JOBS), filter: 'paused' }]) {
       const tree = paint(state);
       const visibleCount = visibleTexts(tree).filter((t) => /\bShowing\b.*routines\./.test(t));
-      assert.equal(visibleCount.length, 1, 'exactly one visible count line, in the toolbar');
+      assert.equal(visibleCount.length, 0, 'the count sentence is not painted anywhere');
+      // Every chip paints exactly one number, and no number is painted twice.
+      const counts = chipCounts(tree);
+      assert.deepEqual(Object.keys(counts), ['All', 'Active', 'Paused']);
       const live = liveRegion(tree);
       assert.match(live.props.children, /\bShowing\b.*routines\./, 'the count is still announced');
       assert.match(live.props.className, /hr-sr-only/, 'the announced copy is not the painted one');
+      // The announcement matches the chip the user is looking at.
+      const shown = Number(/^Showing (\d+) of /.exec(live.props.children)[1]);
+      assert.equal(currentChip(tree).count, shown, 'announced count is the current chip count');
     }
   });
 
@@ -354,6 +395,15 @@ describe('status line: source contract', () => {
     assert.match(src, /role.*status/, 'status role preserved');
     // Hiding is via the shared sr-only utility, never display:none or removal.
     assert.match(src, /hr-sr-only/, 'the sr-only utility is the hiding mechanism');
+  });
+
+  it('the toolbar count sentence is gone from the source entirely', () => {
+    // Issue #79 removed the copy, not just hid it: a rule left behind
+    // would be dead CSS that a future change could revive by accident.
+    const src = readSrcTree();
+    assert.doesNotMatch(src, /hr-count-right/, 'no dead class survives the removal');
+    assert.doesNotMatch(src, /Showing all \$\{/, 'the sentence is not rebuilt elsewhere');
+    assert.match(src, /filterCounts/, 'the chips are fed by a domain count');
   });
 
   it('the sr-only utility is a real screen-reader-only clip, not display:none', () => {
