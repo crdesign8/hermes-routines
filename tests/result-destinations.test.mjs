@@ -23,7 +23,9 @@ const {
   DESTINATION_HISTORY,
   advancedDestinationDelivery,
   botChatDestinations,
+  broadcastDestinationOption,
   buildAddParams,
+  composerDestinationDelivery,
   destinationDelivery,
   destinationOptions,
   describeDestination,
@@ -39,9 +41,10 @@ const REMOTE = { connectionId: 'c1', mode: 'remote', profile: 'p1', targetProfil
 describe('destination options', () => {
   it('offers the two outcomes that always exist, before anything discovered', () => {
     const options = destinationOptions([]);
-    assert.deepEqual(options.map((o) => o.value), [DESTINATION_DEFAULT, DESTINATION_HISTORY, DESTINATION_BROADCAST]);
+    assert.deepEqual(options.map((o) => o.value), [DESTINATION_DEFAULT, DESTINATION_HISTORY]);
     assert.equal(options[0].label, 'Use my default destination');
     assert.equal(options[1].label, 'Keep in routine history only');
+    assert.ok(options.every((o) => o.broadcast === false));
   });
 
   it('describes the default as an outcome, never as "no override"', () => {
@@ -72,21 +75,29 @@ describe('destination options', () => {
     assert.deepEqual(botChatDestinations([LOCAL, twin]).map((o) => o.value), ['bot-chat:matias']);
   });
 
-  it('orders the fan-out last, so it never reads as a quiet choice', () => {
-    const options = destinationOptions([LOCAL]);
-    assert.deepEqual(options.map((o) => o.value), [
-      DESTINATION_DEFAULT,
-      DESTINATION_HISTORY,
-      'bot-chat:matias',
-      DESTINATION_BROADCAST,
-    ]);
-    assert.equal(options[options.length - 1].broadcast, true);
-    assert.ok(options.every((o, i) => (i === options.length - 1 ? o.broadcast : !o.broadcast)));
+  it('keeps broadcast out of the primary picker (#90)', () => {
+    for (const routes of [[], [LOCAL], [REMOTE, LOCAL]]) {
+      const options = destinationOptions(routes);
+      assert.equal(
+        options.some((o) => o.value === DESTINATION_BROADCAST || o.broadcast),
+        false,
+        'fan-out must not be a primary destination',
+      );
+      assert.equal(findDestinationOption(options, DESTINATION_BROADCAST), null);
+      assert.ok(options.every((o) => !/every connected channel/i.test(o.label)));
+    }
   });
 
-  it('states the fan-out impact in the option itself', () => {
-    const broadcast = destinationOptions([]).find((o) => o.value === DESTINATION_BROADCAST);
+  it('keeps broadcast as an exceptional option, not a primary one', () => {
+    const broadcast = broadcastDestinationOption();
+    assert.equal(broadcast.value, DESTINATION_BROADCAST);
+    assert.equal(broadcast.broadcast, true);
+    assert.equal(broadcast.label, 'Send to every connected channel');
     assert.match(broadcast.detail, /every channel/i);
+    assert.equal(
+      destinationOptions([LOCAL]).some((o) => o.value === broadcast.value),
+      false,
+    );
   });
 
   it('finds a chosen option, and reports an unoffered one as absent', () => {
@@ -105,8 +116,38 @@ describe('destination mapping', () => {
 
   it('maps the quiet choices to their backend representation', () => {
     assert.equal(destinationDelivery(DESTINATION_HISTORY).delivery, 'local');
-    assert.equal(destinationDelivery(DESTINATION_BROADCAST).delivery, 'all');
     assert.equal(destinationDelivery('bot-chat:matias').delivery, 'bot-chat:matias');
+  });
+
+  it('keeps the broadcast backend token available outside the primary picker', () => {
+    // Removing the picker row must not retire the capability. The same
+    // mapper the guided proposal path uses still accepts `all`.
+    assert.equal(destinationDelivery(DESTINATION_BROADCAST).delivery, 'all');
+    const quiet = composerDestinationDelivery(DESTINATION_HISTORY);
+    assert.equal(quiet.delivery, 'local');
+    const sneaky = composerDestinationDelivery(DESTINATION_BROADCAST, undefined, {
+      optedIn: true,
+      confirmed: true,
+    });
+    assert.equal(sneaky.ok, false, 'a primary broadcast token must not submit');
+    const unconfirmed = composerDestinationDelivery(DESTINATION_ADVANCED, undefined, {
+      optedIn: true,
+      confirmed: false,
+    });
+    assert.equal(unconfirmed.ok, false);
+    assert.match(unconfirmed.message, /every connected channel/i);
+    const confirmed = composerDestinationDelivery(
+      DESTINATION_ADVANCED,
+      { platform: 'telegram', chatId: 'ops', threadId: '' },
+      { optedIn: true, confirmed: true },
+    );
+    assert.equal(confirmed.delivery, 'all', 'confirmed advanced fan-out ignores the address');
+    const address = composerDestinationDelivery(
+      DESTINATION_ADVANCED,
+      { platform: 'telegram', chatId: 'ops', threadId: '' },
+      { optedIn: false, confirmed: false },
+    );
+    assert.equal(address.delivery, 'telegram:ops');
   });
 
   it('never lets the advanced sentinel reach the backend', () => {

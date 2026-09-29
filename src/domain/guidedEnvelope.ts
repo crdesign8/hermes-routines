@@ -1,6 +1,7 @@
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import { isValidJobId } from './cronShapes';
 import { readStoredDelivery, readStoredModelOverride } from './advancedSettings';
+import { GUIDED_BROADCAST_CONSTRAINT } from './destinations';
 import type { RoutineJob } from './jobs';
 import { rawScheduleOf, routinePromptOf, routineTitle } from './present';
 import { routeKey } from './routing';
@@ -220,6 +221,8 @@ export function serializeGuidedEnvelope(envelope: GuidedEnvelope): string {
     '- thresholds such as "material" or "urgent";',
     '- expected output format;',
     '- any missing schedule or timezone detail.',
+    '',
+    GUIDED_BROADCAST_CONSTRAINT,
     '',
     'Do not force a questionnaire: if what is recorded above is already specific enough to run safely,',
     'go straight to reviewing the configuration instead of asking anyway.',

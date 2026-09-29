@@ -110,6 +110,11 @@ describe('guided-envelope', () => {
     assert.match(prompt, /Do not activate this routine\./);
     assert.match(prompt, /Do not treat free-form prose as persisted configuration\./);
     assert.match(prompt, /Clarify the missing execution requirements with the user\./);
+    assert.match(
+      prompt,
+      /Propose delivery "all".*only when the user stated that every connected channel should receive them/,
+    );
+    assert.match(prompt, /A request to send, notify, or deliver the results is not that statement/);
   });
 
   it('is deterministic: the same routine always serializes to the same bytes', () => {

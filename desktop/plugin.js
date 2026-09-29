@@ -1728,6 +1728,205 @@ async function createProvisionalRoutine(request) {
   return resolveProvisionalCreate({ route, addAnswer, pause });
 }
 
+// src/domain/destinations.ts
+var DESTINATION_DEFAULT = "";
+var DESTINATION_HISTORY = "local";
+var DESTINATION_BROADCAST = "all";
+var DESTINATION_ADVANCED = "advanced";
+var DEFAULT_OPTION = Object.freeze({
+  value: DESTINATION_DEFAULT,
+  label: "Use my default destination",
+  detail: "Results go wherever this profile normally sends its results.",
+  broadcast: false
+});
+var HISTORY_OPTION = Object.freeze({
+  value: DESTINATION_HISTORY,
+  label: "Keep in routine history only",
+  detail: "Results are saved with the routine and are not sent anywhere.",
+  broadcast: false
+});
+var BROADCAST_OPTION = Object.freeze({
+  value: DESTINATION_BROADCAST,
+  label: "Send to every connected channel",
+  detail: "Results are delivered to every channel this profile is connected to. Nothing narrows this later, so pick it only when that is the intent.",
+  broadcast: true
+});
+var BROADCAST_ACKNOWLEDGEMENT = "I understand this delivers results to every connected channel.";
+var BROADCAST_ADVANCED_ACTION = "Send to every connected channel instead";
+var BROADCAST_ADDRESS_ACTION = "Use a specific address instead";
+var BROADCAST_REVIEW_WARNING = "This proposal delivers results to every connected channel. Apply it only if that is what you asked for.";
+var GUIDED_BROADCAST_CONSTRAINT = [
+  "Delivery:",
+  "Prefer the profile default, routine history, or one specific destination.",
+  'Propose delivery "all" (results to every connected channel) only when the user stated that every connected channel should receive them.',
+  "A request to send, notify, or deliver the results is not that statement."
+].join("\n");
+function broadcastDestinationOption() {
+  return BROADCAST_OPTION;
+}
+function isBroadcastDelivery(value) {
+  return typeof value === "string" && value.trim().toLowerCase() === DESTINATION_BROADCAST;
+}
+function baseDestinationOptions() {
+  return [DEFAULT_OPTION, HISTORY_OPTION];
+}
+function botChatLabel(profile) {
+  return `Bot Chat \u2192 ${profile}`;
+}
+function botChatDestinations(routes) {
+  if (!Array.isArray(routes)) return [];
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const candidate of routes) {
+    if (candidate === null || typeof candidate !== "object") continue;
+    const route = candidate;
+    if (route.mode !== "local") continue;
+    const profile = typeof route.targetProfile === "string" && route.targetProfile.trim() ? route.targetProfile.trim() : typeof route.profile === "string" && route.profile.trim() ? route.profile.trim() : "";
+    if (!profile) continue;
+    const value = `bot-chat:${profile}`;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push({
+      value,
+      label: botChatLabel(profile),
+      detail: "Results arrive in that profile\u2019s own Hermes Bot Chat.",
+      broadcast: false
+    });
+  }
+  return out;
+}
+function destinationOptions(routes) {
+  return [...baseDestinationOptions(), ...botChatDestinations(routes)];
+}
+function findDestinationOption(options, value) {
+  if (typeof value !== "string") return null;
+  for (const option of options) {
+    if (option.value === value) return option;
+  }
+  return null;
+}
+function describeDestination(value) {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text) {
+    return {
+      label: DEFAULT_OPTION.label,
+      detail: DEFAULT_OPTION.detail,
+      resolved: true,
+      broadcast: false
+    };
+  }
+  if (text === DESTINATION_HISTORY) {
+    return {
+      label: HISTORY_OPTION.label,
+      detail: HISTORY_OPTION.detail,
+      resolved: true,
+      broadcast: false
+    };
+  }
+  if (text === DESTINATION_BROADCAST) {
+    return {
+      label: BROADCAST_OPTION.label,
+      detail: BROADCAST_OPTION.detail,
+      resolved: true,
+      broadcast: true
+    };
+  }
+  const botChat = /^bot-chat:([^:]+)$/i.exec(text);
+  if (botChat !== null) {
+    const profile = (botChat[1] ?? "").trim();
+    if (profile) {
+      return {
+        label: botChatLabel(profile),
+        detail: "Results arrive in that profile\u2019s own Hermes Bot Chat.",
+        resolved: true,
+        broadcast: false
+      };
+    }
+  }
+  if (/^bot-chat$/i.test(text)) {
+    return {
+      label: botChatLabel("this profile"),
+      detail: "Results arrive in this profile\u2019s own Hermes Bot Chat.",
+      resolved: true,
+      broadcast: false
+    };
+  }
+  return { label: text, detail: "", resolved: false, broadcast: false };
+}
+var EMPTY_ADVANCED_DESTINATION = Object.freeze({
+  platform: "",
+  chatId: "",
+  threadId: ""
+});
+var MAX_PART_LENGTH = 128;
+function advancedDestinationDelivery(input) {
+  const platform = (input?.platform ?? "").trim();
+  const chatId = (input?.chatId ?? "").trim();
+  const threadId = (input?.threadId ?? "").trim();
+  if (!platform) {
+    return {
+      ok: false,
+      code: "bad_delivery",
+      message: "an advanced destination needs a platform and an address"
+    };
+  }
+  if (!chatId) {
+    return {
+      ok: false,
+      code: "bad_delivery",
+      message: "an advanced destination needs an address for the selected platform"
+    };
+  }
+  for (const part of [platform, chatId, threadId]) {
+    if (part.length > MAX_PART_LENGTH) {
+      return {
+        ok: false,
+        code: "bad_delivery",
+        message: "an advanced destination field must be at most 128 chars"
+      };
+    }
+    if (part.includes(":")) {
+      return {
+        ok: false,
+        code: "bad_delivery",
+        message: 'an advanced destination field must not contain ":"'
+      };
+    }
+  }
+  return normalizeDelivery(threadId ? `${platform}:${chatId}:${threadId}` : `${platform}:${chatId}`);
+}
+function destinationDelivery(choice, advanced = EMPTY_ADVANCED_DESTINATION) {
+  if (choice === DESTINATION_ADVANCED) return advancedDestinationDelivery(advanced);
+  if (typeof choice !== "string") {
+    return {
+      ok: false,
+      code: "bad_delivery",
+      message: "choose where results should go"
+    };
+  }
+  return normalizeDelivery(choice);
+}
+var BROADCAST_NOT_PRIMARY = {
+  ok: false,
+  code: "bad_delivery",
+  message: "Sending to every connected channel is not a primary destination. Open advanced delivery and confirm it there."
+};
+var BROADCAST_UNCONFIRMED = {
+  ok: false,
+  code: "bad_delivery",
+  message: "Confirm the delivery to every connected channel before creating the routine."
+};
+function composerDestinationDelivery(choice, advanced = EMPTY_ADVANCED_DESTINATION, broadcast = { optedIn: false, confirmed: false }) {
+  const optedIn = broadcast.optedIn === true;
+  const confirmed = broadcast.confirmed === true;
+  if (choice === DESTINATION_ADVANCED && optedIn) {
+    return confirmed ? destinationDelivery(DESTINATION_BROADCAST) : BROADCAST_UNCONFIRMED;
+  }
+  if (isBroadcastDelivery(choice)) return BROADCAST_NOT_PRIMARY;
+  return destinationDelivery(choice, advanced);
+}
+
 // src/domain/guidedEnvelope.ts
 var GUIDED_ENVELOPE_MARKER = "HERMES_ROUTINE_CONFIG_V1";
 function asRecord2(value) {
@@ -1837,6 +2036,8 @@ function serializeGuidedEnvelope(envelope) {
     '- thresholds such as "material" or "urgent";',
     "- expected output format;",
     "- any missing schedule or timezone detail.",
+    "",
+    GUIDED_BROADCAST_CONSTRAINT,
     "",
     "Do not force a questionnaire: if what is recorded above is already specific enough to run safely,",
     "go straight to reviewing the configuration instead of asking anyway."
@@ -3853,11 +4054,9 @@ var ROUTINES_CSS = [
   "  opacity: 0.5;",
   "  cursor: not-allowed;",
   "}",
-  // Fan-out guard for "send to every connected channel" (issue #73). A
-  // bordered block, not a hint line: the delivery reaches every channel
-  // the profile is connected to, so it is painted apart from the quiet
-  // choices and the acknowledgement has to be clicked before any create
-  // proceeds. Deliberately monochrome — the risk is stated in words.
+  // Fan-out guard (issue #90). The card is painted only inside the advanced
+  // path, after an explicit opt-in: delivering to every connected channel
+  // is not a primary destination, and opening advanced does not select it.
   ".hr-create-broadcast-card {",
   "  display: flex;",
   "  flex-direction: column;",
@@ -3880,6 +4079,12 @@ var ROUTINES_CSS = [
   ".hr-create-broadcast-check input {",
   "  margin: 1px 0 0 0;",
   "  flex-shrink: 0;",
+  "}",
+  ".hr-create-broadcast-note {",
+  "  margin: 0;",
+  "  font-size: 12px;",
+  "  line-height: 1.45;",
+  "  color: var(--ui-text-secondary, #a1a1aa);",
   "}",
   "/* Field labels */",
   ".hr-field-label, .hr-select-label {",
@@ -4358,171 +4563,6 @@ function RoutineCard(props) {
       ]
     }
   );
-}
-
-// src/domain/destinations.ts
-var DESTINATION_DEFAULT = "";
-var DESTINATION_HISTORY = "local";
-var DESTINATION_BROADCAST = "all";
-var DESTINATION_ADVANCED = "advanced";
-var DEFAULT_OPTION = Object.freeze({
-  value: DESTINATION_DEFAULT,
-  label: "Use my default destination",
-  detail: "Results go wherever this profile normally sends its results.",
-  broadcast: false
-});
-var HISTORY_OPTION = Object.freeze({
-  value: DESTINATION_HISTORY,
-  label: "Keep in routine history only",
-  detail: "Results are saved with the routine and are not sent anywhere.",
-  broadcast: false
-});
-var BROADCAST_OPTION = Object.freeze({
-  value: DESTINATION_BROADCAST,
-  label: "Send to every connected channel",
-  detail: "Results are delivered to every channel this profile is connected to. Nothing narrows this later, so pick it only when that is the intent.",
-  broadcast: true
-});
-var BROADCAST_ACKNOWLEDGEMENT = "I understand this delivers results to every connected channel.";
-function baseDestinationOptions() {
-  return [DEFAULT_OPTION, HISTORY_OPTION];
-}
-function botChatLabel(profile) {
-  return `Bot Chat \u2192 ${profile}`;
-}
-function botChatDestinations(routes) {
-  if (!Array.isArray(routes)) return [];
-  const out = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const candidate of routes) {
-    if (candidate === null || typeof candidate !== "object") continue;
-    const route = candidate;
-    if (route.mode !== "local") continue;
-    const profile = typeof route.targetProfile === "string" && route.targetProfile.trim() ? route.targetProfile.trim() : typeof route.profile === "string" && route.profile.trim() ? route.profile.trim() : "";
-    if (!profile) continue;
-    const value = `bot-chat:${profile}`;
-    if (seen.has(value)) continue;
-    seen.add(value);
-    out.push({
-      value,
-      label: botChatLabel(profile),
-      detail: "Results arrive in that profile\u2019s own Hermes Bot Chat.",
-      broadcast: false
-    });
-  }
-  return out;
-}
-function destinationOptions(routes) {
-  return [...baseDestinationOptions(), ...botChatDestinations(routes), BROADCAST_OPTION];
-}
-function findDestinationOption(options, value) {
-  if (typeof value !== "string") return null;
-  for (const option of options) {
-    if (option.value === value) return option;
-  }
-  return null;
-}
-function describeDestination(value) {
-  if (typeof value !== "string") return null;
-  const text = value.trim();
-  if (!text) {
-    return {
-      label: DEFAULT_OPTION.label,
-      detail: DEFAULT_OPTION.detail,
-      resolved: true,
-      broadcast: false
-    };
-  }
-  if (text === DESTINATION_HISTORY) {
-    return {
-      label: HISTORY_OPTION.label,
-      detail: HISTORY_OPTION.detail,
-      resolved: true,
-      broadcast: false
-    };
-  }
-  if (text === DESTINATION_BROADCAST) {
-    return {
-      label: BROADCAST_OPTION.label,
-      detail: BROADCAST_OPTION.detail,
-      resolved: true,
-      broadcast: true
-    };
-  }
-  const botChat = /^bot-chat:([^:]+)$/i.exec(text);
-  if (botChat !== null) {
-    const profile = (botChat[1] ?? "").trim();
-    if (profile) {
-      return {
-        label: botChatLabel(profile),
-        detail: "Results arrive in that profile\u2019s own Hermes Bot Chat.",
-        resolved: true,
-        broadcast: false
-      };
-    }
-  }
-  if (/^bot-chat$/i.test(text)) {
-    return {
-      label: botChatLabel("this profile"),
-      detail: "Results arrive in this profile\u2019s own Hermes Bot Chat.",
-      resolved: true,
-      broadcast: false
-    };
-  }
-  return { label: text, detail: "", resolved: false, broadcast: false };
-}
-var EMPTY_ADVANCED_DESTINATION = Object.freeze({
-  platform: "",
-  chatId: "",
-  threadId: ""
-});
-var MAX_PART_LENGTH = 128;
-function advancedDestinationDelivery(input) {
-  const platform = (input?.platform ?? "").trim();
-  const chatId = (input?.chatId ?? "").trim();
-  const threadId = (input?.threadId ?? "").trim();
-  if (!platform) {
-    return {
-      ok: false,
-      code: "bad_delivery",
-      message: "an advanced destination needs a platform and an address"
-    };
-  }
-  if (!chatId) {
-    return {
-      ok: false,
-      code: "bad_delivery",
-      message: "an advanced destination needs an address for the selected platform"
-    };
-  }
-  for (const part of [platform, chatId, threadId]) {
-    if (part.length > MAX_PART_LENGTH) {
-      return {
-        ok: false,
-        code: "bad_delivery",
-        message: "an advanced destination field must be at most 128 chars"
-      };
-    }
-    if (part.includes(":")) {
-      return {
-        ok: false,
-        code: "bad_delivery",
-        message: 'an advanced destination field must not contain ":"'
-      };
-    }
-  }
-  return normalizeDelivery(threadId ? `${platform}:${chatId}:${threadId}` : `${platform}:${chatId}`);
-}
-function destinationDelivery(choice, advanced = EMPTY_ADVANCED_DESTINATION) {
-  if (choice === DESTINATION_ADVANCED) return advancedDestinationDelivery(advanced);
-  if (typeof choice !== "string") {
-    return {
-      ok: false,
-      code: "bad_delivery",
-      message: "choose where results should go"
-    };
-  }
-  return normalizeDelivery(choice);
 }
 
 // src/domain/failureExplain.ts
@@ -5012,6 +5052,7 @@ function RoutineComposerPanel({
   const [advancedChatId, setAdvancedChatId] = useState2("");
   const [advancedThreadId, setAdvancedThreadId] = useState2("");
   const [broadcastConfirmed, setBroadcastConfirmed] = useState2(false);
+  const [broadcastOptIn, setBroadcastOptIn] = useState2(false);
   const inFlightRef = useRef2(false);
   const timeOptions = useMemo(
     () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
@@ -5053,7 +5094,7 @@ function RoutineComposerPanel({
     }),
     [advancedPlatform, advancedChatId, advancedThreadId]
   );
-  const broadcastPending = selectedDestination !== null && selectedDestination.broadcast;
+  const broadcastPending = destinationChoice === DESTINATION_ADVANCED && broadcastOptIn;
   const broadcastBlocked = broadcastPending && !broadcastConfirmed;
   const cronExpr = useMemo(() => buildCronExpression(scheduleConfig), [scheduleConfig]);
   const humanSentence = useMemo(() => describeScheduleConfig(scheduleConfig), [scheduleConfig]);
@@ -5067,13 +5108,12 @@ function RoutineComposerPanel({
       setError("Describe what this routine should do.");
       return;
     }
-    const normalized = destinationDelivery(destinationChoice, advancedInput);
+    const normalized = composerDestinationDelivery(destinationChoice, advancedInput, {
+      optedIn: broadcastOptIn,
+      confirmed: broadcastConfirmed
+    });
     if (!normalized.ok) {
       setError(normalized.message);
-      return;
-    }
-    if (broadcastBlocked) {
-      setError("Confirm the delivery to every connected channel before creating the routine.");
       return;
     }
     const delivery = normalized.present ? normalized.delivery : void 0;
@@ -5224,11 +5264,15 @@ function RoutineComposerPanel({
             label: "Where should results go?",
             value: destinationChoice,
             options: destinationChoices.map((o) => ({ value: o.value, label: o.label })),
-            onChange: (val) => setDestinationChoice(val)
+            onChange: (val) => {
+              setDestinationChoice(val);
+              setBroadcastOptIn(false);
+              setBroadcastConfirmed(false);
+            }
           }
         ),
         selectedDestination !== null ? /* @__PURE__ */ jsx9("div", { className: "hr-create-preview-sentence", children: selectedDestination.detail }) : null,
-        destinationChoice === DESTINATION_ADVANCED ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
+        destinationChoice === DESTINATION_ADVANCED && !broadcastOptIn ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
           /* @__PURE__ */ jsx9("label", { className: "hr-field-label", children: "Advanced destination override" }),
           /* @__PURE__ */ jsxs8("div", { className: "hr-create-sub-split", children: [
             /* @__PURE__ */ jsx9(
@@ -5265,20 +5309,50 @@ function RoutineComposerPanel({
               "aria-label": "Advanced destination thread id"
             }
           ),
-          /* @__PURE__ */ jsx9("div", { className: "hr-create-preview-sentence", children: selectedDestination?.detail ?? "" })
+          /* @__PURE__ */ jsx9("div", { className: "hr-create-preview-sentence", children: selectedDestination?.detail ?? "" }),
+          /* @__PURE__ */ jsxs8("div", { className: "hr-create-broadcast-card", children: [
+            /* @__PURE__ */ jsx9("p", { className: "hr-create-broadcast-note", children: "Sending to every connected channel is not a normal destination." }),
+            /* @__PURE__ */ jsx9(
+              "button",
+              {
+                type: "button",
+                className: "hr-btn",
+                onClick: () => {
+                  setBroadcastOptIn(true);
+                  setBroadcastConfirmed(false);
+                },
+                children: BROADCAST_ADVANCED_ACTION
+              }
+            )
+          ] })
         ] }) : null,
-        broadcastPending ? /* @__PURE__ */ jsx9("div", { className: "hr-create-broadcast-card", children: /* @__PURE__ */ jsxs8("label", { className: "hr-create-broadcast-check", children: [
+        broadcastPending ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-broadcast-card", children: [
+          /* @__PURE__ */ jsx9("p", { className: "hr-create-broadcast-note", children: "Results are delivered to every channel this profile is connected to. Nothing narrows this later." }),
+          /* @__PURE__ */ jsxs8("label", { className: "hr-create-broadcast-check", children: [
+            /* @__PURE__ */ jsx9(
+              "input",
+              {
+                type: "checkbox",
+                checked: broadcastConfirmed,
+                onChange: (e) => setBroadcastConfirmed(e.target.checked),
+                "aria-label": BROADCAST_ACKNOWLEDGEMENT
+              }
+            ),
+            /* @__PURE__ */ jsx9("span", { children: BROADCAST_ACKNOWLEDGEMENT })
+          ] }),
           /* @__PURE__ */ jsx9(
-            "input",
+            "button",
             {
-              type: "checkbox",
-              checked: broadcastConfirmed,
-              onChange: (e) => setBroadcastConfirmed(e.target.checked),
-              "aria-label": BROADCAST_ACKNOWLEDGEMENT
+              type: "button",
+              className: "hr-btn",
+              onClick: () => {
+                setBroadcastOptIn(false);
+                setBroadcastConfirmed(false);
+              },
+              children: BROADCAST_ADDRESS_ACTION
             }
-          ),
-          /* @__PURE__ */ jsx9("span", { children: BROADCAST_ACKNOWLEDGEMENT })
-        ] }) }) : null
+          )
+        ] }) : null
       ] }),
       /* @__PURE__ */ jsxs8("div", { className: "hr-create-active-card", children: [
         /* @__PURE__ */ jsxs8("div", { className: "hr-create-active-info", children: [
@@ -5379,6 +5453,7 @@ function GuidedProposalReview({
       /* @__PURE__ */ jsx10("span", { className: "hr-review-note-label", children: "From Hermes (explanation, not configuration)" }),
       /* @__PURE__ */ jsx10("p", { className: "hr-review-note-text", children: review.note })
     ] }) : null,
+    isBroadcastDelivery(review.proposed.delivery) ? /* @__PURE__ */ jsx10("div", { className: "hr-create-broadcast-card", role: "status", children: /* @__PURE__ */ jsx10("p", { className: "hr-create-broadcast-note", children: BROADCAST_REVIEW_WARNING }) }) : null,
     review.stale ? /* @__PURE__ */ jsx10("div", { className: "hr-create-error", role: "alert", children: "The routine changed after this proposal was built. Applying it will be refused \u2014 ask Hermes for a new proposal before confirming." }) : null,
     /* @__PURE__ */ jsxs9("div", { className: "hr-review-outcomes", children: [
       /* @__PURE__ */ jsxs9("div", { className: "hr-detail", children: [
@@ -6604,6 +6679,9 @@ var plugin_default = plugin;
 export {
   ATTENTION_BAND_ID,
   BROADCAST_ACKNOWLEDGEMENT,
+  BROADCAST_ADDRESS_ACTION,
+  BROADCAST_ADVANCED_ACTION,
+  BROADCAST_REVIEW_WARNING,
   DAYS_OF_MONTH,
   DAYS_OF_WEEK,
   DEFAULT_SCHEDULE_CONFIG,
@@ -6617,6 +6695,7 @@ export {
   ErrorState,
   FilterNav,
   GENERIC_FAILURE_SUMMARY,
+  GUIDED_BROADCAST_CONSTRAINT,
   GUIDED_CHAT_DRAFT,
   GUIDED_ENVELOPE_MARKER,
   GUIDED_TRANSITIONS,
@@ -6669,6 +6748,7 @@ export {
   backendTargetProfile,
   baseDestinationOptions,
   botChatDestinations,
+  broadcastDestinationOption,
   buildAddParams,
   buildCronExpression,
   buildGuidedEnvelope,
@@ -6681,6 +6761,7 @@ export {
   canGuidedTransition,
   coerceRoutes,
   collapsedSubtitleOf,
+  composerDestinationDelivery,
   confirmProposal,
   createProvisionalRoutine,
   cronOutcomeOf,
@@ -6713,6 +6794,7 @@ export {
   humanScheduleOf,
   initialGuidedWorkflow,
   initialRoutinesState,
+  isBroadcastDelivery,
   isFailedStatus,
   isProposalStale,
   isRetriableGatewayError,
