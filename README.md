@@ -144,9 +144,12 @@ full installation reference.
    execute when the routine runs. **Start enabled** decides whether that
    routine can run as soon as it is created.
 5. Or, with a name and an instruction already in the form, use **Finish
-   with Hermes**: the routine is created paused, and Hermes reviews the
-   draft in a chat to clarify whatever is still missing. It stays paused
-   until you review and apply what Hermes proposes.
+   with Hermes**: the routine is created paused, then the owning profile's
+   chat opens and automatically receives its job ID, goal, schedule, and
+   destination. If the chat or kickoff fails, return to the paused routine
+   and use **Retry chat** (or reopen configuration from the list after a
+   reload); retry does not create another routine. It stays paused until you
+   review and apply what Hermes proposes.
 6. Use the pause/resume controls to change a routine's active state.
 
 All list and mutation requests are scoped to the active profile. The plugin

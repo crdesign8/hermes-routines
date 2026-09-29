@@ -126,6 +126,7 @@ interface GuidedPanelState {
   name: string;
   schedule: string;
   prompt: string;
+  initialLaunch?: GuidedLaunchResult;
   delivery?: string;
 }
 
@@ -511,10 +512,9 @@ export function RoutinesPage() {
   }
 
   /**
-   * Guided creation: create the routine PAUSED, then hand its authoritative
-   * handle to the guided panel. The chat is NOT launched from here — the
-   * panel owns the launch (and the retry) so a failed launch keeps the same
-   * job_id instead of starting over.
+   * Guided creation: create the routine PAUSED, then automatically open
+   * and submit the kickoff on the owning route. Retain the launch result
+   * with the handle so a refusal can be retried without another create.
    *
    * The route is the one the create was scoped to, and the create itself
    * proves the pause. Nothing here resumes or activates the routine.
@@ -539,7 +539,12 @@ export function RoutinesPage() {
         dispatch({ type: 'mutation-error', error: 'failed to create routine: ' + result.message });
         return false;
       }
-      setGuided({ routine: result.routine, name, schedule, prompt, delivery });
+      const initialLaunch = await launchGuidedConfiguration({
+        routine: result.routine,
+        submitted: { name, schedule, prompt },
+        autoSubmit: true,
+      });
+      setGuided({ routine: result.routine, name, schedule, prompt, delivery, initialLaunch });
       setGuidedRecent(null);
       setIsCreating(false);
       setSelectedJobKey(null);
@@ -961,6 +966,7 @@ export function RoutinesPage() {
             submittedSchedule={guided.schedule}
             submittedPrompt={guided.prompt}
             submittedDelivery={guided.delivery}
+            initialLaunch={guided.initialLaunch}
             activeRoute={activeRoute}
             onLaunch={handleGuidedLaunch}
             onClose={() => closeSurface('guided')}

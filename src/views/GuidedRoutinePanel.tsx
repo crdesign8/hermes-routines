@@ -64,7 +64,9 @@ export interface GuidedRoutinePanelProps {
    * backend default — nothing is painted.
    */
   submittedDelivery?: string;
-  /** Auto-send on the first launch only; a retry always drafts. */
+  /** Result of the automatic kickoff performed by Finish with Hermes. */
+  initialLaunch?: GuidedLaunchResult;
+  /** Auto-send on an explicit manual launch unless deliberately disabled. */
   autoSubmitOnFirstLaunch?: boolean;
   /**
    * The Desktop's CURRENT active route, for the route-drift banner
@@ -128,6 +130,7 @@ export function GuidedRoutinePanel({
   submittedSchedule,
   submittedPrompt,
   submittedDelivery,
+  initialLaunch,
   autoSubmitOnFirstLaunch,
   activeRoute,
   onLaunch,
@@ -138,8 +141,8 @@ export function GuidedRoutinePanel({
   const [launching, setLaunching] = useState(false);
   // Launch outcome lives here, not in page state: a retry must reuse the
   // same handle, and a page-level reset would lose the job_id.
-  const [launch, setLaunch] = useState<GuidedLaunchResult | null>(null);
-  const [autoSubmit] = useState<boolean>(autoSubmitOnFirstLaunch === true);
+  const [launch, setLaunch] = useState<GuidedLaunchResult | null>(initialLaunch ?? null);
+  const [autoSubmit] = useState<boolean>(autoSubmitOnFirstLaunch !== false);
   const [handoff, setHandoff] = useState('');
   const [wf, setWf] = useState<GuidedWorkflow>(() => initialGuidedWorkflow(routine.jobId));
   const [busy, setBusy] = useState(false);
@@ -165,11 +168,9 @@ export function GuidedRoutinePanel({
       const result = await onLaunch(
         routine,
         { name: submittedName, schedule: submittedSchedule, prompt: submittedPrompt },
-        // Auto-send is a property of the FIRST launch only. A retry means
-        // the user is present and re-deciding, so it drafts and lets them
-        // send — a hidden second auto-send would start a conversation the
-        // user never asked for.
-        autoSubmit && firstLaunch,
+        // The initial Finish action already authorized a submit. A retry is
+        // another explicit click on that same paused job, not another create.
+        autoSubmit || !firstLaunch,
       );
       setLaunch(result);
       if (result.ok) setWf(guidedWorkflowReducer(wf, { type: 'chat-launched' }));
@@ -422,14 +423,16 @@ export function GuidedRoutinePanel({
       return (
         <div className="hr-create-actions">
           {close}
-          <button
-            type="button"
-            className="hr-btn hr-btn-create-submit"
-            disabled={launching}
-            onClick={() => void handleLaunch()}
-          >
-            {launching ? 'Opening…' : failed ? 'Retry chat' : 'Configure with Hermes'}
-          </button>
+          {!opened ? (
+            <button
+              type="button"
+              className="hr-btn hr-btn-create-submit"
+              disabled={launching}
+              onClick={() => void handleLaunch()}
+            >
+              {launching ? 'Opening…' : failed ? 'Retry chat' : 'Configure with Hermes'}
+            </button>
+          ) : null}
         </div>
       );
     }

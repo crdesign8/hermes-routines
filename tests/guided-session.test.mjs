@@ -246,6 +246,33 @@ describe('guided-launch', () => {
     );
   });
 
+  it('reports a refused automatic submission as a retryable failure', async () => {
+    sdk.__reset();
+    sdk.__setComposerResult({ submit: false });
+    const result = await routines.launchGuidedConfiguration({
+      routine: handle(), submitted: SUBMITTED, autoSubmit: true,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'submit_not_accepted');
+    assert.equal(result.jobId, JOB_ID);
+    assert.deepEqual(sdk.__calls().map((c) => c.door), ['newChat', 'composer.setDraft', 'composer.submit']);
+    sdk.__reset();
+  });
+
+  it('reports a thrown session door without losing the paused job identity', async () => {
+    sdk.__reset();
+    sdk.__setHost({ newChat: () => { throw new Error('session offline'); } });
+    const result = await routines.launchGuidedConfiguration({
+      routine: handle(), submitted: SUBMITTED, autoSubmit: true,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'session_open_failed');
+    assert.equal(result.jobId, JOB_ID);
+    assert.deepEqual(sdk.__calls().map((c) => c.door), ['newChat']);
+    sdk.__setHost({ newChat: () => undefined });
+    sdk.__reset();
+  });
+
   it('opens nothing when the routine has no authoritative id, and touches no host door', async () => {
     sdk.__reset();
     const result = await routines.launchGuidedConfiguration({
@@ -375,7 +402,7 @@ describe('guided-panel', () => {
     );
   });
 
-  it('auto-sends only the first launch; a retry drafts for the user', async () => {
+  it('retries a failed automatic kickoff on the same job without another create', async () => {
     const noop = () => {};
     const seen = [];
     let attempt = 0;
@@ -421,7 +448,7 @@ describe('guided-panel', () => {
       (n) => n.type === 'button' && /Retry chat/.test(String(n.props.children)),
     );
     await retry.props.onClick();
-    assert.deepEqual(seen, [true, false], 'a retry drafts instead of auto-sending again');
+    assert.deepEqual(seen, [true, true], 'retry submits the same kickoff after an explicit retry click');
   });
 });
 
@@ -434,6 +461,94 @@ function textsOf(nodes) {
   }
   return out.join(' ');
 }
+
+describe('finish-to-chat handoff', () => {
+  it('creates once, pauses the minted id, and sends its authoritative snapshot on the owner route', async () => {
+    sdk.__reset();
+    sdk.__setActive('p1', 'c1');
+    const owner = { ...OWNER, connectionId: 'c1', profile: 'p1', targetProfile: 'work' };
+    const state = routines.routinesViewReducer(routines.initialRoutinesState(), {
+      type: 'routes-loaded', routes: [owner], profile: 'p1', connectionId: 'c1',
+    });
+    let panel = null;
+    const noop = () => {};
+    // Page state slots: reducer, nonce, search, selection, composer, guided, recent.
+    reactStub.__presetStates([
+      [state, noop], [0, noop], ['', noop], [null, noop], [true, noop],
+      [null, (next) => { panel = next; }], [null, noop],
+    ]);
+    const page = routines.RoutinesPage();
+    const composer = collect(page).find((n) => n.type === routines.RoutineComposerPanel);
+    assert.ok(composer);
+    const jobs = [
+      { job_id: 'job_older', name: 'Daily digest', prompt: 'Old goal', enabled: false },
+      { job_id: JOB_ID, name: 'Daily digest', prompt: PROMPT, schedule: '0 7 * * *', enabled: false },
+    ];
+    sdk.__setHost({
+      requestProfile: async (_route, _method, params) => {
+        if (params.action === 'add') return { success: true, job_id: JOB_ID, job: jobs[1] };
+        if (params.action === 'pause') return { success: true, job: jobs[1] };
+        throw new Error('unexpected backend action');
+      },
+    });
+    const ok = await composer.props.onSubmitGuided('Daily digest', '0 7 * * *', PROMPT);
+    assert.equal(ok, true);
+    assert.equal(panel.routine.jobId, JOB_ID);
+    assert.equal(panel.initialLaunch.ok, true);
+    assert.equal(panel.initialLaunch.autoSubmitted, true);
+    const calls = sdk.__calls();
+    assert.deepEqual(calls.map((c) => c.door), [
+      'requestProfile', 'requestProfile', 'newChat', 'composer.setDraft', 'composer.submit',
+    ]);
+    assert.equal(calls[1].args[2].name, JOB_ID);
+    assert.deepEqual(calls[2].args[0], owner);
+    assert.equal(calls[4].args[1], calls[3].args[1]);
+    assert.match(calls[4].args[1], /^job_id: job_abc123$/m);
+    assert.match(calls[4].args[1], /^instruction: Summarize overnight deploys\.$/m);
+    assert.doesNotMatch(calls[4].args[1], /job_older/);
+  });
+  it('keeps a failed submit on the same paused job and retries without another add', async () => {
+    sdk.__reset();
+    sdk.__setActive('p1', 'c1');
+    const owner = { ...OWNER, connectionId: 'c1', profile: 'p1' };
+    const state = routines.routinesViewReducer(routines.initialRoutinesState(), {
+      type: 'routes-loaded', routes: [owner], profile: 'p1', connectionId: 'c1',
+    });
+    let panel = null;
+    const noop = () => {};
+    reactStub.__presetStates([
+      [state, noop], [0, noop], ['', noop], [null, noop], [true, noop],
+      [null, (next) => { panel = next; }], [null, noop],
+    ]);
+    const composer = collect(routines.RoutinesPage()).find((n) => n.type === routines.RoutineComposerPanel);
+    const job = { job_id: JOB_ID, name: 'Daily digest', prompt: PROMPT, enabled: false };
+    sdk.__setHost({ requestProfile: async (_route, _method, params) =>
+      params.action === 'add' ? { success: true, job_id: JOB_ID, job } : { success: true, job },
+    });
+    sdk.__setComposerResult({ submit: false });
+    assert.equal(await composer.props.onSubmitGuided('Daily digest', '0 7 * * *', PROMPT), true);
+    assert.equal(panel.initialLaunch.reason, 'submit_not_accepted');
+    sdk.__setComposerResult({ submit: true });
+    reactStub.__presetStates([]);
+    const retryPanel = routines.GuidedRoutinePanel({
+      routine: panel.routine, submittedName: panel.name, submittedSchedule: panel.schedule,
+      submittedPrompt: panel.prompt, initialLaunch: panel.initialLaunch,
+      onLaunch: (routine, submitted, autoSubmit) => routines.launchGuidedConfiguration({ routine, submitted, autoSubmit }),
+      onClose: noop,
+    });
+    const retry = collect(retryPanel).find(
+      (n) => n.type === 'button' && /Retry chat/.test(String(n.props.children)),
+    );
+    assert.ok(retry, 'a submission failure offers a visible retry');
+    await retry.props.onClick();
+    const calls = sdk.__calls();
+    assert.equal(calls.filter((c) => c.door === 'requestProfile' && c.args[2].action === 'add').length, 1);
+    assert.equal(calls.filter((c) => c.door === 'composer.submit').length, 2);
+    assert.deepEqual(calls.filter((c) => c.door === 'newChat').map((c) => c.args[0]), [owner, owner]);
+    assert.match(calls.at(-1).args[1], /^job_id: job_abc123$/m);
+    sdk.__reset();
+  });
+});
 
 describe('guided-composer-integration', () => {
   it('the composer submits the guided path with active irrelevant (always paused)', async () => {
