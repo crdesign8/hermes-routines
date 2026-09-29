@@ -194,8 +194,11 @@ export function NeedsConfigurationNotice({
   onConfigure: (jobId: string) => void;
 }) {
   if (targets.length === 0) return null;
+  // Quiet by the attention-budget rule: this names paused rows that can be
+  // (re)opened, not a failure. Spacing and typography group the actions;
+  // the bordered bands stay reserved for stale/error/attention states.
   return (
-    <div className="hr-stale" role="status">
+    <div className="hr-config-note" role="status">
       <span>
         {targets.length === 1
           ? 'One paused routine needs configuration.'

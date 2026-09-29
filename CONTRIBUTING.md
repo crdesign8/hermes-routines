@@ -54,6 +54,34 @@ checked in, but it is never the source of truth. Do not edit it manually.
 - Add or update tests for behavior changes. Tests should exercise the real
   shipped entry point where practical.
 
+## Attention budget (visual hierarchy)
+
+Normal controls and optional capabilities stay visually quiet. A highlighted
+container (filled background, bordered box, nested card) is appropriate only
+for:
+
+- the primary page/form action;
+- a real failure or risk state;
+- a state requiring immediate user attention.
+
+A feature is not entitled to a card because it is new or architecturally
+important. Prefer spacing, typography, and alignment before adding another
+background surface. The value of an optional path must come from the behavior
+after the click, not from the size of the surface promoting it.
+
+Keep/drop audit for this rule (issue #92):
+
+| Surface | Verdict |
+|---|---|
+| `Finish with Hermes` composer card | Dropped. Now a quiet secondary act: a borderless `Finish with Hermes →` button plus exactly one supporting sentence, next to the final actions. Gating, handler arity, pending labels, and accessible name are unchanged. |
+| `Start enabled` creation-time row | Already chromeless; kept, with type one step below section titles so the mechanism never outranks intent. |
+| Inspector `Paused · needs configuration` block | Dropped the card wrapper; kept as a quiet note with identical copy (the reopen action lives on the list). |
+| Inspector `Active` disabled mirror and read-only fields | Kept, chromeless; they mirror the composer layout for the future edit seam. |
+| List needs-configuration notice | Dropped the borrowed stale banner; kept as a quiet note with identical copy, role, and actions. |
+| Broadcast pre-opt-in wrapper | Dropped the bordered card; kept as quiet text plus the opt-in button. |
+| Acknowledged fan-out guard, errors, needs-attention band | Kept at full strength. Failure and risk must always read louder than any optional feature. |
+| List header (`Routines` title, `New routine`, search, filters) | Kept; already quiet, no container added. |
+
 ## Pull requests
 
 1. Create a focused branch from `main`.
