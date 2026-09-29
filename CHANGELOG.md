@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The routines list now surfaces the routines that are failing instead of
+  leaving a critical failure to be discovered as a small icon in a longer
+  list. When one or more routines have a meaningful current failure, a band
+  above the list states **2 routines need attention** and a **Show them**
+  control focuses exactly those rows.
+
+  Runtime health is now modeled as its own dimension, separate from the
+  enabled/paused lifecycle the filter chips segment on. A routine can be
+  active and healthy, active and failing, paused after a failure, or paused
+  and healthy — four different things to do, which one `all`/`active`/`paused`
+  segmentation cannot express. `src/domain/attention.ts` decides the verdict
+  once, with an explicit precedence, and every surface reads it.
+
+  The recovery and recency rules are part of that contract rather than an
+  accident of field order. A **later verified successful run clears the
+  attention state**: the recorded success outranks every failure token, so
+  the `last_fire_error` / `last_stderr` / `last_exit_code` the backend leaves
+  behind from the run that failed can never repaint a healthy routine. A
+  **completed** routine has no next run to protect and never qualifies. An
+  **error lifecycle token** is an explicit current claim about the job, so it
+  qualifies on its own — even when the last recorded run succeeded.
+
+  A **paused routine whose last run failed is handled on purpose**: it is
+  excluded from the attention count, because nothing will retry it while it
+  stays paused and the count should be the number of routines the user can act
+  on now. Excluding it is never silent *on a page that shows the band*: the
+  band names it ("1 paused routine also failed before it was paused") and the
+  row keeps stating its own failure in words, so the history is neither lost
+  nor counted as pending work. A page whose only failure is a paused one
+  stays completely quiet — there is no actionable work to interrupt anyone
+  over, and the row still shows the history.
+
+  Two edges of the health verdict are stated rather than left implicit. A
+  **paused routine whose lifecycle token is `error`** still qualifies, because
+  that token is a claim about the job now, not about a run that already
+  happened — resuming it would not fix a broken job. A routine with **no
+  canonical `job_id`** never qualifies, however it is failing: everything
+  downstream of the verdict is a focus keyed on `job_id`, so counting it would
+  make the number promise a row the *Show them* control cannot reveal. Such a
+  row still renders and still states its own failure.
+
+  A healthy list paints **nothing**: the band renders `null` at a zero count,
+  so there is no empty warning section above a clean list, and this is not a
+  permanent fourth top-level tab. The state is carried by words — the count
+  is real painted text, the glyph is `aria-hidden`, and the red accent only
+  reinforces a sentence that already says it. The band is a polite
+  `role="status"`, not an alert: a failing routine is work to get through, not
+  a blocked operation.
+
+  Focusing is a third dimension beside the lifecycle filter, kept as
+  canonical `job_id`s (never display names) and intersected with whatever the
+  chips already showed. While a focus is active the band restates how many
+  routines are **actually on screen** — not the size of the focus, so a search
+  that narrows it cannot announce three rows above a list holding one — and
+  offers **Show all routines**. A list that silently shrank to two rows with no
+  visible way back would be a trap, and the swap between the two band states
+  hands focus to the band that replaced the pressed control instead of
+  dropping a keyboard user on nothing. A focus is re-derived on every
+  list load, so a routine that recovered (or vanished from the backend) drops
+  out of it; when no target survives, the focus is released rather than left
+  as an empty set that would blank the list. Choosing a lifecycle chip also
+  releases it, since the two answer different questions. The one state a live
+  focus can still reach with no rows — a search that no longer covers a
+  failing routine — says so by name instead of blaming the filter, since the
+  user never applied one.
+
 ### Changed
 
 - The routines list now labels its primary action and states each filter's

@@ -308,218 +308,6 @@ function visibleJobs(jobs, filter) {
   return list.slice();
 }
 
-// src/lib/errors.ts
-function messageOf(value) {
-  if (typeof value === "string") return value;
-  if (value !== null && typeof value === "object") {
-    const message = value.message;
-    if (typeof message === "string" && message) return message;
-  }
-  return String(value);
-}
-function wrapHostError(err, context) {
-  const detail = messageOf(err);
-  const clipped = detail.length > 300 ? detail.slice(0, 300) : detail;
-  return new Error(`${context}: ${clipped}`, { cause: err });
-}
-
-// src/state/routinesState.ts
-var ROUTINES_VIEW_STATUS = Object.freeze({
-  ROUTES_LOADING: "routes-loading",
-  ROUTES_ERROR: "routes-error",
-  ROUTE_UNAVAILABLE: "route-unavailable",
-  LIST_LOADING: "list-loading",
-  READY: "ready",
-  LIST_ERROR: "list-error"
-});
-function initialRoutinesState() {
-  return {
-    status: ROUTINES_VIEW_STATUS.ROUTES_LOADING,
-    routes: [],
-    activeKey: null,
-    activeProfile: null,
-    activeConnectionId: null,
-    jobs: [],
-    error: null,
-    notice: null,
-    pending: [],
-    filter: "all",
-    snapshot: null
-  };
-}
-function profileText(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-function routinesViewReducer(state, event) {
-  const S = ROUTINES_VIEW_STATUS;
-  const base = state ?? initialRoutinesState();
-  if (!event) return base;
-  switch (event.type) {
-    case "routes-loading":
-      return {
-        ...base,
-        status: S.ROUTES_LOADING,
-        routes: [],
-        activeKey: null,
-        activeProfile: null,
-        activeConnectionId: null,
-        jobs: [],
-        error: null,
-        notice: null,
-        pending: [],
-        snapshot: null
-      };
-    case "routes-loaded": {
-      const usable = coerceRoutes(event.routes);
-      const profile = profileText(event.profile);
-      const connectionId = profileText(event.connectionId);
-      const route = resolveActiveRoute(usable, profile, connectionId);
-      const key = activeRouteKey(profile, connectionId);
-      if (!route || !key) {
-        return {
-          ...base,
-          status: S.ROUTE_UNAVAILABLE,
-          routes: usable,
-          activeKey: null,
-          activeProfile: profile,
-          activeConnectionId: connectionId,
-          jobs: [],
-          error: null,
-          notice: null,
-          pending: [],
-          snapshot: null
-        };
-      }
-      return {
-        ...base,
-        status: S.LIST_LOADING,
-        routes: usable,
-        activeKey: key,
-        activeProfile: profile,
-        activeConnectionId: connectionId,
-        jobs: [],
-        error: null,
-        notice: null,
-        pending: [],
-        snapshot: null
-      };
-    }
-    case "routes-error":
-      return {
-        ...base,
-        status: S.ROUTES_ERROR,
-        error: messageOf(event.error),
-        routes: [],
-        activeKey: null,
-        activeProfile: null,
-        activeConnectionId: null,
-        jobs: []
-      };
-    case "retry-routes":
-      return {
-        ...base,
-        status: S.ROUTES_LOADING,
-        routes: [],
-        activeKey: null,
-        activeProfile: null,
-        activeConnectionId: null,
-        jobs: [],
-        error: null,
-        notice: null,
-        pending: [],
-        snapshot: null
-      };
-    case "active-changed": {
-      const profile = profileText(event.profile);
-      const connectionId = profileText(event.connectionId);
-      const key = activeRouteKey(profile, connectionId);
-      if (key === base.activeKey) return base;
-      const route = resolveActiveRoute(base.routes, profile, connectionId);
-      if (!route || !key) {
-        return {
-          ...base,
-          status: S.ROUTE_UNAVAILABLE,
-          activeKey: null,
-          activeProfile: profile,
-          activeConnectionId: connectionId,
-          jobs: [],
-          error: null,
-          notice: null,
-          pending: [],
-          snapshot: null
-        };
-      }
-      return {
-        ...base,
-        status: S.LIST_LOADING,
-        activeKey: key,
-        activeProfile: profile,
-        activeConnectionId: connectionId,
-        jobs: [],
-        error: null,
-        notice: null,
-        pending: [],
-        snapshot: null
-      };
-    }
-    case "list-loading":
-      return { ...base, status: S.LIST_LOADING, error: null };
-    case "list-loaded": {
-      if (typeof event.key !== "string" || event.key !== base.activeKey) return base;
-      return {
-        ...base,
-        status: S.READY,
-        jobs: normalizeJobs(event.jobs),
-        error: null,
-        snapshot: null,
-        pending: []
-      };
-    }
-    case "list-error": {
-      if (typeof event.key !== "string" || event.key !== base.activeKey) return base;
-      return { ...base, status: S.LIST_ERROR, error: messageOf(event.error) };
-    }
-    case "retry-list":
-      return { ...base, status: S.LIST_LOADING, error: null, notice: null };
-    case "filter-changed":
-      return {
-        ...base,
-        filter: event.filter === "active" || event.filter === "paused" ? event.filter : "all"
-      };
-    case "mutate-start": {
-      if (typeof event.jobId !== "string") return base;
-      if (base.pending.indexOf(event.jobId) !== -1) return { ...base, notice: null };
-      return { ...base, pending: base.pending.concat([event.jobId]), notice: null };
-    }
-    case "mutate-end":
-      return { ...base, pending: base.pending.filter((jobId) => jobId !== event.jobId) };
-    case "optimistic-pause":
-      if (!event.jobId) return base;
-      return {
-        ...base,
-        snapshot: base.jobs,
-        jobs: base.jobs.map((job) => jobIdOf(job) === event.jobId ? withPausedFlag(job, true) : job)
-      };
-    case "optimistic-resume":
-      if (!event.jobId) return base;
-      return {
-        ...base,
-        snapshot: base.jobs,
-        jobs: base.jobs.map((job) => jobIdOf(job) === event.jobId ? withPausedFlag(job, false) : job)
-      };
-    case "optimistic-rollback":
-      return { ...base, snapshot: null, jobs: Array.isArray(base.snapshot) ? base.snapshot : base.jobs };
-    case "notice":
-      return { ...base, notice: messageOf(event.notice), error: null };
-    case "mutation-error":
-      return { ...base, error: messageOf(event.error) };
-    default:
-      return base;
-  }
-}
-
 // src/domain/schedule.ts
 var TRIGGER_OPTIONS = [
   { value: "every_hour", label: "Every Hour" },
@@ -1224,6 +1012,275 @@ function looksLikeCronExpression(value) {
 }
 function describeSchedule2(expr) {
   return describeSchedule(expr);
+}
+
+// src/domain/attention.ts
+var NONE = { needsAttention: false, reason: null };
+function attentionOf(job) {
+  if (job === null || job === void 0) return NONE;
+  if (jobIdOf(job) === "") return NONE;
+  if (routineCompleted(job)) return NONE;
+  if (routineErrored(job)) return { needsAttention: true, reason: "lifecycle-error" };
+  if (lastRanSuccessfully(job)) return NONE;
+  if (routinePausedOf(job)) return NONE;
+  if (isFailedStatus(job)) return { needsAttention: true, reason: "current-failure" };
+  return NONE;
+}
+function needsAttention(job) {
+  return attentionOf(job).needsAttention;
+}
+function attentionTargets(jobs) {
+  if (!Array.isArray(jobs)) return [];
+  return jobs.filter((job) => attentionOf(job).needsAttention);
+}
+function attentionCount(jobs) {
+  return attentionTargets(jobs).length;
+}
+
+// src/lib/errors.ts
+function messageOf(value) {
+  if (typeof value === "string") return value;
+  if (value !== null && typeof value === "object") {
+    const message = value.message;
+    if (typeof message === "string" && message) return message;
+  }
+  return String(value);
+}
+function wrapHostError(err, context) {
+  const detail = messageOf(err);
+  const clipped = detail.length > 300 ? detail.slice(0, 300) : detail;
+  return new Error(`${context}: ${clipped}`, { cause: err });
+}
+
+// src/state/routinesState.ts
+var ROUTINES_VIEW_STATUS = Object.freeze({
+  ROUTES_LOADING: "routes-loading",
+  ROUTES_ERROR: "routes-error",
+  ROUTE_UNAVAILABLE: "route-unavailable",
+  LIST_LOADING: "list-loading",
+  READY: "ready",
+  LIST_ERROR: "list-error"
+});
+function initialRoutinesState() {
+  return {
+    status: ROUTINES_VIEW_STATUS.ROUTES_LOADING,
+    routes: [],
+    activeKey: null,
+    activeProfile: null,
+    activeConnectionId: null,
+    jobs: [],
+    error: null,
+    notice: null,
+    pending: [],
+    filter: "all",
+    snapshot: null,
+    attentionFocus: null
+  };
+}
+function profileText(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+function pruneAttentionFocus(focus, jobs) {
+  if (focus === null) return null;
+  const alive = attentionTargets(jobs).map((job) => jobIdOf(job)).filter((id) => id !== "");
+  const kept = focus.filter((id) => alive.indexOf(id) !== -1);
+  return kept.length > 0 ? kept : null;
+}
+function routinesViewReducer(state, event) {
+  const S = ROUTINES_VIEW_STATUS;
+  const base = state ?? initialRoutinesState();
+  if (!event) return base;
+  switch (event.type) {
+    case "routes-loading":
+      return {
+        ...base,
+        status: S.ROUTES_LOADING,
+        routes: [],
+        activeKey: null,
+        activeProfile: null,
+        activeConnectionId: null,
+        jobs: [],
+        error: null,
+        notice: null,
+        pending: [],
+        snapshot: null,
+        attentionFocus: null
+      };
+    case "routes-loaded": {
+      const usable = coerceRoutes(event.routes);
+      const profile = profileText(event.profile);
+      const connectionId = profileText(event.connectionId);
+      const route = resolveActiveRoute(usable, profile, connectionId);
+      const key = activeRouteKey(profile, connectionId);
+      if (!route || !key) {
+        return {
+          ...base,
+          status: S.ROUTE_UNAVAILABLE,
+          routes: usable,
+          activeKey: null,
+          activeProfile: profile,
+          activeConnectionId: connectionId,
+          jobs: [],
+          error: null,
+          notice: null,
+          pending: [],
+          snapshot: null,
+          attentionFocus: null
+        };
+      }
+      return {
+        ...base,
+        status: S.LIST_LOADING,
+        routes: usable,
+        activeKey: key,
+        activeProfile: profile,
+        activeConnectionId: connectionId,
+        jobs: [],
+        error: null,
+        notice: null,
+        pending: [],
+        snapshot: null,
+        attentionFocus: null
+      };
+    }
+    case "routes-error":
+      return {
+        ...base,
+        status: S.ROUTES_ERROR,
+        error: messageOf(event.error),
+        routes: [],
+        activeKey: null,
+        activeProfile: null,
+        activeConnectionId: null,
+        jobs: [],
+        attentionFocus: null
+      };
+    case "retry-routes":
+      return {
+        ...base,
+        status: S.ROUTES_LOADING,
+        routes: [],
+        activeKey: null,
+        activeProfile: null,
+        activeConnectionId: null,
+        jobs: [],
+        error: null,
+        notice: null,
+        pending: [],
+        snapshot: null,
+        attentionFocus: null
+      };
+    case "active-changed": {
+      const profile = profileText(event.profile);
+      const connectionId = profileText(event.connectionId);
+      const key = activeRouteKey(profile, connectionId);
+      if (key === base.activeKey) return base;
+      const route = resolveActiveRoute(base.routes, profile, connectionId);
+      if (!route || !key) {
+        return {
+          ...base,
+          status: S.ROUTE_UNAVAILABLE,
+          activeKey: null,
+          activeProfile: profile,
+          activeConnectionId: connectionId,
+          jobs: [],
+          error: null,
+          notice: null,
+          pending: [],
+          snapshot: null,
+          attentionFocus: null
+        };
+      }
+      return {
+        ...base,
+        status: S.LIST_LOADING,
+        activeKey: key,
+        activeProfile: profile,
+        activeConnectionId: connectionId,
+        jobs: [],
+        error: null,
+        notice: null,
+        pending: [],
+        snapshot: null,
+        attentionFocus: null
+      };
+    }
+    case "list-loading":
+      return { ...base, status: S.LIST_LOADING, error: null };
+    case "list-loaded": {
+      if (typeof event.key !== "string" || event.key !== base.activeKey) return base;
+      const jobs = normalizeJobs(event.jobs);
+      return {
+        ...base,
+        status: S.READY,
+        jobs,
+        error: null,
+        snapshot: null,
+        pending: [],
+        // A focus is a claim about specific rows, so it is re-checked
+        // against the inventory that just arrived. A routine that recovered
+        // (or was deleted) leaves the focus, and a focus left with nothing in
+        // it is dropped entirely — an empty focus would empty the list and
+        // leave the user on a blank page with no control that says why.
+        attentionFocus: pruneAttentionFocus(base.attentionFocus, jobs)
+      };
+    }
+    case "list-error": {
+      if (typeof event.key !== "string" || event.key !== base.activeKey) return base;
+      return { ...base, status: S.LIST_ERROR, error: messageOf(event.error) };
+    }
+    case "retry-list":
+      return { ...base, status: S.LIST_LOADING, error: null, notice: null };
+    case "filter-changed":
+      return {
+        ...base,
+        filter: event.filter === "active" || event.filter === "paused" ? event.filter : "all",
+        // A lifecycle chip is a different question from the attention focus,
+        // and the user answering one has answered the other: they are no
+        // longer looking at "what is failing". Keeping both would leave the
+        // list showing a slice of one question while the focus bar claims
+        // another, with no way back to the rest of the list.
+        attentionFocus: null
+      };
+    case "attention-focus": {
+      const ids = attentionTargets(event.jobs).map((job) => jobIdOf(job)).filter((id) => id !== "");
+      if (ids.length === 0) return { ...base, attentionFocus: null };
+      return { ...base, filter: "all", attentionFocus: ids };
+    }
+    case "attention-focus-cleared":
+      return base.attentionFocus === null ? base : { ...base, attentionFocus: null };
+    case "mutate-start": {
+      if (typeof event.jobId !== "string") return base;
+      if (base.pending.indexOf(event.jobId) !== -1) return { ...base, notice: null };
+      return { ...base, pending: base.pending.concat([event.jobId]), notice: null };
+    }
+    case "mutate-end":
+      return { ...base, pending: base.pending.filter((jobId) => jobId !== event.jobId) };
+    case "optimistic-pause":
+      if (!event.jobId) return base;
+      return {
+        ...base,
+        snapshot: base.jobs,
+        jobs: base.jobs.map((job) => jobIdOf(job) === event.jobId ? withPausedFlag(job, true) : job)
+      };
+    case "optimistic-resume":
+      if (!event.jobId) return base;
+      return {
+        ...base,
+        snapshot: base.jobs,
+        jobs: base.jobs.map((job) => jobIdOf(job) === event.jobId ? withPausedFlag(job, false) : job)
+      };
+    case "optimistic-rollback":
+      return { ...base, snapshot: null, jobs: Array.isArray(base.snapshot) ? base.snapshot : base.jobs };
+    case "notice":
+      return { ...base, notice: messageOf(event.notice), error: null };
+    case "mutation-error":
+      return { ...base, error: messageOf(event.error) };
+    default:
+      return base;
+  }
 }
 
 // src/domain/advancedSettings.ts
@@ -3606,6 +3663,22 @@ var ROUTINES_CSS = [
   ".hr-error { border: 1px solid color-mix(in srgb, var(--ui-red, #f87171) 40%, transparent); border-left-width: 4px; border-radius: 8px; padding: 14px 16px; background: var(--ui-bg-elevated, rgba(255,255,255,0.02)); color: var(--ui-text-primary, #fff); margin: 16px 0; }",
   ".hr-error strong { color: var(--ui-red, #f87171); }",
   ".hr-stale { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.1)); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; background: var(--ui-bg-tertiary, rgba(255,255,255,0.02)); color: var(--ui-text-secondary, #ccc); font-size: 12px; }",
+  // Needs-attention summary (issue #80). A quiet band, deliberately close to
+  // the stale banner it borrows its box from — the difference must be the
+  // WORDS and the accent, not a loud alarm: a warning that screams on a
+  // routine nobody can fix right now trains users to ignore it. The text
+  // carries the state, so the red accent only reinforces what is already
+  // written ("2 routines need attention") and is never the sole signal.
+  ".hr-attention { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; border: 1px solid color-mix(in srgb, var(--ui-red, #f87171) 40%, transparent); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; background: var(--ui-bg-tertiary, rgba(255,255,255,0.02)); color: var(--ui-text-primary, #fff); font-size: 12px; }",
+  ".hr-attention-glyph { flex: 0 0 auto; color: var(--ui-red, #f87171); }",
+  ".hr-attention-text { font-weight: 600; }",
+  // Secondary clause, so the excluded paused failures read as context beside
+  // the headline and not as a second number the user has to reconcile.
+  ".hr-attention-note { color: var(--ui-text-tertiary, #888); }",
+  // The focus bar is the same band in its active state: same severity, a
+  // different sentence, and the control that leaves it.
+  ".hr-attention-active { border-color: color-mix(in srgb, var(--ui-red, #f87171) 55%, transparent); margin-bottom: 8px; }",
+  ".hr-attention .hr-btn { margin-left: auto; }",
   ".hr-muted { color: var(--ui-text-tertiary, #888); font-size: 13px; line-height: 1.4; }",
   ".hr-status { margin-top: 10px; color: var(--ui-text-tertiary, #888); font-size: 12px; }",
   // A status line that only restates what the page already shows (the
@@ -5773,10 +5846,13 @@ function EmptyState() {
     /* @__PURE__ */ jsx13("p", { className: "hr-state-text", children: "Scheduled jobs for this profile will appear here." })
   ] });
 }
-function EmptyFilterState() {
+function EmptyFilterState({
+  title = "No routines match this filter",
+  hint = "Try a different filter to see more routines."
+}) {
   return /* @__PURE__ */ jsxs12("div", { className: "hr-state", children: [
-    /* @__PURE__ */ jsx13("p", { className: "hr-state-title", children: "No routines match this filter" }),
-    /* @__PURE__ */ jsx13("p", { className: "hr-state-text", children: "Try a different filter to see more routines." })
+    /* @__PURE__ */ jsx13("p", { className: "hr-state-title", children: title }),
+    /* @__PURE__ */ jsx13("p", { className: "hr-state-text", children: hint })
   ] });
 }
 function ErrorState({
@@ -5806,6 +5882,39 @@ function StaleBanner({ onRetry }) {
     /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
   ] });
 }
+var ATTENTION_BAND_ID = "hermes-routines-attention";
+function NeedsAttentionNotice({
+  count,
+  paused = 0,
+  onFocus
+}) {
+  if (count === 0) return null;
+  return /* @__PURE__ */ jsxs12("div", { id: ATTENTION_BAND_ID, className: "hr-attention", role: "status", tabIndex: -1, children: [
+    /* @__PURE__ */ jsxs12(
+      "svg",
+      {
+        className: "hr-attention-glyph",
+        width: "14",
+        height: "14",
+        viewBox: "0 0 16 16",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: "1.8",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        "aria-hidden": "true",
+        children: [
+          /* @__PURE__ */ jsx13("circle", { cx: "8", cy: "8", r: "6.5" }),
+          /* @__PURE__ */ jsx13("line", { x1: "5.5", y1: "5.5", x2: "10.5", y2: "10.5" }),
+          /* @__PURE__ */ jsx13("line", { x1: "10.5", y1: "5.5", x2: "5.5", y2: "10.5" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx13("span", { className: "hr-attention-text", children: count === 1 ? "1 routine needs attention" : `${count} routines need attention` }),
+    paused > 0 ? /* @__PURE__ */ jsx13("span", { className: "hr-attention-note", children: paused === 1 ? "1 paused routine also failed before it was paused" : `${paused} paused routines also failed before they were paused` }) : null,
+    /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onFocus, children: "Show them" })
+  ] });
+}
 function NeedsConfigurationNotice({
   targets,
   onConfigure
@@ -5832,6 +5941,12 @@ function pastTense(kind) {
   if (kind === "pause") return "paused";
   if (kind === "resume") return "resumed";
   return "saved";
+}
+function matchesQuery(job, query) {
+  const q = query.trim().toLowerCase();
+  const name = (routineTitle(job, "") || jobIdOf(job)).toLowerCase();
+  const schedule = (humanScheduleOf(job) || "").toLowerCase();
+  return name.includes(q) || schedule.includes(q);
 }
 function RoutinesPage() {
   const [state, setState] = useState4(initialRoutinesState);
@@ -5860,24 +5975,27 @@ function RoutinesPage() {
     );
     if (!stillThere) setSelectedJobKey(null);
   }, [state.jobs, selectedJobKey]);
-  const filteredJobs = useMemo2(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return shown;
-    return shown.filter((job) => {
-      const name = (routineTitle(job, "") || jobIdOf(job)).toLowerCase();
-      const schedule = (humanScheduleOf(job) || "").toLowerCase();
-      return name.includes(q) || schedule.includes(q);
-    });
-  }, [shown, searchQuery]);
   const searchMatches = useMemo2(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = searchQuery.trim();
     if (!q) return state.jobs;
-    return state.jobs.filter((job) => {
-      const name = (routineTitle(job, "") || jobIdOf(job)).toLowerCase();
-      const schedule = (humanScheduleOf(job) || "").toLowerCase();
-      return name.includes(q) || schedule.includes(q);
-    });
+    return state.jobs.filter((job) => matchesQuery(job, q));
   }, [state.jobs, searchQuery]);
+  const filteredJobs = useMemo2(() => {
+    const searched = searchQuery.trim() ? shown.filter((job) => matchesQuery(job, searchQuery)) : shown;
+    if (state.attentionFocus === null) return searched;
+    const focus = state.attentionFocus;
+    return searched.filter((job) => {
+      const id = jobIdOf(job);
+      return id !== "" && focus.indexOf(id) !== -1;
+    });
+  }, [shown, searchQuery, state.attentionFocus]);
+  const attention = useMemo2(() => {
+    const failing = attentionTargets(searchMatches);
+    const pausedFailures = searchMatches.filter(
+      (job) => routinePausedOf(job) && isFailedStatus(job) && !needsAttention(job)
+    ).length;
+    return { count: failing.length, pausedFailures };
+  }, [searchMatches]);
   const selectedJob = useMemo2(() => {
     if (!selectedJobKey) return null;
     return state.jobs.find(
@@ -6164,8 +6282,39 @@ function RoutinesPage() {
     }
     return targets;
   }
+  function setAttentionFocus(event) {
+    if (event === "focus") {
+      dispatch({ type: "attention-focus", jobs: searchMatches });
+    } else {
+      dispatch({ type: "attention-focus-cleared" });
+    }
+    setTimeout(() => {
+      focusById(ATTENTION_BAND_ID);
+    }, 0);
+  }
   function renderList() {
     const counts = state.status === S.READY ? filterCounts(searchMatches) : null;
+    const focusBar = state.attentionFocus !== null && state.attentionFocus.length > 0 ? /* @__PURE__ */ jsxs13(
+      "div",
+      {
+        id: ATTENTION_BAND_ID,
+        className: "hr-attention hr-attention-active",
+        role: "status",
+        tabIndex: -1,
+        children: [
+          /* @__PURE__ */ jsx14("span", { className: "hr-attention-text", children: filteredJobs.length === 0 ? "No failing routine matches this search" : filteredJobs.length === 1 ? "Showing 1 routine that needs attention" : `Showing ${filteredJobs.length} routines that need attention` }),
+          /* @__PURE__ */ jsx14(
+            "button",
+            {
+              type: "button",
+              className: "hr-btn hr-btn-small",
+              onClick: () => setAttentionFocus("clear"),
+              children: "Show all routines"
+            }
+          )
+        ]
+      }
+    ) : null;
     return /* @__PURE__ */ jsxs13(Fragment4, { children: [
       /* @__PURE__ */ jsxs13("div", { className: "hr-toolbar", children: [
         /* @__PURE__ */ jsxs13("div", { className: "hr-search-wrap", children: [
@@ -6201,7 +6350,31 @@ function RoutinesPage() {
           }
         ) })
       ] }),
-      filteredJobs.length === 0 ? state.jobs.length === 0 ? /* @__PURE__ */ jsx14(EmptyState, {}) : /* @__PURE__ */ jsx14(EmptyFilterState, {}) : /* @__PURE__ */ jsx14(
+      focusBar ?? /* @__PURE__ */ jsx14(
+        NeedsAttentionNotice,
+        {
+          count: attention.count,
+          paused: attention.pausedFailures,
+          onFocus: () => setAttentionFocus("focus")
+        }
+      ),
+      filteredJobs.length === 0 ? state.jobs.length === 0 ? /* @__PURE__ */ jsx14(EmptyState, {}) : state.attentionFocus !== null ? (
+        // The only way a live focus can match nothing is a search that no
+        // longer covers any failing routine: the reducer re-derives the
+        // focus on every list load, so a routine that recovered or
+        // vanished would have dropped the focus rather than emptied it.
+        // Copy that names the real cause — the generic "no routines match
+        // this filter" would blame a filter the user never applied, and
+        // "every routine is healthy" would be a claim about rows this
+        // search is not even showing.
+        /* @__PURE__ */ jsx14(
+          EmptyFilterState,
+          {
+            title: "No failing routine matches this search",
+            hint: "Clear the search box to see the routines that need attention."
+          }
+        )
+      ) : /* @__PURE__ */ jsx14(EmptyFilterState, {}) : /* @__PURE__ */ jsx14(
         RoutineList,
         {
           jobs: filteredJobs,
@@ -6429,6 +6602,7 @@ var plugin = {
 };
 var plugin_default = plugin;
 export {
+  ATTENTION_BAND_ID,
   BROADCAST_ACKNOWLEDGEMENT,
   DAYS_OF_MONTH,
   DAYS_OF_WEEK,
@@ -6438,6 +6612,9 @@ export {
   DESTINATION_DEFAULT,
   DESTINATION_HISTORY,
   EMPTY_ADVANCED_DESTINATION,
+  EmptyFilterState,
+  EmptyState,
+  ErrorState,
   FilterNav,
   GENERIC_FAILURE_SUMMARY,
   GUIDED_CHAT_DRAFT,
@@ -6450,8 +6627,11 @@ export {
   INSPECTOR_PANEL_ID,
   INTERVAL_UNITS,
   INTERVAL_VALUES,
+  LoadingState,
   NEW_ROUTINE_CONTROL_ID,
   NOW_WINDOW_MS,
+  NeedsAttentionNotice,
+  NeedsConfigurationNotice,
   PLUGIN_ID,
   PLUGIN_NAME,
   PanelNav,
@@ -6472,8 +6652,10 @@ export {
   SIDEBAR_LABEL,
   SIDEBAR_ORDER,
   SelectField,
+  StaleBanner,
   TIME_SLOTS,
   TRIGGER_OPTIONS,
+  UnavailableState,
   activateConfigured,
   activeRouteKey,
   addJob,
@@ -6481,6 +6663,9 @@ export {
   applyValidatedProposal,
   assertRoutingOptions,
   assertTimeoutMs,
+  attentionCount,
+  attentionOf,
+  attentionTargets,
   backendTargetProfile,
   baseDestinationOptions,
   botChatDestinations,
@@ -6549,6 +6734,7 @@ export {
   listRoutines,
   messageOf,
   mintedRoutineFrom,
+  needsAttention,
   nextRunCopyOf,
   nextRunIso,
   normalizeJobs,
