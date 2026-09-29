@@ -1209,6 +1209,84 @@ function describeSchedule2(expr) {
   return describeSchedule(expr);
 }
 
+// src/domain/advancedSettings.ts
+var DELIVERY_GRAMMAR = "local, all, bot-chat[:profile], or platform:chat_id[:thread_id]";
+var MAX_DELIVERY_LENGTH = 256;
+var CONTROL_CHARS_RE2 = /[\x00-\x1F\x7F]/;
+var DELIVERY_ROW_KEYS = ["deliver", "delivery", "deliver_to", "deliverTo"];
+var MODEL_ROW_KEYS = ["model", "model_override", "modelOverride", "override_model"];
+var RESERVED_FIRST_SEGMENTS = /* @__PURE__ */ new Set(["local", "all", "bot-chat", "origin"]);
+function absent() {
+  return { ok: true, present: false, delivery: null };
+}
+function present(delivery) {
+  return { ok: true, present: true, delivery };
+}
+function refused(message) {
+  return { ok: false, code: "bad_delivery", message };
+}
+function grammarRefusal(received) {
+  return refused(
+    `unsupported delivery ${JSON.stringify(received)} \u2014 delivery is one of: ${DELIVERY_GRAMMAR}`
+  );
+}
+function normalizeDelivery(value) {
+  if (value === void 0 || value === null) return absent();
+  if (typeof value !== "string") return grammarRefusal(JSON.stringify(value) ?? String(value));
+  const text = value.trim();
+  if (text === "") return absent();
+  if (text.length > MAX_DELIVERY_LENGTH) {
+    return refused("delivery must be at most 256 chars");
+  }
+  if (CONTROL_CHARS_RE2.test(text)) {
+    return refused("delivery must not contain control characters");
+  }
+  const lowered = text.toLowerCase();
+  if (lowered === "origin") {
+    return refused(
+      `delivery "origin" is not supported for plugin creates \u2014 it resolves to the creating session target, which only exists for cron-session creates; use one of: ${DELIVERY_GRAMMAR}`
+    );
+  }
+  if (lowered === "local") return present("local");
+  if (lowered === "all") return present("all");
+  if (lowered === "bot-chat") return present("bot-chat");
+  if (text.startsWith("bot-chat:") || lowered.startsWith("bot-chat:")) {
+    const profile = text.slice(text.indexOf(":") + 1).trim();
+    if (!profile || profile.includes(":") || CONTROL_CHARS_RE2.test(profile)) {
+      return grammarRefusal(text);
+    }
+    return present(`bot-chat:${profile}`);
+  }
+  const parts = text.split(":");
+  if (parts.length === 2 || parts.length === 3) {
+    const platform = (parts[0] ?? "").trim();
+    const chatId = (parts[1] ?? "").trim();
+    if (!platform || !chatId) return grammarRefusal(text);
+    if (RESERVED_FIRST_SEGMENTS.has(platform.toLowerCase())) return grammarRefusal(text);
+    if (parts.length === 3) {
+      const thread = (parts[2] ?? "").trim();
+      if (!thread) return grammarRefusal(text);
+      return present(`${platform}:${chatId}:${thread}`);
+    }
+    return present(`${platform}:${chatId}`);
+  }
+  return grammarRefusal(text);
+}
+function firstStoredText(row, keys) {
+  if (row === null) return null;
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+function readStoredDelivery(row) {
+  return firstStoredText(row, DELIVERY_ROW_KEYS);
+}
+function readStoredModelOverride(row) {
+  return firstStoredText(row, MODEL_ROW_KEYS);
+}
+
 // src/gateway/cronParams.ts
 function targetProfileOf(route) {
   if (!route || typeof route.connectionId !== "string" || !route.connectionId) {
@@ -1226,7 +1304,14 @@ function buildListParams(route) {
 function buildAddParams(route, input) {
   const target = targetProfileOf(route);
   const shaped = addJob(input || {});
-  return { ...shaped, profile: target };
+  const delivery = normalizeDelivery((input || {}).delivery);
+  if (!delivery.ok) {
+    throw new TypeError(delivery.message);
+  }
+  if (!delivery.present) {
+    return { ...shaped, profile: target };
+  }
+  return { ...shaped, deliver: delivery.delivery, profile: target };
 }
 function buildPauseParams(route, jobId) {
   return { ...pauseJob(jobId), profile: targetProfileOf(route) };
@@ -1456,14 +1541,6 @@ var GUIDED_ENVELOPE_MARKER = "HERMES_ROUTINE_CONFIG_V1";
 function asRecord2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
-function optionalField(row, keys) {
-  if (row === null) return null;
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
 function singleLine(value) {
   if (typeof value !== "string") return "";
   return value.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
@@ -1525,14 +1602,14 @@ function buildGuidedEnvelope(routine, submitted) {
       name,
       schedule,
       instruction,
-      // Delivery and model override exist upstream but are not part of the
-      // create form yet: absent is reported as absent, never invented.
-      delivery: orNull(
-        singleLine(optionalField(record, ["deliver", "delivery", "deliver_to", "deliverTo"]))
-      ),
-      modelOverride: orNull(
-        singleLine(optionalField(record, ["model", "model_override", "modelOverride", "override_model"]))
-      ),
+      // Delivery and model override read from the stored row through the
+      // shared advanced-settings readers (domain/advancedSettings.ts) — the
+      // same source the proposal fingerprint reads, so the session prompt
+      // and the stale guard agree. Delivery is writable (see
+      // routineProposal.ts); modelOverride stays read-only display, and
+      // absent is reported as absent, never invented.
+      delivery: orNull(singleLine(readStoredDelivery(record))),
+      modelOverride: orNull(singleLine(readStoredModelOverride(record))),
       state: "paused"
     }
   };
@@ -3264,9 +3341,9 @@ import { useState as useState4 } from "react";
 var MAX_NAME_LENGTH2 = 128;
 var MAX_SCHEDULE_LENGTH2 = 256;
 var MAX_PROMPT_LENGTH2 = 2e4;
-var CONTROL_CHARS_RE2 = /[\x00-\x1F\x7F]/;
+var CONTROL_CHARS_RE3 = /[\x00-\x1F\x7F]/;
 var ROUTINE_PROPOSAL_VERSION = 1;
-var PATCH_FIELDS = ["name", "prompt", "schedule"];
+var PATCH_FIELDS = ["name", "prompt", "schedule", "delivery"];
 var PROPOSAL_FIELDS = ["version", "jobId", "owner", "base", "patch", "desiredActive", "note", "validated"];
 function asRecord3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -3288,10 +3365,12 @@ function snapshotJobConfig(job) {
     name: rowField(row, ["name"]),
     schedule: (rawScheduleOf(job ?? null) ?? "").trim(),
     prompt: (routinePromptOf(job ?? null) ?? "").trim(),
-    // Same candidate keys the envelope reports (guidedEnvelope.ts) —
-    // absent reads as absent, never invented.
-    delivery: rowField(row, ["deliver", "delivery", "deliver_to", "deliverTo"]),
-    modelOverride: rowField(row, ["model", "model_override", "modelOverride", "override_model"]),
+    // Stored delivery through the shared advanced-settings reader
+    // (domain/advancedSettings.ts) — the same source the envelope reports,
+    // so the fingerprint and the session prompt can never disagree about
+    // what "current" means. Absent reads as absent, never invented.
+    delivery: readStoredDelivery(row) ?? "",
+    modelOverride: readStoredModelOverride(row) ?? "",
     paused: routinePausedOf(job ?? null)
   };
 }
@@ -3326,7 +3405,7 @@ function checkName(value) {
   const text = value.trim();
   if (!text) return "proposal name must not be empty";
   if (text.length > MAX_NAME_LENGTH2) return "proposal name must be at most 128 chars";
-  if (CONTROL_CHARS_RE2.test(text)) return "proposal name must not contain control characters";
+  if (CONTROL_CHARS_RE3.test(text)) return "proposal name must not contain control characters";
   return null;
 }
 function checkSchedule(value) {
@@ -3334,7 +3413,7 @@ function checkSchedule(value) {
   const text = value.trim();
   if (!text) return "proposal schedule must not be empty";
   if (text.length > MAX_SCHEDULE_LENGTH2) return "proposal schedule must be at most 256 chars";
-  if (CONTROL_CHARS_RE2.test(text)) return "proposal schedule must not contain control characters";
+  if (CONTROL_CHARS_RE3.test(text)) return "proposal schedule must not contain control characters";
   return null;
 }
 function checkPrompt(value) {
@@ -3397,7 +3476,7 @@ function validateProposal(input, expectedOwner = null) {
     if (!PATCH_FIELDS.includes(key)) {
       return refusal(
         "unknown_patch_field",
-        `unknown patch field "${key}" \u2014 only ${PATCH_FIELDS.join(", ")} can be reconfigured` + (key === "delivery" || key === "deliver" || key === "modelOverride" || key === "model_override" || key === "model" ? "; delivery and model overrides are reported by the session but have no supported write path on this surface" : "")
+        `unknown patch field "${key}" \u2014 only ${PATCH_FIELDS.join(", ")} can be reconfigured` + (key === "modelOverride" || key === "model_override" || key === "model" ? "; model overrides are reported by the session but have no supported write path on this surface" : "")
       );
     }
   }
@@ -3416,6 +3495,11 @@ function validateProposal(input, expectedOwner = null) {
     const bad = checkPrompt(patch.prompt);
     if (bad !== null) return refusal("bad_prompt", bad);
     normalized.prompt = patch.prompt.trim();
+  }
+  if ("delivery" in patch) {
+    const delivery = normalizeDelivery(patch.delivery);
+    if (!delivery.ok) return refusal("bad_delivery", delivery.message);
+    normalized.delivery = delivery.present ? delivery.delivery : "";
   }
   if (root.desiredActive !== false) {
     return refusal(
@@ -3801,7 +3885,10 @@ function proposedSnapshot(current, patch) {
     ...current,
     name: patch.name ?? current.name,
     schedule: patch.schedule ?? current.schedule,
-    prompt: patch.prompt ?? current.prompt
+    prompt: patch.prompt ?? current.prompt,
+    // #65: an explicit '' clears the target; an absent key keeps the stored
+    // one. `??` cannot express that, so the empty string is checked directly.
+    delivery: patch.delivery === void 0 ? current.delivery : patch.delivery
   };
 }
 var REVIEW_LABELS = Object.freeze({
@@ -3812,13 +3899,14 @@ var REVIEW_LABELS = Object.freeze({
   modelOverride: "Model override"
 });
 var REVIEW_ORDER = ["name", "schedule", "prompt", "delivery", "modelOverride"];
-var PATCHABLE = Object.freeze({
+var REVIEW_PATCHABLE = Object.freeze({
   name: true,
   schedule: true,
   prompt: true,
-  delivery: false,
+  delivery: true,
   modelOverride: false
 });
+var PATCHABLE = REVIEW_PATCHABLE;
 function buildProposalReview(current, proposal) {
   if (!current || !proposal) return null;
   const proposed = proposedSnapshot(current, proposal.patch);
@@ -3913,6 +4001,7 @@ async function applyValidatedProposal(request) {
   const name = proposal.patch.name ?? snapshot.name;
   const schedule = proposal.patch.schedule ?? snapshot.schedule;
   const prompt = proposal.patch.prompt ?? snapshot.prompt;
+  const delivery = proposal.patch.delivery ?? snapshot.delivery;
   if (!name || !schedule || !prompt) {
     return failed(
       "unapplyable_base",
@@ -3921,12 +4010,12 @@ async function applyValidatedProposal(request) {
       backendProfile
     );
   }
-  if (name === snapshot.name && schedule === snapshot.schedule && prompt === snapshot.prompt) {
+  if (name === snapshot.name && schedule === snapshot.schedule && prompt === snapshot.prompt && delivery === snapshot.delivery) {
     return { ok: true, jobId, previousJobId: "", changed: false, backendProfile };
   }
   let addParams;
   try {
-    addParams = buildAddParams(route, { name, schedule, prompt });
+    addParams = buildAddParams(route, { name, schedule, prompt, delivery });
   } catch (err) {
     return failed("invalid_proposal", "the patched configuration is not valid: " + messageOf(err), jobId, backendProfile);
   }
@@ -4058,7 +4147,7 @@ async function applyValidatedProposal(request) {
     );
   }
   const confirmedSnapshot = snapshotJobConfig(confirmed);
-  if (confirmedSnapshot.name !== name || confirmedSnapshot.schedule !== schedule || confirmedSnapshot.prompt !== prompt) {
+  if (confirmedSnapshot.name !== name || confirmedSnapshot.schedule !== schedule || confirmedSnapshot.prompt !== prompt || confirmedSnapshot.delivery !== delivery) {
     return failed(
       "truth_unconfirmed",
       `the re-read list shows the replacement ${replacementId} with different values than requested \u2014 verify it before the first run`,
@@ -4122,7 +4211,7 @@ async function readJobConfig(request) {
     fingerprint: fingerprintSnapshot(snapshot)
   };
 }
-function refused(stage, reason, message, jobId, recovery, replacementJobId = null) {
+function refused2(stage, reason, message, jobId, recovery, replacementJobId = null) {
   return { ok: false, stage, reason, message, jobId, recovery, replacementJobId };
 }
 function classifyApplyFailure(reason, replacementJobId) {
@@ -4157,15 +4246,15 @@ async function confirmProposal(request) {
   const S = GUIDED_WORKFLOW_STAGE;
   const checked = validateProposal(request?.proposal, null);
   if (checked.ok === false) {
-    return refused(S.STALE, "invalid_proposal", "the proposal is not valid: " + checked.message, "", "review");
+    return refused2(S.STALE, "invalid_proposal", "the proposal is not valid: " + checked.message, "", "review");
   }
   const proposal = checked.proposal;
   const jobId = proposal.jobId;
   if (!route || !backendProfile) {
-    return refused(S.STALE, "no_route", "applying a proposal requires the resolved profile route that owns the routine", jobId, "review");
+    return refused2(S.STALE, "no_route", "applying a proposal requires the resolved profile route that owns the routine", jobId, "review");
   }
   if (route.connectionId !== proposal.owner.connectionId || route.profile !== proposal.owner.profile && route.targetProfile !== proposal.owner.profile) {
-    return refused(
+    return refused2(
       S.STALE,
       "owner_mismatch",
       `the proposal belongs to ${proposal.owner.connectionId}::${proposal.owner.profile} and cannot be applied on ${route.connectionId}::${route.profile}`,
@@ -4175,10 +4264,10 @@ async function confirmProposal(request) {
   }
   const before = await readJobConfig({ route, jobId });
   if (!before.ok) {
-    return refused(S.STALE, "list_failed", before.message, jobId, "review");
+    return refused2(S.STALE, "list_failed", before.message, jobId, "review");
   }
   if (!before.exists) {
-    return refused(
+    return refused2(
       S.STALE,
       "job_not_found",
       "the routine no longer exists on its owning profile \u2014 check the routines list before reapplying",
@@ -4187,7 +4276,7 @@ async function confirmProposal(request) {
     );
   }
   if (before.fingerprint !== proposal.base.fingerprint) {
-    return refused(
+    return refused2(
       S.STALE,
       "stale_base",
       "the routine changed since the configuration session started \u2014 review the current values and build a new proposal instead of overwriting newer state",
@@ -4196,7 +4285,7 @@ async function confirmProposal(request) {
     );
   }
   if (!before.paused) {
-    return refused(
+    return refused2(
       S.STALE,
       "not_paused",
       "only a paused routine can be reconfigured \u2014 the routine is currently active, so the proposal no longer describes a safe target",
@@ -4207,15 +4296,15 @@ async function confirmProposal(request) {
   const applied = await applyValidatedProposal({ proposal, route });
   if (applied.ok === false) {
     const { stage, recovery } = classifyApplyFailure(applied.reason, applied.replacementJobId);
-    return refused(stage, applied.reason, applied.message, applied.jobId || jobId, recovery, applied.replacementJobId);
+    return refused2(stage, applied.reason, applied.message, applied.jobId || jobId, recovery, applied.replacementJobId);
   }
   const expected = proposedSnapshot(before.snapshot, proposal.patch);
   const verified = await readJobConfig({ route, jobId: applied.jobId });
   if (!verified.ok) {
-    return refused(S.VERIFY, "verification_unreadable", verified.message, applied.jobId, "refresh", null);
+    return refused2(S.VERIFY, "verification_unreadable", verified.message, applied.jobId, "refresh", null);
   }
   if (!verified.exists) {
-    return refused(
+    return refused2(
       S.VERIFY,
       "verification_missing",
       `the configuration was applied but the routine ${applied.jobId} is not in the re-read list \u2014 verify it before any activation`,
@@ -4225,7 +4314,7 @@ async function confirmProposal(request) {
     );
   }
   if (verified.snapshot.name !== expected.name || verified.snapshot.schedule !== expected.schedule || verified.snapshot.prompt !== expected.prompt) {
-    return refused(
+    return refused2(
       S.VERIFY,
       "verification_failed",
       `the re-read routine ${applied.jobId} does not hold the proposed configuration \u2014 do not activate it; check the routines list`,
@@ -4235,7 +4324,7 @@ async function confirmProposal(request) {
     );
   }
   if (!verified.paused) {
-    return refused(
+    return refused2(
       S.VERIFY,
       "verification_unpaused",
       `the re-read routine ${applied.jobId} is not paused after the apply \u2014 it must be parked before any activation decision`,
@@ -4256,7 +4345,7 @@ async function activateConfigured(request) {
   const jobId = typeof request?.jobId === "string" ? request.jobId : "";
   const S = GUIDED_WORKFLOW_STAGE;
   if (!scopeOf3(route) || !jobId) {
-    return refused(
+    return refused2(
       S.RESUME,
       "no_route",
       "activating a routine requires the resolved profile route that owns it",
@@ -4277,10 +4366,10 @@ async function activateConfigured(request) {
   }
   const after = await readJobConfig({ route, jobId });
   if (!after.ok) {
-    return refused(S.ACTIVATE_VERIFY, "truth_unreadable", after.message, jobId, "refresh");
+    return refused2(S.ACTIVATE_VERIFY, "truth_unreadable", after.message, jobId, "refresh");
   }
   if (!after.exists) {
-    return refused(
+    return refused2(
       S.ACTIVATE_VERIFY,
       "job_missing",
       `the routine ${jobId} is no longer in the re-read list \u2014 check the routines list before retrying`,
@@ -4292,7 +4381,7 @@ async function activateConfigured(request) {
     return { ok: true, activated: true, jobId, previousJobId: "", changed: false };
   }
   if (resumeError !== null) {
-    return refused(
+    return refused2(
       S.RESUME,
       "resume_rejected",
       `the backend refused to resume the routine (${resumeError}) \u2014 it stays configured and paused`,
@@ -4300,7 +4389,7 @@ async function activateConfigured(request) {
       "activation"
     );
   }
-  return refused(
+  return refused2(
     S.ACTIVATE_VERIFY,
     "resume_unconfirmed",
     `the resume was accepted but the routine ${jobId} still reads as paused \u2014 the active state was not confirmed`,
@@ -5372,6 +5461,7 @@ export {
   INTERVAL_VALUES,
   PLUGIN_ID,
   PLUGIN_NAME,
+  REVIEW_PATCHABLE,
   ROUTE_ID,
   ROUTE_PATH,
   ROUTINES_VIEW_STATUS,

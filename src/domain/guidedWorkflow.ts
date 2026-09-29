@@ -571,6 +571,9 @@ export function proposedSnapshot(
     name: patch.name ?? current.name,
     schedule: patch.schedule ?? current.schedule,
     prompt: patch.prompt ?? current.prompt,
+    // #65: an explicit '' clears the target; an absent key keeps the stored
+    // one. `??` cannot express that, so the empty string is checked directly.
+    delivery: patch.delivery === undefined ? current.delivery : patch.delivery,
   };
 }
 
@@ -583,13 +586,22 @@ const REVIEW_LABELS: Readonly<Record<ReviewField, string>> = Object.freeze({
 });
 
 const REVIEW_ORDER: readonly ReviewField[] = ['name', 'schedule', 'prompt', 'delivery', 'modelOverride'];
-const PATCHABLE: Readonly<Record<ReviewField, boolean>> = Object.freeze({
+/**
+ * A review row the reviewer may change. `delivery` became patchable in
+ * issue #65 (the gateway RPC forwards `deliver` on create).
+ * `modelOverride` is displayed but NOT patchable: the RPC has no
+ * `model`/`provider` key, so a proposal could only pretend to set it.
+ */
+export const REVIEW_PATCHABLE: Readonly<Record<ReviewField, boolean>> = Object.freeze({
   name: true,
   schedule: true,
   prompt: true,
-  delivery: false,
+  delivery: true,
   modelOverride: false,
 });
+
+/** Fields a proposal may write. Mirrors `PATCH_FIELDS` in routineProposal.ts. */
+const PATCHABLE: Readonly<Record<ReviewField, boolean>> = REVIEW_PATCHABLE;
 
 /**
  * Build the deterministic current-vs-proposed review.

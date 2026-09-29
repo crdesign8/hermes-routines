@@ -1,5 +1,6 @@
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import { addJob, pauseJob, removeJob, resumeJob, type AddJobInput } from '../domain/cronShapes';
+import { normalizeDelivery } from '../domain/advancedSettings';
 import { backendTargetProfile } from '../domain/routing';
 
 // cron.manage parameter builders. Every builder is fail-closed: it needs a
@@ -29,7 +30,18 @@ export function buildAddParams(
 ): Record<string, unknown> {
   const target = targetProfileOf(route);
   const shaped = addJob(input || {});
-  return { ...shaped, profile: target };
+  // Delivery rides the same create through the SAME normalizer the guided
+  // proposal path calls (D6). Absent means ABSENT — the key is omitted
+  // entirely, never sent as an empty string, because the gateway treats
+  // present-but-empty differently from absent.
+  const delivery = normalizeDelivery((input || {}).delivery);
+  if (!delivery.ok) {
+    throw new TypeError(delivery.message);
+  }
+  if (!delivery.present) {
+    return { ...shaped, profile: target };
+  }
+  return { ...shaped, deliver: delivery.delivery, profile: target };
 }
 
 export function buildPauseParams(

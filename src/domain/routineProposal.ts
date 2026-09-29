@@ -19,21 +19,23 @@
 // validated-only shape the apply primitive consumes. No transcript
 // scraping was added to complete the issue.
 //
-// Patch scope (inspected, not copied blindly): the only fields this
-// package's wire contract can persist are the three `cron.manage add`
-// carries (`name`/`schedule`/`prompt`, see domain/cronShapes.ts).
-// `delivery` and `modelOverride` are read-only here — the envelope reports
-// them, but no verified write key exists on this surface (the backend
-// handler forwards `deliver`, yet the edge intentionally sends only known
-// fields). Inventing `deliver`/`model` keys would be the unsupported
-// bridge the issue forbids, so a patch carrying them is rejected as an
-// unknown field with a message that says so.
+// Patch scope (verified against the real hermes-agent source, 2026-09-28 —
+// see reports/issue-65-contract-findings.md, decision D1): `delivery` IS
+// writable on the surface this package calls — the gateway RPC forwards
+// `deliver` into the create, so a delivery change rides the same
+// add→pause→remove→re-read replacement as name/schedule/prompt.
+// `model`/`provider` are NOT: they exist on the stored row and at the tool
+// layer, but the gateway RPC has no key for them and drops them silently
+// (decision D2) — so `modelOverride` stays read-only display, and a patch
+// carrying it (or its aliases) is rejected as an unknown field with a
+// message that says exactly that.
 //
 // Everything in this module is pure: no host access, no throwing for
 // domain refusals (every refusal is a `{ ok: false, code, message }`
 // report with a user-readable, deterministic message).
 
 import { isValidJobId } from './cronShapes';
+import { normalizeDelivery, readStoredDelivery, readStoredModelOverride } from './advancedSettings';
 import { type RoutineJob } from './jobs';
 import { rawScheduleOf, routinePausedOf, routinePromptOf } from './present';
 
@@ -48,7 +50,7 @@ const CONTROL_CHARS_RE = /[\x00-\x1F\x7F]/;
 export const ROUTINE_PROPOSAL_VERSION = 1;
 
 /** Fields a proposal patch may carry — exactly what `add` can persist. */
-const PATCH_FIELDS = ['name', 'prompt', 'schedule'] as const;
+const PATCH_FIELDS = ['name', 'prompt', 'schedule', 'delivery'] as const;
 export type ProposalPatchField = (typeof PATCH_FIELDS)[number];
 
 /** Top-level keys a proposal object may carry. `validated` is the brand
@@ -80,6 +82,8 @@ export interface RoutineConfigurationProposalV1 {
     name?: string;
     prompt?: string;
     schedule?: string;
+    /** Canonical delivery target (`normalizeDelivery`), or '' to clear. */
+    delivery?: string;
   };
   desiredActive: false;
   note?: string;
@@ -109,6 +113,7 @@ export type ProposalRefusalCode =
   | 'bad_name'
   | 'bad_schedule'
   | 'bad_prompt'
+  | 'bad_delivery'
   | 'activation_not_supported'
   | 'bad_note'
   | 'handoff_must_be_structured';
@@ -156,9 +161,9 @@ function rowField(row: Record<string, unknown> | null, keys: string[]): string {
  * Normalize one authoritative row to the configuration that matters.
  *
  * Read contract mirrors the envelope (domain/guidedEnvelope.ts): the same
- * schedule/prompt readers and the same delivery/model candidate keys, so
- * the fingerprint and the session prompt can never disagree about what
- * "current" means. Run metadata (last run, errors, next-run ETA) is
+ * schedule/prompt readers and the same shared stored-value readers
+ * (domain/advancedSettings.ts), so the fingerprint and the session prompt
+ * can never disagree about what "current" means. Run metadata (last run, errors, next-run ETA) is
  * deliberately excluded — a run happening mid-session is not a
  * configuration change and must not stale a proposal.
  */
@@ -168,10 +173,12 @@ export function snapshotJobConfig(job: unknown): ProposalBaseSnapshot {
     name: rowField(row, ['name']),
     schedule: (rawScheduleOf((job ?? null) as RoutineJob) ?? '').trim(),
     prompt: (routinePromptOf((job ?? null) as RoutineJob) ?? '').trim(),
-    // Same candidate keys the envelope reports (guidedEnvelope.ts) —
-    // absent reads as absent, never invented.
-    delivery: rowField(row, ['deliver', 'delivery', 'deliver_to', 'deliverTo']),
-    modelOverride: rowField(row, ['model', 'model_override', 'modelOverride', 'override_model']),
+    // Stored delivery through the shared advanced-settings reader
+    // (domain/advancedSettings.ts) — the same source the envelope reports,
+    // so the fingerprint and the session prompt can never disagree about
+    // what "current" means. Absent reads as absent, never invented.
+    delivery: readStoredDelivery(row) ?? '',
+    modelOverride: readStoredModelOverride(row) ?? '',
     paused: routinePausedOf((job ?? null) as RoutineJob),
   };
 }
@@ -312,17 +319,13 @@ export function validateProposal(
       return refusal(
         'unknown_patch_field',
         `unknown patch field "${key}" — only ${PATCH_FIELDS.join(', ')} can be reconfigured` +
-          (key === 'delivery' ||
-            key === 'deliver' ||
-            key === 'modelOverride' ||
-            key === 'model_override' ||
-            key === 'model'
-            ? '; delivery and model overrides are reported by the session but have no supported write path on this surface'
+          (key === 'modelOverride' || key === 'model_override' || key === 'model'
+            ? '; model overrides are reported by the session but have no supported write path on this surface'
             : ''),
       );
     }
   }
-  const normalized: { name?: string; prompt?: string; schedule?: string } = {};
+  const normalized: { name?: string; prompt?: string; schedule?: string; delivery?: string } = {};
   if ('name' in patch) {
     const bad = checkName(patch.name);
     if (bad !== null) return refusal('bad_name', bad);
@@ -337,6 +340,15 @@ export function validateProposal(
     const bad = checkPrompt(patch.prompt);
     if (bad !== null) return refusal('bad_prompt', bad);
     normalized.prompt = (patch.prompt as string).trim();
+  }
+  if ('delivery' in patch) {
+    // The SAME normalizer the manual create path calls (D6): one
+    // vocabulary, one canonical form, no divergence between callers.
+    const delivery = normalizeDelivery(patch.delivery);
+    if (!delivery.ok) return refusal('bad_delivery', delivery.message);
+    // Absent normalizes to '': clearing the target. The wire omits an
+    // absent value and the gateway reads present-but-empty as absent.
+    normalized.delivery = delivery.present ? delivery.delivery : '';
   }
   if (root.desiredActive !== false) {
     return refusal(

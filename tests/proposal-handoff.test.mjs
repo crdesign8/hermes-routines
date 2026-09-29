@@ -98,19 +98,24 @@ describe('proposal validation (pure, no host)', () => {
     assert.equal(out.code, 'owner_mismatch');
   });
 
-  it('rejects empty patches and unknown patch fields (delivery/model have no write path)', () => {
+  it('rejects empty patches and unknown patch fields (model has no write path)', () => {
     assert.equal(routines.validateProposal(proposalFor(oldRow(), {})).code, 'empty_patch');
+    // #65: `delivery` became a writable patch field (the gateway RPC forwards
+    // `deliver`), so an out-of-grammar value is now a value refusal, not an
+    // unknown-field refusal. It still fails closed either way.
     const delivery = routines.validateProposal(proposalFor(oldRow(), { delivery: 'ops-channel' }));
-    assert.equal(delivery.code, 'unknown_patch_field');
-    assert.match(delivery.message, /no supported write path/);
+    assert.equal(delivery.code, 'bad_delivery');
+    const wireAlias = routines.validateProposal(proposalFor(oldRow(), { deliver: 'all' }));
+    assert.equal(wireAlias.code, 'unknown_patch_field');
     const model = routines.validateProposal(proposalFor(oldRow(), { modelOverride: 'opus' }));
     assert.equal(model.code, 'unknown_patch_field');
+    assert.match(model.message, /no supported write path/);
     const identity = routines.validateProposal(proposalFor(oldRow(), { jobId: 'job-other' }));
     assert.equal(identity.code, 'unknown_patch_field');
   });
 
   it('never trusts the validated brand: a forged brand on a bad object still fails', () => {
-    const forged = { ...proposalFor(oldRow(), { delivery: 'ops-channel' }), validated: true };
+    const forged = { ...proposalFor(oldRow(), { deliver: 'all' }), validated: true };
     const out = routines.validateProposal(forged);
     assert.equal(out.ok, false);
     assert.equal(out.code, 'unknown_patch_field');

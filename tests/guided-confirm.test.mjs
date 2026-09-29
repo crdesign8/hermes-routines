@@ -44,7 +44,10 @@ const NEW_PROMPT = 'Summarize today';
 // The delivery channel is part of the base fingerprint, so every row
 // carries it: a fixture that omitted it would report a stale target for
 // reasons that have nothing to do with the scenario under test.
-const DELIVERY = 'ops-channel';
+// #65: delivery is now a writable patch field, so the fixture must carry a
+// value that passes the grammar — a placeholder that was never writable
+// before now fails the apply for the wrong reason.
+const DELIVERY = 'telegram:-1001234567890';
 
 function oldRow(overrides = {}) {
   return {
@@ -88,7 +91,8 @@ const PATCH = { name: NEW_NAME, schedule: NEW_SCHEDULE, prompt: NEW_PROMPT };
 
 /** A validated proposal for the OLD row with the NEW values. */
 function validated(options = {}) {
-  const out = routines.validateProposal(proposalFor(oldRow(), PATCH, options.owner, options.note));
+  const patch = { ...PATCH, ...(options.patch || {}) };
+  const out = routines.validateProposal(proposalFor(oldRow(), patch, options.owner, options.note));
   assert.equal(out.ok, true, `fixture rejected: ${out.ok === false && out.message}`);
   return out.proposal;
 }
@@ -143,6 +147,8 @@ function appliedSteps(resumeAnswer) {
         name: NEW_NAME,
         schedule: NEW_SCHEDULE,
         prompt: NEW_PROMPT,
+        // #65: the stored delivery is carried forward onto the replacement.
+        deliver: DELIVERY,
         profile: 't1',
       });
       return { success: true, job_id: NEW_ID, name: NEW_NAME, job: { job_id: NEW_ID, enabled: true } };
@@ -417,7 +423,7 @@ describe('proposal handoff for review (pure, no host)', () => {
 });
 
 describe('current-versus-proposed review (pure)', () => {
-  const CURRENT = { name: TITLE, schedule: OLD_SCHEDULE, prompt: OLD_PROMPT, delivery: 'ops-channel', modelOverride: '', paused: true };
+  const CURRENT = { name: TITLE, schedule: OLD_SCHEDULE, prompt: OLD_PROMPT, delivery: DELIVERY, modelOverride: '', paused: true };
 
   it('shows every field, marks only real changes, and hides nothing', () => {
     const review = routines.buildProposalReview(CURRENT, validated());
@@ -428,12 +434,34 @@ describe('current-versus-proposed review (pure)', () => {
     assert.equal(byField.name.proposed, NEW_NAME);
     assert.equal(byField.schedule.changed, true);
     assert.equal(byField.prompt.changed, true);
-    // delivery/model have no write path: shown as current, never invented.
+    // #65: delivery is writable now, so it is patchable — but a patch that
+    // does not touch it is still "unchanged", never invented.
     assert.equal(byField.delivery.changed, false);
-    assert.equal(byField.delivery.patchable, false);
-    assert.equal(byField.delivery.current, 'ops-channel');
+    assert.equal(byField.delivery.patchable, true);
+    assert.equal(byField.delivery.current, DELIVERY);
+    assert.equal(byField.delivery.proposed, DELIVERY);
+    // A model override has no write path on this surface: shown, never
+    // presented as something the reviewer can change.
+    assert.equal(byField.modelOverride.changed, false);
+    assert.equal(byField.modelOverride.patchable, false);
     assert.deepEqual(review.changedFields, ['name', 'schedule', 'prompt']);
     assert.equal(review.stale, false);
+  });
+
+  it('marks delivery as changed when the proposal actually changes it', () => {
+    const review = routines.buildProposalReview(CURRENT, validated({ patch: { delivery: 'all' } }));
+    const delivery = review.rows.find((r) => r.field === 'delivery');
+    assert.equal(delivery.changed, true);
+    assert.equal(delivery.current, DELIVERY);
+    assert.equal(delivery.proposed, 'all');
+    assert.deepEqual(review.changedFields, ['name', 'schedule', 'prompt', 'delivery']);
+  });
+
+  it('treats an explicit empty delivery patch as clearing the target', () => {
+    const review = routines.buildProposalReview(CURRENT, validated({ patch: { delivery: '' } }));
+    const delivery = review.rows.find((r) => r.field === 'delivery');
+    assert.equal(delivery.changed, true);
+    assert.equal(delivery.proposed, '');
   });
 
   it('separates the agent explanation from the authoritative values', () => {

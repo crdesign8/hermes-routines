@@ -24,7 +24,9 @@
 //      result is an explicit partial: the replacement id is returned, both
 //      rows are paused, nothing was lost, nothing was hidden;
 //   7. re-read the list (backend truth after mutation, never the echo of
-//      the write).
+//      the write) and compare EVERY patched field, `delivery` included (#65)
+//      — a green apply that persisted a different value is a lie the write's
+//      own echo would have hidden.
 //
 // Properties: route/profile scoped, job-id scoped, no name targeting,
 // fail closed on missing/stale identity, never resumes, refreshes truth
@@ -208,6 +210,11 @@ export async function applyValidatedProposal(request: ProposalApplyRequest): Pro
   const name = proposal.patch.name ?? snapshot.name;
   const schedule = proposal.patch.schedule ?? snapshot.schedule;
   const prompt = proposal.patch.prompt ?? snapshot.prompt;
+  // #65: `delivery` rides the same replacement (the gateway RPC forwards
+  // `deliver` on create — see reports/issue-65-decisions.md D1). Absent in the
+  // patch means "keep whatever is stored", never "clear it": clearing is an
+  // explicit empty-string patch, which normalizes to ''.
+  const delivery = proposal.patch.delivery ?? snapshot.delivery;
   if (!name || !schedule || !prompt) {
     return failed(
       'unapplyable_base',
@@ -216,7 +223,12 @@ export async function applyValidatedProposal(request: ProposalApplyRequest): Pro
       backendProfile,
     );
   }
-  if (name === snapshot.name && schedule === snapshot.schedule && prompt === snapshot.prompt) {
+  if (
+    name === snapshot.name &&
+    schedule === snapshot.schedule &&
+    prompt === snapshot.prompt &&
+    delivery === snapshot.delivery
+  ) {
     return { ok: true, jobId, previousJobId: '', changed: false, backendProfile };
   }
 
@@ -225,7 +237,7 @@ export async function applyValidatedProposal(request: ProposalApplyRequest): Pro
   // backend calls and leaves no half-configured job behind it.
   let addParams: Record<string, unknown>;
   try {
-    addParams = buildAddParams(route, { name, schedule, prompt });
+    addParams = buildAddParams(route, { name, schedule, prompt, delivery });
   } catch (err) {
     return failed('invalid_proposal', 'the patched configuration is not valid: ' + messageOf(err), jobId, backendProfile);
   }
@@ -375,7 +387,8 @@ export async function applyValidatedProposal(request: ProposalApplyRequest): Pro
   if (
     confirmedSnapshot.name !== name ||
     confirmedSnapshot.schedule !== schedule ||
-    confirmedSnapshot.prompt !== prompt
+    confirmedSnapshot.prompt !== prompt ||
+    confirmedSnapshot.delivery !== delivery
   ) {
     return failed(
       'truth_unconfirmed',
