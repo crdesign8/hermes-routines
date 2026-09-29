@@ -766,6 +766,7 @@ export const ROUTINES_CSS = [
   '  color: var(--ui-text-primary, #fff);',
   '}',
   '.hr-review-readonly { margin-left: 6px; font-size: 9px; color: var(--ui-text-tertiary, #888); }',
+  '.hr-review-editable { margin-left: 6px; font-size: 9px; color: var(--ui-text-tertiary, #888); }',
   '.hr-review-note {',
   '  border-left: 2px solid var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.22));',
   '  padding: 2px 0 2px 8px;',

@@ -16,19 +16,37 @@ import {
   type TriggerType,
 } from '../domain/routineSchedule';
 import { SelectField, type SelectOption } from './SelectField';
+import {
+  DELIVERY_CUSTOM_SENTINEL,
+  DELIVERY_PRESET_OPTIONS,
+  MODEL_OVERRIDE_READONLY_NOTE,
+  normalizeDelivery,
+} from '../domain/advancedSettings';
 
 export interface RoutineComposerPanelProps {
   activeProfile: string | null;
   activeRoute: PluginProfileRoute | null;
   disabled: boolean;
   onClose: () => void;
-  onSubmit: (name: string, schedule: string, prompt: string, active: boolean) => Promise<boolean>;
+  /**
+   * Direct path. `delivery` is the normalized target, or undefined for the
+   * backend default (absent — the `deliver` key is omitted entirely).
+   * Optional so pre-#65 four-argument callers keep working.
+   */
+  onSubmit: (
+    name: string,
+    schedule: string,
+    prompt: string,
+    active: boolean,
+    delivery?: string,
+  ) => Promise<boolean>;
   /**
    * Guided path: create the routine PAUSED and hand back its authoritative
    * handle so the page can open a configuration chat for it. Omitted (or
    * refused by the caller) keeps the ordinary form path untouched.
+   * `delivery` carries the same meaning as on `onSubmit`.
    */
-  onSubmitGuided?: (name: string, schedule: string, prompt: string) => Promise<boolean>;
+  onSubmitGuided?: (name: string, schedule: string, prompt: string, delivery?: string) => Promise<boolean>;
 }
 
 export function RoutineComposerPanel({
@@ -44,6 +62,12 @@ export function RoutineComposerPanel({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'direct' | 'guided'>(onSubmitGuided ? 'guided' : 'direct');
+  // Advanced section slots, APPENDED after the original seven (name,
+  // prompt, active, scheduleConfig, submitting, error, mode) — never
+  // inserted: tests drive this component with a positional FIFO preset
+  // queue (reactStub.__presetStates), so order is contract.
+  const [deliveryChoice, setDeliveryChoice] = useState('');
+  const [deliveryCustom, setDeliveryCustom] = useState('');
 
   const timeOptions: Array<SelectOption<string>> = useMemo(
     () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
@@ -65,6 +89,11 @@ export function RoutineComposerPanel({
     [],
   );
 
+  const deliveryOptions: Array<SelectOption<string>> = useMemo(
+    () => DELIVERY_PRESET_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+    [],
+  );
+
   const cronExpr = useMemo(() => buildCronExpression(scheduleConfig), [scheduleConfig]);
   const humanSentence = useMemo(() => describeScheduleConfig(scheduleConfig), [scheduleConfig]);
 
@@ -80,6 +109,18 @@ export function RoutineComposerPanel({
       return;
     }
 
+    // Advanced delivery, manual path: the SAME normalizer the guided
+    // proposal path calls (D6), so the two cannot diverge. An invalid
+    // typed value is refused with a visible error — never submitted,
+    // never silently dropped.
+    const candidate = deliveryChoice === DELIVERY_CUSTOM_SENTINEL ? deliveryCustom : deliveryChoice;
+    const normalized = normalizeDelivery(candidate);
+    if (!normalized.ok) {
+      setError(normalized.message);
+      return;
+    }
+    const delivery = normalized.present ? normalized.delivery : undefined;
+
     setSubmitting(true);
     setError(null);
     try {
@@ -87,7 +128,10 @@ export function RoutineComposerPanel({
         // The guided path is deliberately not a variation of the Active
         // toggle: it always creates PAUSED, because a routine whose
         // configuration is an unfinished conversation must not be runnable.
-        const ok = await onSubmitGuided(trimmedName, cronExpr, promptText);
+        // The trailing `delivery` is undefined for the backend default —
+        // the handler arity (name, schedule, prompt, delivery) is pinned,
+        // and it never receives an active flag.
+        const ok = await onSubmitGuided(trimmedName, cronExpr, promptText, delivery);
         if (!ok) {
           setError('Failed to create routine. Please verify parameters.');
         }
@@ -95,7 +139,7 @@ export function RoutineComposerPanel({
       }
       // The name is submitted as typed (trimmed): it is a human-readable
       // title, not a technical id — Hermes generates the job_id.
-      const ok = await onSubmit(trimmedName, cronExpr, promptText, active);
+      const ok = await onSubmit(trimmedName, cronExpr, promptText, active, delivery);
       if (!ok) {
         setError('Failed to create routine. Please verify parameters.');
       }
@@ -288,6 +332,42 @@ export function RoutineComposerPanel({
 
           {/* Subtitle natural sentence preview */}
           <div className="hr-create-preview-sentence">{humanSentence}</div>
+        </div>
+
+        {/* ADVANCED Section — secondary, after WHEN TO RUN. The primary
+            composer above stays focused on name / instruction / schedule;
+            everything here is an override of the backend default, and
+            absent means absent. Delivery offers ONLY the verified D3
+            options that need no discovery: `origin` is not offered (it
+            cannot resolve for a plugin create), and there is deliberately
+            NO model picker — the override is shown as a read-only line
+            (D2), because an editable control that silently does nothing
+            is the failure the issue forbids. */}
+        <div className="hr-create-when-section">
+          <div className="hr-create-section-label">ADVANCED</div>
+          <SelectField<string>
+            label="Delivery"
+            value={deliveryChoice}
+            options={deliveryOptions}
+            onChange={(val) => setDeliveryChoice(val)}
+          />
+          {deliveryChoice === DELIVERY_CUSTOM_SENTINEL ? (
+            <div className="hr-create-field">
+              <label className="hr-field-label">Custom delivery target</label>
+              <input
+                type="text"
+                className="hr-create-input"
+                placeholder="platform:chat_id or bot-chat:profile"
+                value={deliveryCustom}
+                onChange={(e) => setDeliveryCustom(e.target.value)}
+                aria-label="Custom delivery target"
+              />
+            </div>
+          ) : null}
+          <div className="hr-create-field">
+            <label className="hr-field-label">Model override</label>
+            <div className="hr-create-preview-sentence">{MODEL_OVERRIDE_READONLY_NOTE}</div>
+          </div>
         </div>
 
         {error ? (

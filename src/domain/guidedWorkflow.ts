@@ -27,6 +27,7 @@
 // untouched (returns the same object), so a late or duplicate answer can
 // never corrupt a flow that already moved on.
 
+import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import {
   fingerprintSnapshot,
   type ProposalBaseSnapshot,
@@ -227,7 +228,14 @@ export type GuidedWorkflowEvent =
   /** Resume finished AND the re-read proves the routine is running. */
   | { type: 'activation-verified'; jobId: string }
   /** Answer of an explicit truth re-read (the `refresh` recovery). */
-  | { type: 'refresh-result'; exists: boolean; paused: boolean; configured: boolean };
+  | { type: 'refresh-result'; exists: boolean; paused: boolean; configured: boolean }
+  /**
+   * The configuration chat is gone (abandoned, reloaded, or its session
+   * no longer exists). Never a mutation: it only ever returns the flow
+   * to clarification with a fresh-session status, so the user can start
+   * over for the same paused job.
+   */
+  | { type: 'session-lost' };
 
 function failure(
   stage: GuidedWorkflowStage,
@@ -488,6 +496,27 @@ export function guidedWorkflowReducer(
       return base;
     }
 
+    case 'session-lost': {
+      // Abandon, reload, or a dead chat session: the routine was never
+      // touched by the chat (the human carries proposals by hand), so the
+      // only honest move is back to clarification with the paused
+      // invariant restated. Legal exactly where no proposal is under
+      // review and no write is in flight — a lost session must never
+      // disturb those.
+      if (base.state !== S.PROVISIONAL_PAUSED && base.state !== S.CONFIGURING) return base;
+      if (base.state === S.CONFIGURING) {
+        return announce(
+          base,
+          'The configuration session is no longer available. Start a fresh one for the same routine — it stays paused.',
+        );
+      }
+      return {
+        ...base,
+        state: S.CONFIGURING,
+        status: 'The configuration session is no longer available. Start a fresh one for the same routine — it stays paused.',
+      };
+    }
+
     default:
       return base;
   }
@@ -571,6 +600,9 @@ export function proposedSnapshot(
     name: patch.name ?? current.name,
     schedule: patch.schedule ?? current.schedule,
     prompt: patch.prompt ?? current.prompt,
+    // #65: an explicit '' clears the target; an absent key keeps the stored
+    // one. `??` cannot express that, so the empty string is checked directly.
+    delivery: patch.delivery === undefined ? current.delivery : patch.delivery,
   };
 }
 
@@ -583,13 +615,22 @@ const REVIEW_LABELS: Readonly<Record<ReviewField, string>> = Object.freeze({
 });
 
 const REVIEW_ORDER: readonly ReviewField[] = ['name', 'schedule', 'prompt', 'delivery', 'modelOverride'];
-const PATCHABLE: Readonly<Record<ReviewField, boolean>> = Object.freeze({
+/**
+ * A review row the reviewer may change. `delivery` became patchable in
+ * issue #65 (the gateway RPC forwards `deliver` on create).
+ * `modelOverride` is displayed but NOT patchable: the RPC has no
+ * `model`/`provider` key, so a proposal could only pretend to set it.
+ */
+export const REVIEW_PATCHABLE: Readonly<Record<ReviewField, boolean>> = Object.freeze({
   name: true,
   schedule: true,
   prompt: true,
-  delivery: false,
+  delivery: true,
   modelOverride: false,
 });
+
+/** Fields a proposal may write. Mirrors `PATCH_FIELDS` in routineProposal.ts. */
+const PATCHABLE: Readonly<Record<ReviewField, boolean>> = REVIEW_PATCHABLE;
 
 /**
  * Build the deterministic current-vs-proposed review.
@@ -626,4 +667,70 @@ export function buildProposalReview(
     current,
     proposed,
   };
+}
+
+// ── route drift (issue #65 Part B, scenario 3) ──
+// The Desktop owns the active profile and the user may switch it while a
+// guided panel is open. The proposal stays bound to the retained owner
+// route (the handle the create returned), and `confirmProposal` fails
+// closed on an owner mismatch — but the panel should SAY the switch
+// happened instead of letting the user review against the wrong mental
+// model. This pure comparison is that sentence's condition.
+
+/** What a route-drift comparison found. */
+export interface GuidedRouteDrift {
+  /** True when both routes resolve and name different owners. */
+  drifted: boolean;
+  /** `connectionId::profile` of the retained owner, or '' when unresolvable. */
+  retained: string;
+  /** `connectionId::profile` of the current view, or '' when unknown. */
+  current: string;
+}
+
+function routeLabel(route: PluginProfileRoute | null | undefined): string {
+  if (!route || typeof route.connectionId !== 'string' || !route.connectionId) return '';
+  const profile =
+    (typeof route.targetProfile === 'string' && route.targetProfile) ||
+    (typeof route.profile === 'string' && route.profile) ||
+    '';
+  return profile ? `${route.connectionId}::${profile}` : '';
+}
+
+function routeProfiles(route: PluginProfileRoute | null | undefined): string[] {
+  if (!route) return [];
+  const out: string[] = [];
+  if (typeof route.profile === 'string' && route.profile) out.push(route.profile);
+  if (typeof route.targetProfile === 'string' && route.targetProfile && out.indexOf(route.targetProfile) === -1) {
+    out.push(route.targetProfile);
+  }
+  return out;
+}
+
+/**
+ * Did the view move away from the guided session's owner? Unknown is not
+ * drift: a missing current route means "cannot say", and the apply-time
+ * owner check still fails closed. Pure, so the panel renders it without
+ * any effect and tests pin it without a DOM.
+ */
+export function guidedRouteDrift(
+  retained: PluginProfileRoute | null | undefined,
+  current: PluginProfileRoute | null | undefined,
+): GuidedRouteDrift {
+  const retainedLabel = routeLabel(retained);
+  const currentLabel = routeLabel(current);
+  if (!retainedLabel || !currentLabel) {
+    return { drifted: false, retained: retainedLabel, current: currentLabel };
+  }
+  if (
+    !retained ||
+    !current ||
+    typeof retained.connectionId !== 'string' ||
+    retained.connectionId !== current.connectionId
+  ) {
+    return { drifted: true, retained: retainedLabel, current: currentLabel };
+  }
+  const kept = routeProfiles(retained);
+  const now = routeProfiles(current);
+  const shared = kept.some((profile) => now.indexOf(profile) !== -1);
+  return { drifted: !shared, retained: retainedLabel, current: currentLabel };
 }

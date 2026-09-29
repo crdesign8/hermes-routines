@@ -1,5 +1,6 @@
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import { isValidJobId } from './cronShapes';
+import { readStoredDelivery, readStoredModelOverride } from './advancedSettings';
 import type { RoutineJob } from './jobs';
 import { rawScheduleOf, routinePromptOf, routineTitle } from './present';
 import { routeKey } from './routing';
@@ -72,16 +73,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-/** First non-empty string among candidate row fields, else null. */
-function optionalField(row: Record<string, unknown> | null, keys: string[]): string | null {
-  if (row === null) return null;
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return null;
 }
 
 /**
@@ -177,14 +168,14 @@ export function buildGuidedEnvelope(
       name,
       schedule,
       instruction,
-      // Delivery and model override exist upstream but are not part of the
-      // create form yet: absent is reported as absent, never invented.
-      delivery: orNull(
-        singleLine(optionalField(record, ['deliver', 'delivery', 'deliver_to', 'deliverTo'])),
-      ),
-      modelOverride: orNull(
-        singleLine(optionalField(record, ['model', 'model_override', 'modelOverride', 'override_model'])),
-      ),
+      // Delivery and model override read from the stored row through the
+      // shared advanced-settings readers (domain/advancedSettings.ts) — the
+      // same source the proposal fingerprint reads, so the session prompt
+      // and the stale guard agree. Delivery is writable (see
+      // routineProposal.ts); modelOverride stays read-only display, and
+      // absent is reported as absent, never invented.
+      delivery: orNull(singleLine(readStoredDelivery(record))),
+      modelOverride: orNull(singleLine(readStoredModelOverride(record))),
       state: 'paused',
     },
   };

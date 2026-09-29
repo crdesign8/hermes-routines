@@ -34,6 +34,12 @@ export interface AddJobInput {
   name?: unknown;
   schedule?: unknown;
   prompt?: unknown;
+  /**
+   * Optional delivery target (domain name). Validated and canonicalized by
+   * the shared advanced-settings normalizer in gateway/cronParams.ts and
+   * sent on the wire as `deliver`; absent means the key is omitted.
+   */
+  delivery?: unknown;
 }
 
 export interface AddJobShape {

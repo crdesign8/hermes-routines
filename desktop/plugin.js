@@ -1209,6 +1209,93 @@ function describeSchedule2(expr) {
   return describeSchedule(expr);
 }
 
+// src/domain/advancedSettings.ts
+var DELIVERY_GRAMMAR = "local, all, bot-chat[:profile], or platform:chat_id[:thread_id]";
+var MAX_DELIVERY_LENGTH = 256;
+var CONTROL_CHARS_RE2 = /[\x00-\x1F\x7F]/;
+var DELIVERY_ROW_KEYS = ["deliver", "delivery", "deliver_to", "deliverTo"];
+var MODEL_ROW_KEYS = ["model", "model_override", "modelOverride", "override_model"];
+var RESERVED_FIRST_SEGMENTS = /* @__PURE__ */ new Set(["local", "all", "bot-chat", "origin"]);
+function absent() {
+  return { ok: true, present: false, delivery: null };
+}
+function present(delivery) {
+  return { ok: true, present: true, delivery };
+}
+function refused(message) {
+  return { ok: false, code: "bad_delivery", message };
+}
+function grammarRefusal(received) {
+  return refused(
+    `unsupported delivery ${JSON.stringify(received)} \u2014 delivery is one of: ${DELIVERY_GRAMMAR}`
+  );
+}
+function normalizeDelivery(value) {
+  if (value === void 0 || value === null) return absent();
+  if (typeof value !== "string") return grammarRefusal(JSON.stringify(value) ?? String(value));
+  const text = value.trim();
+  if (text === "") return absent();
+  if (text.length > MAX_DELIVERY_LENGTH) {
+    return refused("delivery must be at most 256 chars");
+  }
+  if (CONTROL_CHARS_RE2.test(text)) {
+    return refused("delivery must not contain control characters");
+  }
+  const lowered = text.toLowerCase();
+  if (lowered === "origin") {
+    return refused(
+      `delivery "origin" is not supported for plugin creates \u2014 it resolves to the creating session target, which only exists for cron-session creates; use one of: ${DELIVERY_GRAMMAR}`
+    );
+  }
+  if (lowered === "local") return present("local");
+  if (lowered === "all") return present("all");
+  if (lowered === "bot-chat") return present("bot-chat");
+  if (text.startsWith("bot-chat:") || lowered.startsWith("bot-chat:")) {
+    const profile = text.slice(text.indexOf(":") + 1).trim();
+    if (!profile || profile.includes(":") || CONTROL_CHARS_RE2.test(profile)) {
+      return grammarRefusal(text);
+    }
+    return present(`bot-chat:${profile}`);
+  }
+  const parts = text.split(":");
+  if (parts.length === 2 || parts.length === 3) {
+    const platform = (parts[0] ?? "").trim();
+    const chatId = (parts[1] ?? "").trim();
+    if (!platform || !chatId) return grammarRefusal(text);
+    if (RESERVED_FIRST_SEGMENTS.has(platform.toLowerCase())) return grammarRefusal(text);
+    if (parts.length === 3) {
+      const thread = (parts[2] ?? "").trim();
+      if (!thread) return grammarRefusal(text);
+      return present(`${platform}:${chatId}:${thread}`);
+    }
+    return present(`${platform}:${chatId}`);
+  }
+  return grammarRefusal(text);
+}
+function firstStoredText(row, keys) {
+  if (row === null) return null;
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+function readStoredDelivery(row) {
+  return firstStoredText(row, DELIVERY_ROW_KEYS);
+}
+function readStoredModelOverride(row) {
+  return firstStoredText(row, MODEL_ROW_KEYS);
+}
+var DELIVERY_PRESET_OPTIONS = Object.freeze([
+  { value: "", label: "Backend default (no override)" },
+  { value: "local", label: "Local \u2014 save results locally, no delivery" },
+  { value: "all", label: "All \u2014 every connected home channel, resolved at run time" },
+  { value: "bot-chat", label: "Bot Chat \u2014 a Hermes Bot Chat" },
+  { value: "custom", label: "Custom target\u2026" }
+]);
+var DELIVERY_CUSTOM_SENTINEL = "custom";
+var MODEL_OVERRIDE_READONLY_NOTE = "Model override: routines run on the profile default \u2014 it cannot be set from this surface.";
+
 // src/gateway/cronParams.ts
 function targetProfileOf(route) {
   if (!route || typeof route.connectionId !== "string" || !route.connectionId) {
@@ -1226,7 +1313,14 @@ function buildListParams(route) {
 function buildAddParams(route, input) {
   const target = targetProfileOf(route);
   const shaped = addJob(input || {});
-  return { ...shaped, profile: target };
+  const delivery = normalizeDelivery((input || {}).delivery);
+  if (!delivery.ok) {
+    throw new TypeError(delivery.message);
+  }
+  if (!delivery.present) {
+    return { ...shaped, profile: target };
+  }
+  return { ...shaped, deliver: delivery.delivery, profile: target };
 }
 function buildPauseParams(route, jobId) {
   return { ...pauseJob(jobId), profile: targetProfileOf(route) };
@@ -1298,6 +1392,77 @@ async function listRoutines(route) {
     include_disabled: true,
     profile: target
   });
+}
+var RETRIABLE_GATEWAY_PATTERNS = [
+  /timed?\s?out/i,
+  /\btimeout\b/i,
+  /\beconn\w*/i,
+  /\beai_again\b/i,
+  /\bsocket\b/i,
+  /\bnetwork\b/i,
+  /fetch\s+failed/i,
+  /temporar\w*\s+unavailable/i,
+  /service\s+unavailable/i,
+  /\b503\b/,
+  /\b502\b/,
+  /\b504\b/,
+  /rate[\s_-]?limit/i,
+  /overloaded/i,
+  /try\s+again/i,
+  /connection\s+(reset|refused|closed|aborted)/i
+];
+function isRetriableGatewayError(message) {
+  if (typeof message !== "string" || !message.trim()) return false;
+  return RETRIABLE_GATEWAY_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+// src/domain/diagnostics.ts
+var GUIDED_DIAG_STAGES = Object.freeze({
+  /** The provisional create did not reach the paused invariant. */
+  PROVISIONAL_CREATE: "provisional-create",
+  /** The configuration chat could not be opened. */
+  SESSION_LAUNCH: "session-launch",
+  /** A pasted proposal failed validation before any backend read. */
+  PROPOSAL_VALIDATION: "proposal-validation",
+  /** A proposal was refused because its target moved or vanished. */
+  STALE_REJECTION: "stale-rejection",
+  /** The deterministic write did not reach replaced-and-paused. */
+  APPLY: "apply",
+  /** The write happened but backend truth could not confirm it. */
+  VERIFICATION: "verification",
+  /** A verified configuration could not be resumed and proven active. */
+  ACTIVATION: "activation"
+});
+function isStage(value) {
+  return typeof value === "string" && Object.values(GUIDED_DIAG_STAGES).indexOf(value) !== -1;
+}
+var RETRIABLE_REASONS = /* @__PURE__ */ new Set([
+  "list_failed",
+  "read_failed",
+  "refresh_failed",
+  "verification_unreadable",
+  "verification_missing",
+  "truth_unconfirmed",
+  "truth_unreadable",
+  "session_target_unreadable",
+  "create_rejected",
+  "pause_rejected",
+  "no_new_chat",
+  "no_composer",
+  "draft_not_claimed"
+]);
+function isRetriableDiagReason(reason) {
+  return typeof reason === "string" && RETRIABLE_REASONS.has(reason);
+}
+function recordGuidedDiag(stage, reason) {
+  if (!isStage(stage)) {
+    throw new TypeError(`unknown guided diagnostics stage: ${String(stage)}`);
+  }
+  if (typeof reason !== "string" || !reason.trim()) {
+    throw new TypeError("a guided diagnostics record requires a non-empty reason code");
+  }
+  const code = reason.trim();
+  return Object.freeze({ stage, reason: code, retriable: isRetriableDiagReason(code) });
 }
 
 // src/domain/provisional.ts
@@ -1413,14 +1578,61 @@ function resolveProvisionalCreate(input) {
     }
   };
 }
+var RUN_EVIDENCE_KEYS = Object.freeze([
+  "last_run_at",
+  "lastRunAt",
+  "last_run",
+  "lastRun",
+  "last_status",
+  "lastStatus",
+  "last_fire_error",
+  "lastFireError",
+  "last_error",
+  "lastError"
+]);
+function hasRunEvidence(job) {
+  for (const key of RUN_EVIDENCE_KEYS) {
+    const value = job[key];
+    if (typeof value === "string" && value.trim() !== "") return true;
+    if (value !== void 0 && value !== null && typeof value !== "string") return true;
+  }
+  return false;
+}
+function guidedConfigCandidateOf(job) {
+  if (job === null || job === void 0) return null;
+  const row = job;
+  const id = typeof row.job_id === "string" ? row.job_id.trim() : "";
+  if (!id) return null;
+  if (!jobPaused(row)) return null;
+  if (hasRunEvidence(row)) return null;
+  return { jobId: id };
+}
+function buildReopenHandle(route, job) {
+  const candidate = guidedConfigCandidateOf(job);
+  if (candidate === null) return null;
+  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
+  const backendProfile = backendTargetProfile(route, "") || null;
+  if (!backendProfile) return null;
+  return {
+    jobId: candidate.jobId,
+    route,
+    backendProfile,
+    createdPaused: true,
+    job: job ?? null
+  };
+}
+function diagOfProvisionalResult(result) {
+  if (result.ok) return recordGuidedDiag(GUIDED_DIAG_STAGES.PROVISIONAL_CREATE, "ok");
+  return recordGuidedDiag(GUIDED_DIAG_STAGES.PROVISIONAL_CREATE, result.reason);
+}
 
 // src/gateway/provisionalCreate.ts
 async function createProvisionalRoutine(request) {
-  const { route, name, schedule, prompt } = request;
+  const { route, name, schedule, prompt, delivery } = request;
   let addParams;
   let pauseOf;
   try {
-    addParams = buildAddParams(route, { name, schedule, prompt });
+    addParams = buildAddParams(route, { name, schedule, prompt, delivery });
     pauseOf = (jobId) => buildPauseParams(route, jobId);
   } catch (err) {
     return resolveProvisionalCreate({ route, addAnswer: null, pause: { status: "rejected", message: messageOf(err) } });
@@ -1455,14 +1667,6 @@ async function createProvisionalRoutine(request) {
 var GUIDED_ENVELOPE_MARKER = "HERMES_ROUTINE_CONFIG_V1";
 function asRecord2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function optionalField(row, keys) {
-  if (row === null) return null;
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
 }
 function singleLine(value) {
   if (typeof value !== "string") return "";
@@ -1525,14 +1729,14 @@ function buildGuidedEnvelope(routine, submitted) {
       name,
       schedule,
       instruction,
-      // Delivery and model override exist upstream but are not part of the
-      // create form yet: absent is reported as absent, never invented.
-      delivery: orNull(
-        singleLine(optionalField(record, ["deliver", "delivery", "deliver_to", "deliverTo"]))
-      ),
-      modelOverride: orNull(
-        singleLine(optionalField(record, ["model", "model_override", "modelOverride", "override_model"]))
-      ),
+      // Delivery and model override read from the stored row through the
+      // shared advanced-settings readers (domain/advancedSettings.ts) — the
+      // same source the proposal fingerprint reads, so the session prompt
+      // and the stale guard agree. Delivery is writable (see
+      // routineProposal.ts); modelOverride stays read-only display, and
+      // absent is reported as absent, never invented.
+      delivery: orNull(singleLine(readStoredDelivery(record))),
+      modelOverride: orNull(singleLine(readStoredModelOverride(record))),
       state: "paused"
     }
   };
@@ -1609,6 +1813,1153 @@ async function openGuidedRoutineChat(request) {
   return { ok: true, routeKey: key, autoSubmitted: sent };
 }
 
+// src/domain/routineProposal.ts
+var MAX_NAME_LENGTH2 = 128;
+var MAX_SCHEDULE_LENGTH2 = 256;
+var MAX_PROMPT_LENGTH2 = 2e4;
+var CONTROL_CHARS_RE3 = /[\x00-\x1F\x7F]/;
+var ROUTINE_PROPOSAL_VERSION = 1;
+var PATCH_FIELDS = ["name", "prompt", "schedule", "delivery"];
+var PROPOSAL_FIELDS = ["version", "jobId", "owner", "base", "patch", "desiredActive", "note", "validated"];
+function asRecord3(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function trimmedText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+function rowField(row, keys) {
+  if (row === null) return "";
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+function snapshotJobConfig(job) {
+  const row = asRecord3(job);
+  return {
+    name: rowField(row, ["name"]),
+    schedule: (rawScheduleOf(job ?? null) ?? "").trim(),
+    prompt: (routinePromptOf(job ?? null) ?? "").trim(),
+    // Stored delivery through the shared advanced-settings reader
+    // (domain/advancedSettings.ts) — the same source the envelope reports,
+    // so the fingerprint and the session prompt can never disagree about
+    // what "current" means. Absent reads as absent, never invented.
+    delivery: readStoredDelivery(row) ?? "",
+    modelOverride: readStoredModelOverride(row) ?? "",
+    paused: routinePausedOf(job ?? null)
+  };
+}
+function fingerprintSnapshot(snapshot) {
+  const encoded = JSON.stringify([
+    "routine-proposal-base-v1",
+    snapshot.name,
+    snapshot.schedule,
+    snapshot.prompt,
+    snapshot.delivery,
+    snapshot.modelOverride,
+    snapshot.paused ? "paused" : "active"
+  ]);
+  let hash = 2166136261;
+  for (let i = 0; i < encoded.length; i += 1) {
+    hash ^= encoded.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+function fingerprintJob(job) {
+  return fingerprintSnapshot(snapshotJobConfig(job));
+}
+function isProposalStale(proposal, job) {
+  return fingerprintJob(job) !== proposal.base.fingerprint;
+}
+function refusal(code, message) {
+  return { ok: false, code, message };
+}
+function checkName(value) {
+  if (typeof value !== "string") return "proposal name must be text";
+  const text = value.trim();
+  if (!text) return "proposal name must not be empty";
+  if (text.length > MAX_NAME_LENGTH2) return "proposal name must be at most 128 chars";
+  if (CONTROL_CHARS_RE3.test(text)) return "proposal name must not contain control characters";
+  return null;
+}
+function checkSchedule(value) {
+  if (typeof value !== "string") return "proposal schedule must be text";
+  const text = value.trim();
+  if (!text) return "proposal schedule must not be empty";
+  if (text.length > MAX_SCHEDULE_LENGTH2) return "proposal schedule must be at most 256 chars";
+  if (CONTROL_CHARS_RE3.test(text)) return "proposal schedule must not contain control characters";
+  return null;
+}
+function checkPrompt(value) {
+  if (typeof value !== "string") return "proposal instruction must be text";
+  const text = value.trim();
+  if (!text) return "proposal instruction must not be empty";
+  if (text.length > MAX_PROMPT_LENGTH2) return "proposal instruction must be at most 20000 chars";
+  return null;
+}
+function validateProposal(input, expectedOwner = null) {
+  const root = asRecord3(input);
+  if (root === null) {
+    return refusal("not_an_object", "the proposal must be a structured object, not text or a list");
+  }
+  for (const key of Object.keys(root)) {
+    if (!PROPOSAL_FIELDS.includes(key)) {
+      return refusal("unknown_field", `unknown proposal field "${key}" \u2014 proposals carry only ${PROPOSAL_FIELDS.join(", ")}`);
+    }
+  }
+  if (root.version !== ROUTINE_PROPOSAL_VERSION) {
+    return refusal(
+      "unsupported_version",
+      `unsupported proposal version ${JSON.stringify(root.version)} \u2014 this plugin reads version 1`
+    );
+  }
+  if (!isValidJobId(root.jobId)) {
+    return refusal("bad_job_id", "the proposal must carry the authoritative job_id of the routine it configures");
+  }
+  const owner = asRecord3(root.owner);
+  const connectionId = owner === null ? "" : trimmedText(owner.connectionId);
+  const profile = owner === null ? "" : trimmedText(owner.profile);
+  if (!connectionId || !profile || Object.keys(owner ?? {}).some((k) => k !== "connectionId" && k !== "profile")) {
+    return refusal(
+      "bad_owner",
+      "the proposal must name its owning connection and profile as { connectionId, profile }"
+    );
+  }
+  if (expectedOwner !== null && (expectedOwner.connectionId !== connectionId || expectedOwner.profile !== profile)) {
+    return refusal(
+      "owner_mismatch",
+      `the proposal belongs to ${connectionId}::${profile} and cannot be applied elsewhere`
+    );
+  }
+  const base = asRecord3(root.base);
+  if (base === null || typeof base.fingerprint !== "string" || !base.fingerprint) {
+    return refusal(
+      "bad_base",
+      "the proposal must carry the base fingerprint of the configuration it was built from"
+    );
+  }
+  const patch = asRecord3(root.patch);
+  if (patch === null) {
+    return refusal("empty_patch", "the proposal must carry a patch object with at least one change");
+  }
+  const patchKeys = Object.keys(patch);
+  if (patchKeys.length === 0) {
+    return refusal("empty_patch", "the proposal patch is empty \u2014 a proposal that changes nothing is not a proposal");
+  }
+  for (const key of patchKeys) {
+    if (!PATCH_FIELDS.includes(key)) {
+      return refusal(
+        "unknown_patch_field",
+        `unknown patch field "${key}" \u2014 only ${PATCH_FIELDS.join(", ")} can be reconfigured` + (key === "modelOverride" || key === "model_override" || key === "model" ? "; model overrides are reported by the session but have no supported write path on this surface" : "")
+      );
+    }
+  }
+  const normalized = {};
+  if ("name" in patch) {
+    const bad = checkName(patch.name);
+    if (bad !== null) return refusal("bad_name", bad);
+    normalized.name = patch.name.trim();
+  }
+  if ("schedule" in patch) {
+    const bad = checkSchedule(patch.schedule);
+    if (bad !== null) return refusal("bad_schedule", bad);
+    normalized.schedule = patch.schedule.trim();
+  }
+  if ("prompt" in patch) {
+    const bad = checkPrompt(patch.prompt);
+    if (bad !== null) return refusal("bad_prompt", bad);
+    normalized.prompt = patch.prompt.trim();
+  }
+  if ("delivery" in patch) {
+    const delivery = normalizeDelivery(patch.delivery);
+    if (!delivery.ok) return refusal("bad_delivery", delivery.message);
+    normalized.delivery = delivery.present ? delivery.delivery : "";
+  }
+  if (root.desiredActive !== false) {
+    return refusal(
+      "activation_not_supported",
+      "proposals never activate a routine \u2014 the configured routine stays paused until it is resumed explicitly"
+    );
+  }
+  let note;
+  if (root.note !== void 0) {
+    if (typeof root.note !== "string") {
+      return refusal("bad_note", "the proposal note is display-only text or absent");
+    }
+    note = root.note;
+  }
+  return {
+    ok: true,
+    proposal: {
+      version: 1,
+      jobId: root.jobId,
+      owner: { connectionId, profile },
+      base: { fingerprint: base.fingerprint },
+      patch: normalized,
+      desiredActive: false,
+      ...note === void 0 ? {} : { note },
+      validated: true
+    }
+  };
+}
+function submitProposalHandoff(input) {
+  if (typeof input === "string" || asRecord3(input) === null) {
+    return refusal(
+      "handoff_must_be_structured",
+      "the handoff is a structured proposal object \u2014 free-form text is never parsed into routine configuration"
+    );
+  }
+  return validateProposal(input, null);
+}
+function submitProposalForRoutine(input, target) {
+  let candidate = input;
+  if (typeof candidate === "string") {
+    const text = candidate.trim();
+    if (!text) {
+      return refusal(
+        "handoff_must_be_structured",
+        "paste the proposal object Hermes returned \u2014 an empty handoff is not a proposal"
+      );
+    }
+    try {
+      candidate = JSON.parse(text);
+    } catch {
+      return refusal(
+        "handoff_must_be_structured",
+        "the handoff could not be read as a JSON object \u2014 paste the proposal exactly as Hermes returned it"
+      );
+    }
+  }
+  if (asRecord3(candidate) === null) {
+    return refusal(
+      "handoff_must_be_structured",
+      "the handoff must be a structured proposal object \u2014 free-form text is never parsed into routine configuration"
+    );
+  }
+  const expectedOwner = target === null ? null : { connectionId: trimmedText(target.connectionId), profile: trimmedText(target.profile) };
+  const validated = validateProposal(candidate, expectedOwner);
+  if (validated.ok === false) return validated;
+  if (target !== null && validated.proposal.jobId !== target.jobId) {
+    return refusal(
+      "job_mismatch",
+      `this proposal configures ${validated.proposal.jobId}, not ${target.jobId} \u2014 ask Hermes for a proposal bound to this routine`
+    );
+  }
+  return validated;
+}
+
+// src/domain/guidedWorkflow.ts
+var GUIDED_WORKFLOW_STATE = Object.freeze({
+  /** Job exists and is proven paused; no chat has been opened yet. */
+  PROVISIONAL_PAUSED: "provisional_paused",
+  /** A guided chat is (or was) clarifying the configuration. */
+  CONFIGURING: "configuring",
+  /** A validated proposal is on the table, waiting for a decision. */
+  PROPOSAL_READY: "proposal_ready",
+  /** The confirmed proposal is being written to the backend. */
+  APPLYING: "applying",
+  /** Configuration applied AND verified; the routine is still paused. */
+  CONFIGURED_PAUSED: "configured_paused",
+  /** Resume issued; the active state has not been proven yet. */
+  ACTIVATING: "activating",
+  /** Applied, resumed and re-read as running. Backend truth, not intent. */
+  ACTIVE: "active",
+  /** Something needs the user: an uncertain or failed transition. */
+  NEEDS_ATTENTION: "needs_attention"
+});
+var GUIDED_WORKFLOW_STAGE = Object.freeze({
+  /** The handoff itself was refused — nothing was read or written. */
+  HANDOFF: "handoff",
+  /** Pre-mutation guard: identity, ownership, staleness, paused-ness. */
+  STALE: "stale",
+  /** The deterministic write (add → pause → remove → re-read). */
+  APPLY: "apply",
+  /** Post-apply verification read of the persisted values. */
+  VERIFY: "verify",
+  /** The official resume/enable call. */
+  RESUME: "resume",
+  /** Post-resume verification read of the active state. */
+  ACTIVATE_VERIFY: "activate-verify"
+});
+function initialGuidedWorkflow(jobId) {
+  return {
+    jobId,
+    state: GUIDED_WORKFLOW_STATE.PROVISIONAL_PAUSED,
+    proposal: null,
+    current: null,
+    desiredActive: false,
+    appliedJobId: "",
+    failure: null,
+    status: "Routine created paused. It needs configuration."
+  };
+}
+var GUIDED_TRANSITIONS = Object.freeze({
+  [GUIDED_WORKFLOW_STATE.PROVISIONAL_PAUSED]: [
+    GUIDED_WORKFLOW_STATE.CONFIGURING,
+    GUIDED_WORKFLOW_STATE.PROPOSAL_READY
+  ],
+  [GUIDED_WORKFLOW_STATE.CONFIGURING]: [
+    GUIDED_WORKFLOW_STATE.CONFIGURING,
+    GUIDED_WORKFLOW_STATE.PROPOSAL_READY
+  ],
+  [GUIDED_WORKFLOW_STATE.PROPOSAL_READY]: [
+    GUIDED_WORKFLOW_STATE.APPLYING,
+    GUIDED_WORKFLOW_STATE.CONFIGURING
+  ],
+  // proposal_ready: a stale/invalid proposal goes back to review, a
+  // verified apply branches on the recorded activation decision, and
+  // everything else is an attention state.
+  [GUIDED_WORKFLOW_STATE.APPLYING]: [
+    GUIDED_WORKFLOW_STATE.PROPOSAL_READY,
+    GUIDED_WORKFLOW_STATE.CONFIGURED_PAUSED,
+    GUIDED_WORKFLOW_STATE.ACTIVATING,
+    GUIDED_WORKFLOW_STATE.NEEDS_ATTENTION
+  ],
+  [GUIDED_WORKFLOW_STATE.CONFIGURED_PAUSED]: [
+    GUIDED_WORKFLOW_STATE.ACTIVATING,
+    GUIDED_WORKFLOW_STATE.CONFIGURING,
+    GUIDED_WORKFLOW_STATE.ACTIVE
+  ],
+  // A resume answer is never taken on trust: activating ends in active
+  // only through a verified read, back to configured_paused when the
+  // resume was refused, and in needs_attention when truth is unreadable.
+  [GUIDED_WORKFLOW_STATE.ACTIVATING]: [
+    GUIDED_WORKFLOW_STATE.ACTIVE,
+    GUIDED_WORKFLOW_STATE.CONFIGURED_PAUSED,
+    GUIDED_WORKFLOW_STATE.NEEDS_ATTENTION
+  ],
+  // Losing activation (paused from outside) is a legitimate move.
+  [GUIDED_WORKFLOW_STATE.ACTIVE]: [GUIDED_WORKFLOW_STATE.CONFIGURED_PAUSED],
+  [GUIDED_WORKFLOW_STATE.NEEDS_ATTENTION]: [
+    GUIDED_WORKFLOW_STATE.APPLYING,
+    GUIDED_WORKFLOW_STATE.ACTIVATING,
+    GUIDED_WORKFLOW_STATE.CONFIGURING,
+    GUIDED_WORKFLOW_STATE.CONFIGURED_PAUSED,
+    GUIDED_WORKFLOW_STATE.ACTIVE
+  ]
+});
+function canGuidedTransition(from, to) {
+  const allowed = GUIDED_TRANSITIONS[from];
+  return Array.isArray(allowed) && allowed.indexOf(to) !== -1;
+}
+function failure2(stage, reason, message, recovery) {
+  return { stage, reason, message, recovery };
+}
+function announce(base, status) {
+  return { ...base, status };
+}
+function guidedWorkflowReducer(state, event) {
+  const base = state ?? initialGuidedWorkflow("");
+  if (!event) return base;
+  const S = GUIDED_WORKFLOW_STATE;
+  switch (event.type) {
+    case "chat-launched": {
+      if (base.state === S.PROVISIONAL_PAUSED) {
+        return {
+          ...base,
+          state: S.CONFIGURING,
+          status: "Configuration chat opened for this routine. It stays paused."
+        };
+      }
+      if (base.state === S.CONFIGURING) {
+        return announce(base, "Configuration chat re-opened for this routine. It stays paused.");
+      }
+      return base;
+    }
+    case "handoff-rejected": {
+      if (base.state !== S.PROVISIONAL_PAUSED && base.state !== S.CONFIGURING) return base;
+      return {
+        ...base,
+        failure: failure2("handoff", event.reason, event.message, "review"),
+        status: event.message
+      };
+    }
+    case "proposal-received": {
+      const legal = base.state === S.PROVISIONAL_PAUSED || base.state === S.CONFIGURING || base.state === S.PROPOSAL_READY || base.state === S.NEEDS_ATTENTION && base.failure?.recovery === "review";
+      if (!legal) return base;
+      return {
+        ...base,
+        state: S.PROPOSAL_READY,
+        proposal: event.proposal,
+        current: event.current,
+        desiredActive: false,
+        failure: null,
+        status: "Proposal ready for review. Nothing has been applied yet."
+      };
+    }
+    case "return-to-review": {
+      if (base.state !== S.NEEDS_ATTENTION) return base;
+      if (base.failure === null || base.failure.recovery !== "review") return base;
+      return {
+        ...base,
+        state: S.PROPOSAL_READY,
+        failure: null,
+        status: "Back to review. Nothing has been applied yet."
+      };
+    }
+    case "continue-configuring": {
+      if (!canGuidedTransition(base.state, S.CONFIGURING)) return base;
+      return {
+        ...base,
+        state: S.CONFIGURING,
+        proposal: null,
+        current: null,
+        desiredActive: false,
+        failure: null,
+        status: "Back to configuration. The routine stays paused."
+      };
+    }
+    case "confirm": {
+      if (base.state === S.PROPOSAL_READY) {
+        if (base.proposal === null || base.current === null) return base;
+        return {
+          ...base,
+          state: S.APPLYING,
+          desiredActive: event.desiredActive === true,
+          failure: null,
+          status: event.desiredActive ? "Applying the reviewed configuration." : "Applying the reviewed configuration. The routine stays paused."
+        };
+      }
+      if (base.state === S.NEEDS_ATTENTION && base.failure?.recovery === "apply") {
+        if (base.proposal === null || base.current === null) return base;
+        return {
+          ...base,
+          state: S.APPLYING,
+          desiredActive: event.desiredActive === true,
+          failure: null,
+          status: "Retrying the configuration apply."
+        };
+      }
+      return base;
+    }
+    case "confirm-activation": {
+      const legal = base.state === S.CONFIGURED_PAUSED || base.state === S.NEEDS_ATTENTION && base.failure?.recovery === "activation";
+      if (!legal) return base;
+      return {
+        ...base,
+        state: S.ACTIVATING,
+        desiredActive: true,
+        failure: null,
+        status: "Activating the routine."
+      };
+    }
+    case "failed": {
+      const detail = failure2(event.stage, event.reason, event.message, event.recovery);
+      const address = typeof event.jobId === "string" && event.jobId.length > 0 ? event.jobId : base.jobId;
+      const parked = { ...base, jobId: address, failure: detail, status: event.message };
+      if (base.state === S.APPLYING) {
+        if (event.stage === GUIDED_WORKFLOW_STAGE.STALE || event.stage === GUIDED_WORKFLOW_STAGE.HANDOFF) {
+          return { ...parked, state: S.PROPOSAL_READY };
+        }
+        return { ...parked, state: S.NEEDS_ATTENTION };
+      }
+      if (base.state === S.ACTIVATING) {
+        if (event.stage === GUIDED_WORKFLOW_STAGE.RESUME) {
+          return { ...parked, state: S.CONFIGURED_PAUSED };
+        }
+        return { ...parked, state: S.NEEDS_ATTENTION };
+      }
+      return base;
+    }
+    case "apply-verified": {
+      if (base.state !== S.APPLYING) return base;
+      const jobId = typeof event.jobId === "string" && event.jobId ? event.jobId : base.jobId;
+      const applied = { ...base, appliedJobId: jobId, failure: null, jobId };
+      if (base.desiredActive) {
+        return {
+          ...applied,
+          state: S.ACTIVATING,
+          status: "Configuration applied and verified. Activating the routine."
+        };
+      }
+      return {
+        ...applied,
+        state: S.CONFIGURED_PAUSED,
+        status: "Configuration applied and verified. The routine stays paused."
+      };
+    }
+    case "activation-verified": {
+      if (base.state !== S.ACTIVATING) return base;
+      const jobId = typeof event.jobId === "string" && event.jobId ? event.jobId : base.jobId;
+      return {
+        ...base,
+        state: S.ACTIVE,
+        jobId,
+        appliedJobId: jobId,
+        failure: null,
+        status: "Routine active. The active state was confirmed by a backend read."
+      };
+    }
+    case "refresh-result": {
+      const allowed = base.state === S.NEEDS_ATTENTION || base.state === S.CONFIGURED_PAUSED || base.state === S.ACTIVE;
+      if (!allowed) return base;
+      if (!event.exists) {
+        if (base.state !== S.NEEDS_ATTENTION) return base;
+        return {
+          ...base,
+          status: "The routine no longer exists on its owning profile.",
+          failure: base.failure ? { ...base.failure, message: "The routine no longer exists on its owning profile." } : base.failure
+        };
+      }
+      if (!event.paused) {
+        return {
+          ...base,
+          state: S.ACTIVE,
+          failure: null,
+          status: "The routine is active, confirmed by a backend read."
+        };
+      }
+      if (base.state === S.ACTIVE) {
+        return {
+          ...base,
+          state: S.CONFIGURED_PAUSED,
+          failure: null,
+          status: "The routine is paused. Its configuration is unchanged."
+        };
+      }
+      if (base.state === S.NEEDS_ATTENTION && event.configured) {
+        return {
+          ...base,
+          state: S.CONFIGURED_PAUSED,
+          failure: null,
+          status: "The persisted configuration was verified. The routine stays paused."
+        };
+      }
+      if (base.state === S.NEEDS_ATTENTION) {
+        return announce(base, "The routine is still paused and its configuration is not confirmed yet.");
+      }
+      return base;
+    }
+    case "session-lost": {
+      if (base.state !== S.PROVISIONAL_PAUSED && base.state !== S.CONFIGURING) return base;
+      if (base.state === S.CONFIGURING) {
+        return announce(
+          base,
+          "The configuration session is no longer available. Start a fresh one for the same routine \u2014 it stays paused."
+        );
+      }
+      return {
+        ...base,
+        state: S.CONFIGURING,
+        status: "The configuration session is no longer available. Start a fresh one for the same routine \u2014 it stays paused."
+      };
+    }
+    default:
+      return base;
+  }
+}
+function guidedIndicator(state, failure3) {
+  const S = GUIDED_WORKFLOW_STATE;
+  switch (state) {
+    case S.PROVISIONAL_PAUSED:
+    case S.CONFIGURING:
+      return "Paused \xB7 needs configuration";
+    case S.PROPOSAL_READY:
+      return "Proposal ready";
+    case S.APPLYING:
+      return "Applying configuration";
+    case S.CONFIGURED_PAUSED:
+      return failure3 !== null && failure3.stage === GUIDED_WORKFLOW_STAGE.RESUME ? "Activation failed" : "Configured \xB7 Paused";
+    case S.ACTIVATING:
+      return "Activating";
+    case S.ACTIVE:
+      return "Active";
+    case S.NEEDS_ATTENTION:
+      return failure3 !== null && (failure3.stage === GUIDED_WORKFLOW_STAGE.RESUME || failure3.stage === GUIDED_WORKFLOW_STAGE.ACTIVATE_VERIFY) ? "Activation failed" : "Needs attention";
+  }
+}
+function proposedSnapshot(current, patch) {
+  return {
+    ...current,
+    name: patch.name ?? current.name,
+    schedule: patch.schedule ?? current.schedule,
+    prompt: patch.prompt ?? current.prompt,
+    // #65: an explicit '' clears the target; an absent key keeps the stored
+    // one. `??` cannot express that, so the empty string is checked directly.
+    delivery: patch.delivery === void 0 ? current.delivery : patch.delivery
+  };
+}
+var REVIEW_LABELS = Object.freeze({
+  name: "Name",
+  schedule: "Schedule",
+  prompt: "Instruction",
+  delivery: "Delivery",
+  modelOverride: "Model override"
+});
+var REVIEW_ORDER = ["name", "schedule", "prompt", "delivery", "modelOverride"];
+var REVIEW_PATCHABLE = Object.freeze({
+  name: true,
+  schedule: true,
+  prompt: true,
+  delivery: true,
+  modelOverride: false
+});
+var PATCHABLE = REVIEW_PATCHABLE;
+function buildProposalReview(current, proposal) {
+  if (!current || !proposal) return null;
+  const proposed = proposedSnapshot(current, proposal.patch);
+  const rows = REVIEW_ORDER.map((field2) => {
+    const before = current[field2] ?? "";
+    const after = proposed[field2] ?? "";
+    return {
+      field: field2,
+      label: REVIEW_LABELS[field2],
+      current: before,
+      proposed: after,
+      changed: before !== after,
+      patchable: PATCHABLE[field2]
+    };
+  });
+  return {
+    jobId: proposal.jobId,
+    rows,
+    changedFields: rows.filter((row) => row.changed).map((row) => row.field),
+    note: typeof proposal.note === "string" && proposal.note.trim() ? proposal.note : null,
+    stale: fingerprintSnapshot(current) !== proposal.base.fingerprint,
+    current,
+    proposed
+  };
+}
+function routeLabel(route) {
+  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return "";
+  const profile = typeof route.targetProfile === "string" && route.targetProfile || typeof route.profile === "string" && route.profile || "";
+  return profile ? `${route.connectionId}::${profile}` : "";
+}
+function routeProfiles(route) {
+  if (!route) return [];
+  const out = [];
+  if (typeof route.profile === "string" && route.profile) out.push(route.profile);
+  if (typeof route.targetProfile === "string" && route.targetProfile && out.indexOf(route.targetProfile) === -1) {
+    out.push(route.targetProfile);
+  }
+  return out;
+}
+function guidedRouteDrift(retained, current) {
+  const retainedLabel = routeLabel(retained);
+  const currentLabel = routeLabel(current);
+  if (!retainedLabel || !currentLabel) {
+    return { drifted: false, retained: retainedLabel, current: currentLabel };
+  }
+  if (!retained || !current || typeof retained.connectionId !== "string" || retained.connectionId !== current.connectionId) {
+    return { drifted: true, retained: retainedLabel, current: currentLabel };
+  }
+  const kept = routeProfiles(retained);
+  const now = routeProfiles(current);
+  const shared = kept.some((profile) => now.indexOf(profile) !== -1);
+  return { drifted: !shared, retained: retainedLabel, current: currentLabel };
+}
+
+// src/gateway/proposalApply.ts
+function scopeOf2(route) {
+  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
+  return backendTargetProfile(route, "") || null;
+}
+function failed(reason, message, jobId, backendProfile, replacementJobId = null) {
+  return { ok: false, reason, message, jobId, replacementJobId, backendProfile };
+}
+function findAppliedDuplicate(rows, excludeJobId, expected) {
+  for (const row of rows) {
+    const id = jobIdOf(row);
+    if (!id || id === excludeJobId) continue;
+    const snapshot = snapshotJobConfig(row);
+    if (!snapshot.paused) continue;
+    if (snapshot.name === expected.name && snapshot.schedule === expected.schedule && snapshot.prompt === expected.prompt && snapshot.delivery === expected.delivery) {
+      return { jobId: id };
+    }
+  }
+  return null;
+}
+async function applyValidatedProposal(request) {
+  const route = request?.route;
+  const backendProfile = scopeOf2(route);
+  if (!route || !backendProfile) {
+    return failed(
+      "no_route",
+      "applying a proposal requires the resolved profile route that owns the routine",
+      "",
+      null
+    );
+  }
+  const checked = validateProposal(request?.proposal, null);
+  if (checked.ok === false) {
+    return failed("invalid_proposal", "the proposal is not valid: " + checked.message, "", backendProfile);
+  }
+  const proposal = checked.proposal;
+  const jobId = proposal.jobId;
+  if (route.connectionId !== proposal.owner.connectionId || route.profile !== proposal.owner.profile && route.targetProfile !== proposal.owner.profile) {
+    return failed(
+      "owner_mismatch",
+      `the proposal belongs to ${proposal.owner.connectionId}::${proposal.owner.profile} and cannot be applied on ${route.connectionId}::${route.profile}`,
+      jobId,
+      backendProfile
+    );
+  }
+  let rows;
+  try {
+    rows = normalizeJobs(await listRoutines(route));
+  } catch (err) {
+    return failed("list_failed", "the routines list could not be read: " + messageOf(err), jobId, backendProfile);
+  }
+  const current = rows.find((row) => jobIdOf(row) === jobId) ?? null;
+  if (current === null) {
+    return failed(
+      "job_not_found",
+      "the routine no longer exists on its owning profile \u2014 check the routines list before reapplying",
+      jobId,
+      backendProfile
+    );
+  }
+  if (isProposalStale(proposal, current)) {
+    return failed(
+      "stale_base",
+      "the routine changed since the configuration session started \u2014 review the current values and build a new proposal instead of overwriting newer state",
+      jobId,
+      backendProfile
+    );
+  }
+  const snapshot = snapshotJobConfig(current);
+  if (!snapshot.paused) {
+    return failed(
+      "not_paused",
+      "only a paused routine can be reconfigured \u2014 the routine is currently active, so the proposal no longer describes a safe target",
+      jobId,
+      backendProfile
+    );
+  }
+  const name = proposal.patch.name ?? snapshot.name;
+  const schedule = proposal.patch.schedule ?? snapshot.schedule;
+  const prompt = proposal.patch.prompt ?? snapshot.prompt;
+  const delivery = proposal.patch.delivery ?? snapshot.delivery;
+  if (!name || !schedule || !prompt) {
+    return failed(
+      "unapplyable_base",
+      "the routine carries no usable name, schedule or instruction to carry forward \u2014 fill every field in the proposal",
+      jobId,
+      backendProfile
+    );
+  }
+  if (name === snapshot.name && schedule === snapshot.schedule && prompt === snapshot.prompt && delivery === snapshot.delivery) {
+    return { ok: true, jobId, previousJobId: "", changed: false, backendProfile };
+  }
+  const expected = { ...snapshot, name, schedule, prompt, delivery };
+  const duplicate = findAppliedDuplicate(rows, jobId, expected);
+  if (duplicate !== null) {
+    return failed(
+      "duplicate_suspected",
+      `a paused routine ${duplicate.jobId} already holds this exact configuration \u2014 verify it in the routines list instead of applying again`,
+      jobId,
+      backendProfile,
+      duplicate.jobId
+    );
+  }
+  let addParams;
+  try {
+    addParams = buildAddParams(route, { name, schedule, prompt, delivery });
+  } catch (err) {
+    return failed("invalid_proposal", "the patched configuration is not valid: " + messageOf(err), jobId, backendProfile);
+  }
+  let addAnswer;
+  try {
+    addAnswer = await requestCronForRoute(route, "cron.manage", addParams, void 0, {
+      spawnPriority: "foreground"
+    });
+  } catch (err) {
+    return failed(
+      "create_rejected",
+      "the backend refused to create the replacement routine (" + messageOf(err) + ") \u2014 the original is untouched",
+      jobId,
+      backendProfile
+    );
+  }
+  const created = cronOutcomeOf(addAnswer);
+  if (!created.ok) {
+    return failed(
+      "create_rejected",
+      "the backend refused to create the replacement routine: " + created.error + " \u2014 the original is untouched",
+      jobId,
+      backendProfile
+    );
+  }
+  const replacementId = jobIdFromResponse(addAnswer);
+  if (!replacementId) {
+    return failed(
+      "identity_unresolved",
+      "the backend created a replacement but returned no job id, so it cannot be addressed \u2014 the original is untouched; check the routines list",
+      jobId,
+      backendProfile
+    );
+  }
+  let pauseParams;
+  try {
+    pauseParams = buildPauseParams(route, replacementId);
+  } catch (err) {
+    const cleanup = await removeQuietly(route, replacementId);
+    return failed(
+      "replacement_not_paused",
+      `the replacement ${replacementId} could not be addressed for pausing (${messageOf(err)}) \u2014 the original ${jobId} is untouched` + (cleanup ? " and the replacement was removed" : "; the replacement may still exist \u2014 check the routines list"),
+      jobId,
+      backendProfile,
+      cleanup ? null : replacementId
+    );
+  }
+  let pauseAnswer;
+  try {
+    pauseAnswer = await requestCronForRoute(route, "cron.manage", pauseParams, void 0, {
+      spawnPriority: "foreground"
+    });
+  } catch (err) {
+    const cleanup = await removeQuietly(route, replacementId);
+    return failed(
+      "replacement_not_paused",
+      `the replacement routine could not be paused (${messageOf(err)}) \u2014 the original ${jobId} is untouched` + (cleanup ? " and the unpaused replacement was removed" : "; the unpaused replacement may still exist \u2014 check the routines list"),
+      jobId,
+      backendProfile,
+      cleanup ? null : replacementId
+    );
+  }
+  if (!cronOutcomeOf(pauseAnswer).ok || !pausedConfirmedBy(pauseAnswer)) {
+    const cleanup = await removeQuietly(route, replacementId);
+    return failed(
+      "replacement_not_paused",
+      "the backend did not confirm the replacement is paused \u2014 the original " + jobId + " is untouched" + (cleanup ? " and the replacement was removed" : "; the replacement may still exist \u2014 check the routines list"),
+      jobId,
+      backendProfile,
+      cleanup ? null : replacementId
+    );
+  }
+  let removeParams;
+  try {
+    removeParams = buildRemoveParams(route, jobId);
+  } catch (err) {
+    return failed(
+      "supersede_incomplete",
+      `the replacement ${replacementId} is configured and paused, but the superseded ${jobId} could not be addressed for removal (${messageOf(err)}) \u2014 remove it by id; nothing was lost`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  let removeAnswer;
+  try {
+    removeAnswer = await requestCronForRoute(route, "cron.manage", removeParams, void 0, {
+      spawnPriority: "foreground"
+    });
+  } catch (err) {
+    return failed(
+      "supersede_incomplete",
+      `the replacement ${replacementId} is configured and paused, but removing the superseded ${jobId} failed (${messageOf(err)}) \u2014 remove it by id; nothing was lost`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  if (!cronOutcomeOf(removeAnswer).ok) {
+    const detail = cronOutcomeOf(removeAnswer).error;
+    return failed(
+      "supersede_incomplete",
+      `the replacement ${replacementId} is configured and paused, but the backend refused to remove the superseded ${jobId}: ${detail} \u2014 remove it by id; nothing was lost`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  let fresh;
+  try {
+    fresh = normalizeJobs(await listRoutines(route));
+  } catch (err) {
+    return failed(
+      "truth_unconfirmed",
+      `the replacement ${replacementId} is configured and paused, but the routines list could not be re-read (${messageOf(err)}) \u2014 verify it before the first run`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  const confirmed = fresh.find((row) => jobIdOf(row) === replacementId) ?? null;
+  if (confirmed === null || fingerprintSnapshot(snapshotJobConfig(confirmed)) === proposal.base.fingerprint) {
+    return failed(
+      "truth_unconfirmed",
+      `the replacement ${replacementId} was applied but the re-read list does not show the new configuration \u2014 verify it before the first run`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  const confirmedSnapshot = snapshotJobConfig(confirmed);
+  if (confirmedSnapshot.name !== name || confirmedSnapshot.schedule !== schedule || confirmedSnapshot.prompt !== prompt || confirmedSnapshot.delivery !== delivery) {
+    return failed(
+      "truth_unconfirmed",
+      `the re-read list shows the replacement ${replacementId} with different values than requested \u2014 verify it before the first run`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  if (!confirmedSnapshot.paused) {
+    return failed(
+      "truth_unconfirmed",
+      `the re-read list does not show the replacement ${replacementId} as paused \u2014 check it before its first run`,
+      jobId,
+      backendProfile,
+      replacementId
+    );
+  }
+  return { ok: true, jobId: replacementId, previousJobId: jobId, changed: true, backendProfile };
+}
+async function removeQuietly(route, jobId) {
+  try {
+    const answer = await requestCronForRoute(route, "cron.manage", buildRemoveParams(route, jobId), void 0, {
+      spawnPriority: "foreground"
+    });
+    return cronOutcomeOf(answer).ok;
+  } catch {
+    return false;
+  }
+}
+
+// src/gateway/proposalConfirm.ts
+function scopeOf3(route) {
+  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
+  return backendTargetProfile(route, "") || null;
+}
+async function readJobConfig(request) {
+  const route = request?.route;
+  if (!scopeOf3(route)) {
+    return { ok: false, message: "reading a routine requires the resolved profile route that owns it" };
+  }
+  const jobId = typeof request?.jobId === "string" ? request.jobId : "";
+  if (!jobId) {
+    return { ok: false, message: "reading a routine requires its authoritative job id" };
+  }
+  let rows;
+  try {
+    rows = normalizeJobs(await listRoutines(route));
+  } catch (err) {
+    return { ok: false, message: "the routines list could not be read: " + messageOf(err) };
+  }
+  const row = rows.find((candidate) => jobIdOf(candidate) === jobId) ?? null;
+  if (row === null) {
+    return { ok: true, exists: false, snapshot: { name: "", schedule: "", prompt: "", delivery: "", modelOverride: "", paused: false }, paused: false, fingerprint: "" };
+  }
+  const snapshot = snapshotJobConfig(row);
+  return {
+    ok: true,
+    exists: true,
+    snapshot,
+    paused: snapshot.paused,
+    fingerprint: fingerprintSnapshot(snapshot)
+  };
+}
+function refused2(stage, reason, message, jobId, recovery, replacementJobId = null) {
+  return { ok: false, stage, reason, message, jobId, recovery, replacementJobId };
+}
+function classifyApplyFailure(reason, replacementJobId) {
+  const S = GUIDED_WORKFLOW_STAGE;
+  switch (reason) {
+    case "no_route":
+    case "owner_mismatch":
+    case "invalid_proposal":
+      return { stage: S.STALE, recovery: "review" };
+    case "list_failed":
+    case "job_not_found":
+    case "stale_base":
+    case "not_paused":
+    case "unapplyable_base":
+      return { stage: S.STALE, recovery: "review" };
+    case "create_rejected":
+      return { stage: S.APPLY, recovery: "apply" };
+    case "duplicate_suspected":
+      return { stage: S.APPLY, recovery: "refresh" };
+    case "identity_unresolved":
+    case "supersede_incomplete":
+      return { stage: S.APPLY, recovery: "refresh" };
+    case "replacement_not_paused":
+      return { stage: S.APPLY, recovery: replacementJobId ? "refresh" : "apply" };
+    case "truth_unconfirmed":
+      return { stage: S.VERIFY, recovery: "refresh" };
+    default:
+      return { stage: S.APPLY, recovery: "refresh" };
+  }
+}
+async function confirmProposal(request) {
+  const route = request?.route;
+  const backendProfile = scopeOf3(route);
+  const S = GUIDED_WORKFLOW_STAGE;
+  const checked = validateProposal(request?.proposal, null);
+  if (checked.ok === false) {
+    return refused2(S.STALE, "invalid_proposal", "the proposal is not valid: " + checked.message, "", "review");
+  }
+  const proposal = checked.proposal;
+  const jobId = proposal.jobId;
+  if (!route || !backendProfile) {
+    return refused2(S.STALE, "no_route", "applying a proposal requires the resolved profile route that owns the routine", jobId, "review");
+  }
+  if (route.connectionId !== proposal.owner.connectionId || route.profile !== proposal.owner.profile && route.targetProfile !== proposal.owner.profile) {
+    return refused2(
+      S.STALE,
+      "owner_mismatch",
+      `the proposal belongs to ${proposal.owner.connectionId}::${proposal.owner.profile} and cannot be applied on ${route.connectionId}::${route.profile}`,
+      jobId,
+      "review"
+    );
+  }
+  const before = await readJobConfig({ route, jobId });
+  if (!before.ok) {
+    return refused2(S.STALE, "list_failed", before.message, jobId, "review");
+  }
+  if (!before.exists) {
+    return refused2(
+      S.STALE,
+      "job_not_found",
+      "the routine no longer exists on its owning profile \u2014 check the routines list before reapplying",
+      jobId,
+      "review"
+    );
+  }
+  if (before.fingerprint !== proposal.base.fingerprint) {
+    return refused2(
+      S.STALE,
+      "stale_base",
+      "the routine changed since the configuration session started \u2014 review the current values and build a new proposal instead of overwriting newer state",
+      jobId,
+      "review"
+    );
+  }
+  if (!before.paused) {
+    return refused2(
+      S.STALE,
+      "not_paused",
+      "only a paused routine can be reconfigured \u2014 the routine is currently active, so the proposal no longer describes a safe target",
+      jobId,
+      "review"
+    );
+  }
+  const applied = await applyValidatedProposal({ proposal, route });
+  if (applied.ok === false) {
+    const { stage, recovery } = classifyApplyFailure(applied.reason, applied.replacementJobId);
+    return refused2(stage, applied.reason, applied.message, applied.jobId || jobId, recovery, applied.replacementJobId);
+  }
+  const expected = proposedSnapshot(before.snapshot, proposal.patch);
+  const verified = await readJobConfig({ route, jobId: applied.jobId });
+  if (!verified.ok) {
+    return refused2(S.VERIFY, "verification_unreadable", verified.message, applied.jobId, "refresh", null);
+  }
+  if (!verified.exists) {
+    return refused2(
+      S.VERIFY,
+      "verification_missing",
+      `the configuration was applied but the routine ${applied.jobId} is not in the re-read list \u2014 verify it before any activation`,
+      applied.jobId,
+      "refresh",
+      null
+    );
+  }
+  if (verified.snapshot.name !== expected.name || verified.snapshot.schedule !== expected.schedule || verified.snapshot.prompt !== expected.prompt) {
+    return refused2(
+      S.VERIFY,
+      "verification_failed",
+      `the re-read routine ${applied.jobId} does not hold the proposed configuration \u2014 do not activate it; check the routines list`,
+      applied.jobId,
+      "refresh",
+      null
+    );
+  }
+  if (!verified.paused) {
+    return refused2(
+      S.VERIFY,
+      "verification_unpaused",
+      `the re-read routine ${applied.jobId} is not paused after the apply \u2014 it must be parked before any activation decision`,
+      applied.jobId,
+      "refresh",
+      null
+    );
+  }
+  if (request?.desiredActive !== true) {
+    return { ok: true, activated: false, jobId: applied.jobId, previousJobId: applied.previousJobId, changed: applied.changed };
+  }
+  const activated = await activateConfigured({ route, jobId: applied.jobId });
+  if (activated.ok === false) return activated;
+  return { ok: true, activated: true, jobId: applied.jobId, previousJobId: applied.previousJobId, changed: applied.changed };
+}
+async function activateConfigured(request) {
+  const route = request?.route;
+  const jobId = typeof request?.jobId === "string" ? request.jobId : "";
+  const S = GUIDED_WORKFLOW_STAGE;
+  if (!scopeOf3(route) || !jobId) {
+    return refused2(
+      S.RESUME,
+      "no_route",
+      "activating a routine requires the resolved profile route that owns it",
+      jobId,
+      "activation"
+    );
+  }
+  let resumeError = null;
+  try {
+    const params = buildResumeParams(route, jobId);
+    const answer = await requestCronForRoute(route, "cron.manage", params, void 0, {
+      spawnPriority: "foreground"
+    });
+    const outcome = cronOutcomeOf(answer);
+    if (!outcome.ok) resumeError = outcome.error;
+  } catch (err) {
+    resumeError = messageOf(err);
+  }
+  const after = await readJobConfig({ route, jobId });
+  if (!after.ok) {
+    return refused2(S.ACTIVATE_VERIFY, "truth_unreadable", after.message, jobId, "refresh");
+  }
+  if (!after.exists) {
+    return refused2(
+      S.ACTIVATE_VERIFY,
+      "job_missing",
+      `the routine ${jobId} is no longer in the re-read list \u2014 check the routines list before retrying`,
+      jobId,
+      "refresh"
+    );
+  }
+  if (!after.paused) {
+    return { ok: true, activated: true, jobId, previousJobId: "", changed: false };
+  }
+  if (resumeError !== null) {
+    return refused2(
+      S.RESUME,
+      "resume_rejected",
+      `the backend refused to resume the routine (${resumeError}) \u2014 it stays configured and paused`,
+      jobId,
+      "activation"
+    );
+  }
+  return refused2(
+    S.ACTIVATE_VERIFY,
+    "resume_unconfirmed",
+    `the resume was accepted but the routine ${jobId} still reads as paused \u2014 the active state was not confirmed`,
+    jobId,
+    "refresh"
+  );
+}
+function diagOfConfirmResult(result) {
+  const D = GUIDED_DIAG_STAGES;
+  if (result.ok) {
+    return recordGuidedDiag(result.activated ? D.ACTIVATION : D.VERIFICATION, "ok");
+  }
+  switch (result.stage) {
+    case GUIDED_WORKFLOW_STAGE.STALE:
+      return recordGuidedDiag(D.STALE_REJECTION, result.reason);
+    case GUIDED_WORKFLOW_STAGE.APPLY:
+      return recordGuidedDiag(D.APPLY, result.reason);
+    case GUIDED_WORKFLOW_STAGE.VERIFY:
+      return recordGuidedDiag(D.VERIFICATION, result.reason);
+    case GUIDED_WORKFLOW_STAGE.RESUME:
+    case GUIDED_WORKFLOW_STAGE.ACTIVATE_VERIFY:
+      return recordGuidedDiag(D.ACTIVATION, result.reason);
+    default:
+      return recordGuidedDiag(D.PROPOSAL_VALIDATION, result.reason);
+  }
+}
+
 // src/gateway/guidedLaunch.ts
 async function launchGuidedConfiguration(request) {
   const routine = request?.routine;
@@ -1638,6 +2989,55 @@ async function launchGuidedConfiguration(request) {
     autoSubmitted: opened.autoSubmitted,
     prompt
   };
+}
+async function relaunchGuidedConfiguration(request) {
+  const routine = request?.routine;
+  const jobId = typeof routine?.jobId === "string" ? routine.jobId : "";
+  if (!jobId) {
+    return {
+      ok: false,
+      reason: "envelope_unavailable",
+      message: "starting a fresh session requires the authoritative job id",
+      jobId: ""
+    };
+  }
+  const read = await readJobConfig({ route: routine.route, jobId });
+  if (!read.ok) {
+    return { ok: false, reason: "session_target_unreadable", message: read.message, jobId };
+  }
+  if (!read.exists) {
+    return {
+      ok: false,
+      reason: "session_target_gone",
+      message: "the routine no longer exists on its owning profile \u2014 check the routines list; it is not recreated",
+      jobId
+    };
+  }
+  if (!read.paused) {
+    return {
+      ok: false,
+      reason: "session_target_active",
+      message: "the routine is active, so it needs no configuration session",
+      jobId
+    };
+  }
+  const launched = await launchGuidedConfiguration(request);
+  if (launched.ok === false) {
+    return { ok: false, reason: launched.reason, message: launched.message, jobId: launched.jobId };
+  }
+  return {
+    ok: true,
+    routeKey: launched.routeKey,
+    jobId: launched.jobId,
+    autoSubmitted: launched.autoSubmitted,
+    prompt: launched.prompt,
+    snapshot: read.snapshot,
+    fingerprint: read.fingerprint
+  };
+}
+function diagOfLaunchResult(result) {
+  if (result.ok) return recordGuidedDiag(GUIDED_DIAG_STAGES.SESSION_LAUNCH, "ok");
+  return recordGuidedDiag(GUIDED_DIAG_STAGES.SESSION_LAUNCH, result.reason);
 }
 
 // src/views/routinesStyles.ts
@@ -2399,6 +3799,7 @@ var ROUTINES_CSS = [
   "  color: var(--ui-text-primary, #fff);",
   "}",
   ".hr-review-readonly { margin-left: 6px; font-size: 9px; color: var(--ui-text-tertiary, #888); }",
+  ".hr-review-editable { margin-left: 6px; font-size: 9px; color: var(--ui-text-tertiary, #888); }",
   ".hr-review-note {",
   "  border-left: 2px solid var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.22));",
   "  padding: 2px 0 2px 8px;",
@@ -2779,6 +4180,10 @@ function RoutineInspectorPanel({
   const title = routineTitle(job, fallback);
   const schedule = humanScheduleOf(job) || "\u2014";
   const execution = lastExecutionOf(job);
+  const row = job ?? null;
+  const storedDelivery = readStoredDelivery(row);
+  const storedModelOverride = readStoredModelOverride(row);
+  const needsConfiguration = guidedConfigCandidateOf(job) !== null;
   return /* @__PURE__ */ jsxs4("aside", { className: "hr-inspector", "aria-label": `Details for ${title}`, children: [
     /* @__PURE__ */ jsx6("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs4(
       "button",
@@ -2795,6 +4200,10 @@ function RoutineInspectorPanel({
     ) }),
     /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-body", children: [
       /* @__PURE__ */ jsx6("h3", { className: "hr-create-title", children: title }),
+      needsConfiguration ? /* @__PURE__ */ jsx6("div", { className: "hr-create-active-card", children: /* @__PURE__ */ jsxs4("div", { className: "hr-create-active-info", children: [
+        /* @__PURE__ */ jsx6("span", { className: "hr-create-active-title", children: "Paused \xB7 needs configuration" }),
+        /* @__PURE__ */ jsx6("span", { className: "hr-create-active-subtitle", children: "This routine is paused and has never run \u2014 its configuration is incomplete." })
+      ] }) }) : null,
       /* @__PURE__ */ jsxs4("div", { className: "hr-create-active-card", children: [
         /* @__PURE__ */ jsxs4("div", { className: "hr-create-active-info", children: [
           /* @__PURE__ */ jsx6("span", { className: "hr-create-active-title", children: "Active" }),
@@ -2846,6 +4255,38 @@ function RoutineInspectorPanel({
         /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
         /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: schedule })
       ] }),
+      storedDelivery !== null || storedModelOverride !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "ADVANCED" }),
+        storedDelivery !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "Delivery" }),
+          /* @__PURE__ */ jsx6(
+            "input",
+            {
+              type: "text",
+              className: "hr-create-input",
+              value: storedDelivery,
+              disabled: true,
+              readOnly: true,
+              "aria-label": "Stored delivery"
+            }
+          )
+        ] }) : null,
+        storedModelOverride !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "Model override" }),
+          /* @__PURE__ */ jsx6(
+            "input",
+            {
+              type: "text",
+              className: "hr-create-input",
+              value: storedModelOverride,
+              disabled: true,
+              readOnly: true,
+              "aria-label": "Stored model override"
+            }
+          ),
+          /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: MODEL_OVERRIDE_READONLY_NOTE })
+        ] }) : null
+      ] }) : null,
       /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-last-run", children: [
         /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "LAST EXECUTION" }),
         execution.lastRun !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
@@ -3005,6 +4446,8 @@ function RoutineComposerPanel({
   const [submitting, setSubmitting] = useState3(false);
   const [error, setError] = useState3(null);
   const [mode, setMode] = useState3(onSubmitGuided ? "guided" : "direct");
+  const [deliveryChoice, setDeliveryChoice] = useState3("");
+  const [deliveryCustom, setDeliveryCustom] = useState3("");
   const timeOptions = useMemo(
     () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
     []
@@ -3021,6 +4464,10 @@ function RoutineComposerPanel({
     () => INTERVAL_UNITS.map((u) => ({ value: u, label: u })),
     []
   );
+  const deliveryOptions = useMemo(
+    () => DELIVERY_PRESET_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+    []
+  );
   const cronExpr = useMemo(() => buildCronExpression(scheduleConfig), [scheduleConfig]);
   const humanSentence = useMemo(() => describeScheduleConfig(scheduleConfig), [scheduleConfig]);
   async function handleSubmit() {
@@ -3031,17 +4478,24 @@ function RoutineComposerPanel({
       setError("Describe what this routine should do.");
       return;
     }
+    const candidate = deliveryChoice === DELIVERY_CUSTOM_SENTINEL ? deliveryCustom : deliveryChoice;
+    const normalized = normalizeDelivery(candidate);
+    if (!normalized.ok) {
+      setError(normalized.message);
+      return;
+    }
+    const delivery = normalized.present ? normalized.delivery : void 0;
     setSubmitting(true);
     setError(null);
     try {
       if (mode === "guided" && onSubmitGuided) {
-        const ok2 = await onSubmitGuided(trimmedName, cronExpr, promptText);
+        const ok2 = await onSubmitGuided(trimmedName, cronExpr, promptText, delivery);
         if (!ok2) {
           setError("Failed to create routine. Please verify parameters.");
         }
         return;
       }
-      const ok = await onSubmit(trimmedName, cronExpr, promptText, active);
+      const ok = await onSubmit(trimmedName, cronExpr, promptText, active, delivery);
       if (!ok) {
         setError("Failed to create routine. Please verify parameters.");
       }
@@ -3231,6 +4685,36 @@ function RoutineComposerPanel({
         ] }) : null,
         /* @__PURE__ */ jsx8("div", { className: "hr-create-preview-sentence", children: humanSentence })
       ] }),
+      /* @__PURE__ */ jsxs6("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx8("div", { className: "hr-create-section-label", children: "ADVANCED" }),
+        /* @__PURE__ */ jsx8(
+          SelectField,
+          {
+            label: "Delivery",
+            value: deliveryChoice,
+            options: deliveryOptions,
+            onChange: (val) => setDeliveryChoice(val)
+          }
+        ),
+        deliveryChoice === DELIVERY_CUSTOM_SENTINEL ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "Custom delivery target" }),
+          /* @__PURE__ */ jsx8(
+            "input",
+            {
+              type: "text",
+              className: "hr-create-input",
+              placeholder: "platform:chat_id or bot-chat:profile",
+              value: deliveryCustom,
+              onChange: (e) => setDeliveryCustom(e.target.value),
+              "aria-label": "Custom delivery target"
+            }
+          )
+        ] }) : null,
+        /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "Model override" }),
+          /* @__PURE__ */ jsx8("div", { className: "hr-create-preview-sentence", children: MODEL_OVERRIDE_READONLY_NOTE })
+        ] })
+      ] }),
       error ? /* @__PURE__ */ jsx8("div", { className: "hr-create-error", role: "alert", children: error }) : null,
       /* @__PURE__ */ jsxs6("div", { className: "hr-create-actions", children: [
         /* @__PURE__ */ jsx8(
@@ -3260,1055 +4744,6 @@ function RoutineComposerPanel({
 // src/views/GuidedRoutinePanel.tsx
 import { useState as useState4 } from "react";
 
-// src/domain/routineProposal.ts
-var MAX_NAME_LENGTH2 = 128;
-var MAX_SCHEDULE_LENGTH2 = 256;
-var MAX_PROMPT_LENGTH2 = 2e4;
-var CONTROL_CHARS_RE2 = /[\x00-\x1F\x7F]/;
-var ROUTINE_PROPOSAL_VERSION = 1;
-var PATCH_FIELDS = ["name", "prompt", "schedule"];
-var PROPOSAL_FIELDS = ["version", "jobId", "owner", "base", "patch", "desiredActive", "note", "validated"];
-function asRecord3(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function trimmedText(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-function rowField(row, keys) {
-  if (row === null) return "";
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
-}
-function snapshotJobConfig(job) {
-  const row = asRecord3(job);
-  return {
-    name: rowField(row, ["name"]),
-    schedule: (rawScheduleOf(job ?? null) ?? "").trim(),
-    prompt: (routinePromptOf(job ?? null) ?? "").trim(),
-    // Same candidate keys the envelope reports (guidedEnvelope.ts) —
-    // absent reads as absent, never invented.
-    delivery: rowField(row, ["deliver", "delivery", "deliver_to", "deliverTo"]),
-    modelOverride: rowField(row, ["model", "model_override", "modelOverride", "override_model"]),
-    paused: routinePausedOf(job ?? null)
-  };
-}
-function fingerprintSnapshot(snapshot) {
-  const encoded = JSON.stringify([
-    "routine-proposal-base-v1",
-    snapshot.name,
-    snapshot.schedule,
-    snapshot.prompt,
-    snapshot.delivery,
-    snapshot.modelOverride,
-    snapshot.paused ? "paused" : "active"
-  ]);
-  let hash = 2166136261;
-  for (let i = 0; i < encoded.length; i += 1) {
-    hash ^= encoded.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-function fingerprintJob(job) {
-  return fingerprintSnapshot(snapshotJobConfig(job));
-}
-function isProposalStale(proposal, job) {
-  return fingerprintJob(job) !== proposal.base.fingerprint;
-}
-function refusal(code, message) {
-  return { ok: false, code, message };
-}
-function checkName(value) {
-  if (typeof value !== "string") return "proposal name must be text";
-  const text = value.trim();
-  if (!text) return "proposal name must not be empty";
-  if (text.length > MAX_NAME_LENGTH2) return "proposal name must be at most 128 chars";
-  if (CONTROL_CHARS_RE2.test(text)) return "proposal name must not contain control characters";
-  return null;
-}
-function checkSchedule(value) {
-  if (typeof value !== "string") return "proposal schedule must be text";
-  const text = value.trim();
-  if (!text) return "proposal schedule must not be empty";
-  if (text.length > MAX_SCHEDULE_LENGTH2) return "proposal schedule must be at most 256 chars";
-  if (CONTROL_CHARS_RE2.test(text)) return "proposal schedule must not contain control characters";
-  return null;
-}
-function checkPrompt(value) {
-  if (typeof value !== "string") return "proposal instruction must be text";
-  const text = value.trim();
-  if (!text) return "proposal instruction must not be empty";
-  if (text.length > MAX_PROMPT_LENGTH2) return "proposal instruction must be at most 20000 chars";
-  return null;
-}
-function validateProposal(input, expectedOwner = null) {
-  const root = asRecord3(input);
-  if (root === null) {
-    return refusal("not_an_object", "the proposal must be a structured object, not text or a list");
-  }
-  for (const key of Object.keys(root)) {
-    if (!PROPOSAL_FIELDS.includes(key)) {
-      return refusal("unknown_field", `unknown proposal field "${key}" \u2014 proposals carry only ${PROPOSAL_FIELDS.join(", ")}`);
-    }
-  }
-  if (root.version !== ROUTINE_PROPOSAL_VERSION) {
-    return refusal(
-      "unsupported_version",
-      `unsupported proposal version ${JSON.stringify(root.version)} \u2014 this plugin reads version 1`
-    );
-  }
-  if (!isValidJobId(root.jobId)) {
-    return refusal("bad_job_id", "the proposal must carry the authoritative job_id of the routine it configures");
-  }
-  const owner = asRecord3(root.owner);
-  const connectionId = owner === null ? "" : trimmedText(owner.connectionId);
-  const profile = owner === null ? "" : trimmedText(owner.profile);
-  if (!connectionId || !profile || Object.keys(owner ?? {}).some((k) => k !== "connectionId" && k !== "profile")) {
-    return refusal(
-      "bad_owner",
-      "the proposal must name its owning connection and profile as { connectionId, profile }"
-    );
-  }
-  if (expectedOwner !== null && (expectedOwner.connectionId !== connectionId || expectedOwner.profile !== profile)) {
-    return refusal(
-      "owner_mismatch",
-      `the proposal belongs to ${connectionId}::${profile} and cannot be applied elsewhere`
-    );
-  }
-  const base = asRecord3(root.base);
-  if (base === null || typeof base.fingerprint !== "string" || !base.fingerprint) {
-    return refusal(
-      "bad_base",
-      "the proposal must carry the base fingerprint of the configuration it was built from"
-    );
-  }
-  const patch = asRecord3(root.patch);
-  if (patch === null) {
-    return refusal("empty_patch", "the proposal must carry a patch object with at least one change");
-  }
-  const patchKeys = Object.keys(patch);
-  if (patchKeys.length === 0) {
-    return refusal("empty_patch", "the proposal patch is empty \u2014 a proposal that changes nothing is not a proposal");
-  }
-  for (const key of patchKeys) {
-    if (!PATCH_FIELDS.includes(key)) {
-      return refusal(
-        "unknown_patch_field",
-        `unknown patch field "${key}" \u2014 only ${PATCH_FIELDS.join(", ")} can be reconfigured` + (key === "delivery" || key === "deliver" || key === "modelOverride" || key === "model_override" || key === "model" ? "; delivery and model overrides are reported by the session but have no supported write path on this surface" : "")
-      );
-    }
-  }
-  const normalized = {};
-  if ("name" in patch) {
-    const bad = checkName(patch.name);
-    if (bad !== null) return refusal("bad_name", bad);
-    normalized.name = patch.name.trim();
-  }
-  if ("schedule" in patch) {
-    const bad = checkSchedule(patch.schedule);
-    if (bad !== null) return refusal("bad_schedule", bad);
-    normalized.schedule = patch.schedule.trim();
-  }
-  if ("prompt" in patch) {
-    const bad = checkPrompt(patch.prompt);
-    if (bad !== null) return refusal("bad_prompt", bad);
-    normalized.prompt = patch.prompt.trim();
-  }
-  if (root.desiredActive !== false) {
-    return refusal(
-      "activation_not_supported",
-      "proposals never activate a routine \u2014 the configured routine stays paused until it is resumed explicitly"
-    );
-  }
-  let note;
-  if (root.note !== void 0) {
-    if (typeof root.note !== "string") {
-      return refusal("bad_note", "the proposal note is display-only text or absent");
-    }
-    note = root.note;
-  }
-  return {
-    ok: true,
-    proposal: {
-      version: 1,
-      jobId: root.jobId,
-      owner: { connectionId, profile },
-      base: { fingerprint: base.fingerprint },
-      patch: normalized,
-      desiredActive: false,
-      ...note === void 0 ? {} : { note },
-      validated: true
-    }
-  };
-}
-function submitProposalHandoff(input) {
-  if (typeof input === "string" || asRecord3(input) === null) {
-    return refusal(
-      "handoff_must_be_structured",
-      "the handoff is a structured proposal object \u2014 free-form text is never parsed into routine configuration"
-    );
-  }
-  return validateProposal(input, null);
-}
-function submitProposalForRoutine(input, target) {
-  let candidate = input;
-  if (typeof candidate === "string") {
-    const text = candidate.trim();
-    if (!text) {
-      return refusal(
-        "handoff_must_be_structured",
-        "paste the proposal object Hermes returned \u2014 an empty handoff is not a proposal"
-      );
-    }
-    try {
-      candidate = JSON.parse(text);
-    } catch {
-      return refusal(
-        "handoff_must_be_structured",
-        "the handoff could not be read as a JSON object \u2014 paste the proposal exactly as Hermes returned it"
-      );
-    }
-  }
-  if (asRecord3(candidate) === null) {
-    return refusal(
-      "handoff_must_be_structured",
-      "the handoff must be a structured proposal object \u2014 free-form text is never parsed into routine configuration"
-    );
-  }
-  const expectedOwner = target === null ? null : { connectionId: trimmedText(target.connectionId), profile: trimmedText(target.profile) };
-  const validated = validateProposal(candidate, expectedOwner);
-  if (validated.ok === false) return validated;
-  if (target !== null && validated.proposal.jobId !== target.jobId) {
-    return refusal(
-      "job_mismatch",
-      `this proposal configures ${validated.proposal.jobId}, not ${target.jobId} \u2014 ask Hermes for a proposal bound to this routine`
-    );
-  }
-  return validated;
-}
-
-// src/domain/guidedWorkflow.ts
-var GUIDED_WORKFLOW_STATE = Object.freeze({
-  /** Job exists and is proven paused; no chat has been opened yet. */
-  PROVISIONAL_PAUSED: "provisional_paused",
-  /** A guided chat is (or was) clarifying the configuration. */
-  CONFIGURING: "configuring",
-  /** A validated proposal is on the table, waiting for a decision. */
-  PROPOSAL_READY: "proposal_ready",
-  /** The confirmed proposal is being written to the backend. */
-  APPLYING: "applying",
-  /** Configuration applied AND verified; the routine is still paused. */
-  CONFIGURED_PAUSED: "configured_paused",
-  /** Resume issued; the active state has not been proven yet. */
-  ACTIVATING: "activating",
-  /** Applied, resumed and re-read as running. Backend truth, not intent. */
-  ACTIVE: "active",
-  /** Something needs the user: an uncertain or failed transition. */
-  NEEDS_ATTENTION: "needs_attention"
-});
-var GUIDED_WORKFLOW_STAGE = Object.freeze({
-  /** The handoff itself was refused — nothing was read or written. */
-  HANDOFF: "handoff",
-  /** Pre-mutation guard: identity, ownership, staleness, paused-ness. */
-  STALE: "stale",
-  /** The deterministic write (add → pause → remove → re-read). */
-  APPLY: "apply",
-  /** Post-apply verification read of the persisted values. */
-  VERIFY: "verify",
-  /** The official resume/enable call. */
-  RESUME: "resume",
-  /** Post-resume verification read of the active state. */
-  ACTIVATE_VERIFY: "activate-verify"
-});
-function initialGuidedWorkflow(jobId) {
-  return {
-    jobId,
-    state: GUIDED_WORKFLOW_STATE.PROVISIONAL_PAUSED,
-    proposal: null,
-    current: null,
-    desiredActive: false,
-    appliedJobId: "",
-    failure: null,
-    status: "Routine created paused. It needs configuration."
-  };
-}
-var GUIDED_TRANSITIONS = Object.freeze({
-  [GUIDED_WORKFLOW_STATE.PROVISIONAL_PAUSED]: [
-    GUIDED_WORKFLOW_STATE.CONFIGURING,
-    GUIDED_WORKFLOW_STATE.PROPOSAL_READY
-  ],
-  [GUIDED_WORKFLOW_STATE.CONFIGURING]: [
-    GUIDED_WORKFLOW_STATE.CONFIGURING,
-    GUIDED_WORKFLOW_STATE.PROPOSAL_READY
-  ],
-  [GUIDED_WORKFLOW_STATE.PROPOSAL_READY]: [
-    GUIDED_WORKFLOW_STATE.APPLYING,
-    GUIDED_WORKFLOW_STATE.CONFIGURING
-  ],
-  // proposal_ready: a stale/invalid proposal goes back to review, a
-  // verified apply branches on the recorded activation decision, and
-  // everything else is an attention state.
-  [GUIDED_WORKFLOW_STATE.APPLYING]: [
-    GUIDED_WORKFLOW_STATE.PROPOSAL_READY,
-    GUIDED_WORKFLOW_STATE.CONFIGURED_PAUSED,
-    GUIDED_WORKFLOW_STATE.ACTIVATING,
-    GUIDED_WORKFLOW_STATE.NEEDS_ATTENTION
-  ],
-  [GUIDED_WORKFLOW_STATE.CONFIGURED_PAUSED]: [
-    GUIDED_WORKFLOW_STATE.ACTIVATING,
-    GUIDED_WORKFLOW_STATE.CONFIGURING,
-    GUIDED_WORKFLOW_STATE.ACTIVE
-  ],
-  // A resume answer is never taken on trust: activating ends in active
-  // only through a verified read, back to configured_paused when the
-  // resume was refused, and in needs_attention when truth is unreadable.
-  [GUIDED_WORKFLOW_STATE.ACTIVATING]: [
-    GUIDED_WORKFLOW_STATE.ACTIVE,
-    GUIDED_WORKFLOW_STATE.CONFIGURED_PAUSED,
-    GUIDED_WORKFLOW_STATE.NEEDS_ATTENTION
-  ],
-  // Losing activation (paused from outside) is a legitimate move.
-  [GUIDED_WORKFLOW_STATE.ACTIVE]: [GUIDED_WORKFLOW_STATE.CONFIGURED_PAUSED],
-  [GUIDED_WORKFLOW_STATE.NEEDS_ATTENTION]: [
-    GUIDED_WORKFLOW_STATE.APPLYING,
-    GUIDED_WORKFLOW_STATE.ACTIVATING,
-    GUIDED_WORKFLOW_STATE.CONFIGURING,
-    GUIDED_WORKFLOW_STATE.CONFIGURED_PAUSED,
-    GUIDED_WORKFLOW_STATE.ACTIVE
-  ]
-});
-function canGuidedTransition(from, to) {
-  const allowed = GUIDED_TRANSITIONS[from];
-  return Array.isArray(allowed) && allowed.indexOf(to) !== -1;
-}
-function failure2(stage, reason, message, recovery) {
-  return { stage, reason, message, recovery };
-}
-function announce(base, status) {
-  return { ...base, status };
-}
-function guidedWorkflowReducer(state, event) {
-  const base = state ?? initialGuidedWorkflow("");
-  if (!event) return base;
-  const S = GUIDED_WORKFLOW_STATE;
-  switch (event.type) {
-    case "chat-launched": {
-      if (base.state === S.PROVISIONAL_PAUSED) {
-        return {
-          ...base,
-          state: S.CONFIGURING,
-          status: "Configuration chat opened for this routine. It stays paused."
-        };
-      }
-      if (base.state === S.CONFIGURING) {
-        return announce(base, "Configuration chat re-opened for this routine. It stays paused.");
-      }
-      return base;
-    }
-    case "handoff-rejected": {
-      if (base.state !== S.PROVISIONAL_PAUSED && base.state !== S.CONFIGURING) return base;
-      return {
-        ...base,
-        failure: failure2("handoff", event.reason, event.message, "review"),
-        status: event.message
-      };
-    }
-    case "proposal-received": {
-      const legal = base.state === S.PROVISIONAL_PAUSED || base.state === S.CONFIGURING || base.state === S.PROPOSAL_READY || base.state === S.NEEDS_ATTENTION && base.failure?.recovery === "review";
-      if (!legal) return base;
-      return {
-        ...base,
-        state: S.PROPOSAL_READY,
-        proposal: event.proposal,
-        current: event.current,
-        desiredActive: false,
-        failure: null,
-        status: "Proposal ready for review. Nothing has been applied yet."
-      };
-    }
-    case "return-to-review": {
-      if (base.state !== S.NEEDS_ATTENTION) return base;
-      if (base.failure === null || base.failure.recovery !== "review") return base;
-      return {
-        ...base,
-        state: S.PROPOSAL_READY,
-        failure: null,
-        status: "Back to review. Nothing has been applied yet."
-      };
-    }
-    case "continue-configuring": {
-      if (!canGuidedTransition(base.state, S.CONFIGURING)) return base;
-      return {
-        ...base,
-        state: S.CONFIGURING,
-        proposal: null,
-        current: null,
-        desiredActive: false,
-        failure: null,
-        status: "Back to configuration. The routine stays paused."
-      };
-    }
-    case "confirm": {
-      if (base.state === S.PROPOSAL_READY) {
-        if (base.proposal === null || base.current === null) return base;
-        return {
-          ...base,
-          state: S.APPLYING,
-          desiredActive: event.desiredActive === true,
-          failure: null,
-          status: event.desiredActive ? "Applying the reviewed configuration." : "Applying the reviewed configuration. The routine stays paused."
-        };
-      }
-      if (base.state === S.NEEDS_ATTENTION && base.failure?.recovery === "apply") {
-        if (base.proposal === null || base.current === null) return base;
-        return {
-          ...base,
-          state: S.APPLYING,
-          desiredActive: event.desiredActive === true,
-          failure: null,
-          status: "Retrying the configuration apply."
-        };
-      }
-      return base;
-    }
-    case "confirm-activation": {
-      const legal = base.state === S.CONFIGURED_PAUSED || base.state === S.NEEDS_ATTENTION && base.failure?.recovery === "activation";
-      if (!legal) return base;
-      return {
-        ...base,
-        state: S.ACTIVATING,
-        desiredActive: true,
-        failure: null,
-        status: "Activating the routine."
-      };
-    }
-    case "failed": {
-      const detail = failure2(event.stage, event.reason, event.message, event.recovery);
-      const address = typeof event.jobId === "string" && event.jobId.length > 0 ? event.jobId : base.jobId;
-      const parked = { ...base, jobId: address, failure: detail, status: event.message };
-      if (base.state === S.APPLYING) {
-        if (event.stage === GUIDED_WORKFLOW_STAGE.STALE || event.stage === GUIDED_WORKFLOW_STAGE.HANDOFF) {
-          return { ...parked, state: S.PROPOSAL_READY };
-        }
-        return { ...parked, state: S.NEEDS_ATTENTION };
-      }
-      if (base.state === S.ACTIVATING) {
-        if (event.stage === GUIDED_WORKFLOW_STAGE.RESUME) {
-          return { ...parked, state: S.CONFIGURED_PAUSED };
-        }
-        return { ...parked, state: S.NEEDS_ATTENTION };
-      }
-      return base;
-    }
-    case "apply-verified": {
-      if (base.state !== S.APPLYING) return base;
-      const jobId = typeof event.jobId === "string" && event.jobId ? event.jobId : base.jobId;
-      const applied = { ...base, appliedJobId: jobId, failure: null, jobId };
-      if (base.desiredActive) {
-        return {
-          ...applied,
-          state: S.ACTIVATING,
-          status: "Configuration applied and verified. Activating the routine."
-        };
-      }
-      return {
-        ...applied,
-        state: S.CONFIGURED_PAUSED,
-        status: "Configuration applied and verified. The routine stays paused."
-      };
-    }
-    case "activation-verified": {
-      if (base.state !== S.ACTIVATING) return base;
-      const jobId = typeof event.jobId === "string" && event.jobId ? event.jobId : base.jobId;
-      return {
-        ...base,
-        state: S.ACTIVE,
-        jobId,
-        appliedJobId: jobId,
-        failure: null,
-        status: "Routine active. The active state was confirmed by a backend read."
-      };
-    }
-    case "refresh-result": {
-      const allowed = base.state === S.NEEDS_ATTENTION || base.state === S.CONFIGURED_PAUSED || base.state === S.ACTIVE;
-      if (!allowed) return base;
-      if (!event.exists) {
-        if (base.state !== S.NEEDS_ATTENTION) return base;
-        return {
-          ...base,
-          status: "The routine no longer exists on its owning profile.",
-          failure: base.failure ? { ...base.failure, message: "The routine no longer exists on its owning profile." } : base.failure
-        };
-      }
-      if (!event.paused) {
-        return {
-          ...base,
-          state: S.ACTIVE,
-          failure: null,
-          status: "The routine is active, confirmed by a backend read."
-        };
-      }
-      if (base.state === S.ACTIVE) {
-        return {
-          ...base,
-          state: S.CONFIGURED_PAUSED,
-          failure: null,
-          status: "The routine is paused. Its configuration is unchanged."
-        };
-      }
-      if (base.state === S.NEEDS_ATTENTION && event.configured) {
-        return {
-          ...base,
-          state: S.CONFIGURED_PAUSED,
-          failure: null,
-          status: "The persisted configuration was verified. The routine stays paused."
-        };
-      }
-      if (base.state === S.NEEDS_ATTENTION) {
-        return announce(base, "The routine is still paused and its configuration is not confirmed yet.");
-      }
-      return base;
-    }
-    default:
-      return base;
-  }
-}
-function guidedIndicator(state, failure3) {
-  const S = GUIDED_WORKFLOW_STATE;
-  switch (state) {
-    case S.PROVISIONAL_PAUSED:
-    case S.CONFIGURING:
-      return "Paused \xB7 needs configuration";
-    case S.PROPOSAL_READY:
-      return "Proposal ready";
-    case S.APPLYING:
-      return "Applying configuration";
-    case S.CONFIGURED_PAUSED:
-      return failure3 !== null && failure3.stage === GUIDED_WORKFLOW_STAGE.RESUME ? "Activation failed" : "Configured \xB7 Paused";
-    case S.ACTIVATING:
-      return "Activating";
-    case S.ACTIVE:
-      return "Active";
-    case S.NEEDS_ATTENTION:
-      return failure3 !== null && (failure3.stage === GUIDED_WORKFLOW_STAGE.RESUME || failure3.stage === GUIDED_WORKFLOW_STAGE.ACTIVATE_VERIFY) ? "Activation failed" : "Needs attention";
-  }
-}
-function proposedSnapshot(current, patch) {
-  return {
-    ...current,
-    name: patch.name ?? current.name,
-    schedule: patch.schedule ?? current.schedule,
-    prompt: patch.prompt ?? current.prompt
-  };
-}
-var REVIEW_LABELS = Object.freeze({
-  name: "Name",
-  schedule: "Schedule",
-  prompt: "Instruction",
-  delivery: "Delivery",
-  modelOverride: "Model override"
-});
-var REVIEW_ORDER = ["name", "schedule", "prompt", "delivery", "modelOverride"];
-var PATCHABLE = Object.freeze({
-  name: true,
-  schedule: true,
-  prompt: true,
-  delivery: false,
-  modelOverride: false
-});
-function buildProposalReview(current, proposal) {
-  if (!current || !proposal) return null;
-  const proposed = proposedSnapshot(current, proposal.patch);
-  const rows = REVIEW_ORDER.map((field2) => {
-    const before = current[field2] ?? "";
-    const after = proposed[field2] ?? "";
-    return {
-      field: field2,
-      label: REVIEW_LABELS[field2],
-      current: before,
-      proposed: after,
-      changed: before !== after,
-      patchable: PATCHABLE[field2]
-    };
-  });
-  return {
-    jobId: proposal.jobId,
-    rows,
-    changedFields: rows.filter((row) => row.changed).map((row) => row.field),
-    note: typeof proposal.note === "string" && proposal.note.trim() ? proposal.note : null,
-    stale: fingerprintSnapshot(current) !== proposal.base.fingerprint,
-    current,
-    proposed
-  };
-}
-
-// src/gateway/proposalApply.ts
-function scopeOf2(route) {
-  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
-  return backendTargetProfile(route, "") || null;
-}
-function failed(reason, message, jobId, backendProfile, replacementJobId = null) {
-  return { ok: false, reason, message, jobId, replacementJobId, backendProfile };
-}
-async function applyValidatedProposal(request) {
-  const route = request?.route;
-  const backendProfile = scopeOf2(route);
-  if (!route || !backendProfile) {
-    return failed(
-      "no_route",
-      "applying a proposal requires the resolved profile route that owns the routine",
-      "",
-      null
-    );
-  }
-  const checked = validateProposal(request?.proposal, null);
-  if (checked.ok === false) {
-    return failed("invalid_proposal", "the proposal is not valid: " + checked.message, "", backendProfile);
-  }
-  const proposal = checked.proposal;
-  const jobId = proposal.jobId;
-  if (route.connectionId !== proposal.owner.connectionId || route.profile !== proposal.owner.profile && route.targetProfile !== proposal.owner.profile) {
-    return failed(
-      "owner_mismatch",
-      `the proposal belongs to ${proposal.owner.connectionId}::${proposal.owner.profile} and cannot be applied on ${route.connectionId}::${route.profile}`,
-      jobId,
-      backendProfile
-    );
-  }
-  let rows;
-  try {
-    rows = normalizeJobs(await listRoutines(route));
-  } catch (err) {
-    return failed("list_failed", "the routines list could not be read: " + messageOf(err), jobId, backendProfile);
-  }
-  const current = rows.find((row) => jobIdOf(row) === jobId) ?? null;
-  if (current === null) {
-    return failed(
-      "job_not_found",
-      "the routine no longer exists on its owning profile \u2014 check the routines list before reapplying",
-      jobId,
-      backendProfile
-    );
-  }
-  if (isProposalStale(proposal, current)) {
-    return failed(
-      "stale_base",
-      "the routine changed since the configuration session started \u2014 review the current values and build a new proposal instead of overwriting newer state",
-      jobId,
-      backendProfile
-    );
-  }
-  const snapshot = snapshotJobConfig(current);
-  if (!snapshot.paused) {
-    return failed(
-      "not_paused",
-      "only a paused routine can be reconfigured \u2014 the routine is currently active, so the proposal no longer describes a safe target",
-      jobId,
-      backendProfile
-    );
-  }
-  const name = proposal.patch.name ?? snapshot.name;
-  const schedule = proposal.patch.schedule ?? snapshot.schedule;
-  const prompt = proposal.patch.prompt ?? snapshot.prompt;
-  if (!name || !schedule || !prompt) {
-    return failed(
-      "unapplyable_base",
-      "the routine carries no usable name, schedule or instruction to carry forward \u2014 fill every field in the proposal",
-      jobId,
-      backendProfile
-    );
-  }
-  if (name === snapshot.name && schedule === snapshot.schedule && prompt === snapshot.prompt) {
-    return { ok: true, jobId, previousJobId: "", changed: false, backendProfile };
-  }
-  let addParams;
-  try {
-    addParams = buildAddParams(route, { name, schedule, prompt });
-  } catch (err) {
-    return failed("invalid_proposal", "the patched configuration is not valid: " + messageOf(err), jobId, backendProfile);
-  }
-  let addAnswer;
-  try {
-    addAnswer = await requestCronForRoute(route, "cron.manage", addParams, void 0, {
-      spawnPriority: "foreground"
-    });
-  } catch (err) {
-    return failed(
-      "create_rejected",
-      "the backend refused to create the replacement routine (" + messageOf(err) + ") \u2014 the original is untouched",
-      jobId,
-      backendProfile
-    );
-  }
-  const created = cronOutcomeOf(addAnswer);
-  if (!created.ok) {
-    return failed(
-      "create_rejected",
-      "the backend refused to create the replacement routine: " + created.error + " \u2014 the original is untouched",
-      jobId,
-      backendProfile
-    );
-  }
-  const replacementId = jobIdFromResponse(addAnswer);
-  if (!replacementId) {
-    return failed(
-      "identity_unresolved",
-      "the backend created a replacement but returned no job id, so it cannot be addressed \u2014 the original is untouched; check the routines list",
-      jobId,
-      backendProfile
-    );
-  }
-  let pauseParams;
-  try {
-    pauseParams = buildPauseParams(route, replacementId);
-  } catch (err) {
-    const cleanup = await removeQuietly(route, replacementId);
-    return failed(
-      "replacement_not_paused",
-      `the replacement ${replacementId} could not be addressed for pausing (${messageOf(err)}) \u2014 the original ${jobId} is untouched` + (cleanup ? " and the replacement was removed" : "; the replacement may still exist \u2014 check the routines list"),
-      jobId,
-      backendProfile,
-      cleanup ? null : replacementId
-    );
-  }
-  let pauseAnswer;
-  try {
-    pauseAnswer = await requestCronForRoute(route, "cron.manage", pauseParams, void 0, {
-      spawnPriority: "foreground"
-    });
-  } catch (err) {
-    const cleanup = await removeQuietly(route, replacementId);
-    return failed(
-      "replacement_not_paused",
-      `the replacement routine could not be paused (${messageOf(err)}) \u2014 the original ${jobId} is untouched` + (cleanup ? " and the unpaused replacement was removed" : "; the unpaused replacement may still exist \u2014 check the routines list"),
-      jobId,
-      backendProfile,
-      cleanup ? null : replacementId
-    );
-  }
-  if (!cronOutcomeOf(pauseAnswer).ok || !pausedConfirmedBy(pauseAnswer)) {
-    const cleanup = await removeQuietly(route, replacementId);
-    return failed(
-      "replacement_not_paused",
-      "the backend did not confirm the replacement is paused \u2014 the original " + jobId + " is untouched" + (cleanup ? " and the replacement was removed" : "; the replacement may still exist \u2014 check the routines list"),
-      jobId,
-      backendProfile,
-      cleanup ? null : replacementId
-    );
-  }
-  let removeParams;
-  try {
-    removeParams = buildRemoveParams(route, jobId);
-  } catch (err) {
-    return failed(
-      "supersede_incomplete",
-      `the replacement ${replacementId} is configured and paused, but the superseded ${jobId} could not be addressed for removal (${messageOf(err)}) \u2014 remove it by id; nothing was lost`,
-      jobId,
-      backendProfile,
-      replacementId
-    );
-  }
-  let removeAnswer;
-  try {
-    removeAnswer = await requestCronForRoute(route, "cron.manage", removeParams, void 0, {
-      spawnPriority: "foreground"
-    });
-  } catch (err) {
-    return failed(
-      "supersede_incomplete",
-      `the replacement ${replacementId} is configured and paused, but removing the superseded ${jobId} failed (${messageOf(err)}) \u2014 remove it by id; nothing was lost`,
-      jobId,
-      backendProfile,
-      replacementId
-    );
-  }
-  if (!cronOutcomeOf(removeAnswer).ok) {
-    const detail = cronOutcomeOf(removeAnswer).error;
-    return failed(
-      "supersede_incomplete",
-      `the replacement ${replacementId} is configured and paused, but the backend refused to remove the superseded ${jobId}: ${detail} \u2014 remove it by id; nothing was lost`,
-      jobId,
-      backendProfile,
-      replacementId
-    );
-  }
-  let fresh;
-  try {
-    fresh = normalizeJobs(await listRoutines(route));
-  } catch (err) {
-    return failed(
-      "truth_unconfirmed",
-      `the replacement ${replacementId} is configured and paused, but the routines list could not be re-read (${messageOf(err)}) \u2014 verify it before the first run`,
-      jobId,
-      backendProfile,
-      replacementId
-    );
-  }
-  const confirmed = fresh.find((row) => jobIdOf(row) === replacementId) ?? null;
-  if (confirmed === null || fingerprintSnapshot(snapshotJobConfig(confirmed)) === proposal.base.fingerprint) {
-    return failed(
-      "truth_unconfirmed",
-      `the replacement ${replacementId} was applied but the re-read list does not show the new configuration \u2014 verify it before the first run`,
-      jobId,
-      backendProfile,
-      replacementId
-    );
-  }
-  const confirmedSnapshot = snapshotJobConfig(confirmed);
-  if (confirmedSnapshot.name !== name || confirmedSnapshot.schedule !== schedule || confirmedSnapshot.prompt !== prompt) {
-    return failed(
-      "truth_unconfirmed",
-      `the re-read list shows the replacement ${replacementId} with different values than requested \u2014 verify it before the first run`,
-      jobId,
-      backendProfile,
-      replacementId
-    );
-  }
-  if (!confirmedSnapshot.paused) {
-    return failed(
-      "truth_unconfirmed",
-      `the re-read list does not show the replacement ${replacementId} as paused \u2014 check it before its first run`,
-      jobId,
-      backendProfile,
-      replacementId
-    );
-  }
-  return { ok: true, jobId: replacementId, previousJobId: jobId, changed: true, backendProfile };
-}
-async function removeQuietly(route, jobId) {
-  try {
-    const answer = await requestCronForRoute(route, "cron.manage", buildRemoveParams(route, jobId), void 0, {
-      spawnPriority: "foreground"
-    });
-    return cronOutcomeOf(answer).ok;
-  } catch {
-    return false;
-  }
-}
-
-// src/gateway/proposalConfirm.ts
-function scopeOf3(route) {
-  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
-  return backendTargetProfile(route, "") || null;
-}
-async function readJobConfig(request) {
-  const route = request?.route;
-  if (!scopeOf3(route)) {
-    return { ok: false, message: "reading a routine requires the resolved profile route that owns it" };
-  }
-  const jobId = typeof request?.jobId === "string" ? request.jobId : "";
-  if (!jobId) {
-    return { ok: false, message: "reading a routine requires its authoritative job id" };
-  }
-  let rows;
-  try {
-    rows = normalizeJobs(await listRoutines(route));
-  } catch (err) {
-    return { ok: false, message: "the routines list could not be read: " + messageOf(err) };
-  }
-  const row = rows.find((candidate) => jobIdOf(candidate) === jobId) ?? null;
-  if (row === null) {
-    return { ok: true, exists: false, snapshot: { name: "", schedule: "", prompt: "", delivery: "", modelOverride: "", paused: false }, paused: false, fingerprint: "" };
-  }
-  const snapshot = snapshotJobConfig(row);
-  return {
-    ok: true,
-    exists: true,
-    snapshot,
-    paused: snapshot.paused,
-    fingerprint: fingerprintSnapshot(snapshot)
-  };
-}
-function refused(stage, reason, message, jobId, recovery, replacementJobId = null) {
-  return { ok: false, stage, reason, message, jobId, recovery, replacementJobId };
-}
-function classifyApplyFailure(reason, replacementJobId) {
-  const S = GUIDED_WORKFLOW_STAGE;
-  switch (reason) {
-    case "no_route":
-    case "owner_mismatch":
-    case "invalid_proposal":
-      return { stage: S.STALE, recovery: "review" };
-    case "list_failed":
-    case "job_not_found":
-    case "stale_base":
-    case "not_paused":
-    case "unapplyable_base":
-      return { stage: S.STALE, recovery: "review" };
-    case "create_rejected":
-      return { stage: S.APPLY, recovery: "apply" };
-    case "identity_unresolved":
-    case "supersede_incomplete":
-      return { stage: S.APPLY, recovery: "refresh" };
-    case "replacement_not_paused":
-      return { stage: S.APPLY, recovery: replacementJobId ? "refresh" : "apply" };
-    case "truth_unconfirmed":
-      return { stage: S.VERIFY, recovery: "refresh" };
-    default:
-      return { stage: S.APPLY, recovery: "refresh" };
-  }
-}
-async function confirmProposal(request) {
-  const route = request?.route;
-  const backendProfile = scopeOf3(route);
-  const S = GUIDED_WORKFLOW_STAGE;
-  const checked = validateProposal(request?.proposal, null);
-  if (checked.ok === false) {
-    return refused(S.STALE, "invalid_proposal", "the proposal is not valid: " + checked.message, "", "review");
-  }
-  const proposal = checked.proposal;
-  const jobId = proposal.jobId;
-  if (!route || !backendProfile) {
-    return refused(S.STALE, "no_route", "applying a proposal requires the resolved profile route that owns the routine", jobId, "review");
-  }
-  if (route.connectionId !== proposal.owner.connectionId || route.profile !== proposal.owner.profile && route.targetProfile !== proposal.owner.profile) {
-    return refused(
-      S.STALE,
-      "owner_mismatch",
-      `the proposal belongs to ${proposal.owner.connectionId}::${proposal.owner.profile} and cannot be applied on ${route.connectionId}::${route.profile}`,
-      jobId,
-      "review"
-    );
-  }
-  const before = await readJobConfig({ route, jobId });
-  if (!before.ok) {
-    return refused(S.STALE, "list_failed", before.message, jobId, "review");
-  }
-  if (!before.exists) {
-    return refused(
-      S.STALE,
-      "job_not_found",
-      "the routine no longer exists on its owning profile \u2014 check the routines list before reapplying",
-      jobId,
-      "review"
-    );
-  }
-  if (before.fingerprint !== proposal.base.fingerprint) {
-    return refused(
-      S.STALE,
-      "stale_base",
-      "the routine changed since the configuration session started \u2014 review the current values and build a new proposal instead of overwriting newer state",
-      jobId,
-      "review"
-    );
-  }
-  if (!before.paused) {
-    return refused(
-      S.STALE,
-      "not_paused",
-      "only a paused routine can be reconfigured \u2014 the routine is currently active, so the proposal no longer describes a safe target",
-      jobId,
-      "review"
-    );
-  }
-  const applied = await applyValidatedProposal({ proposal, route });
-  if (applied.ok === false) {
-    const { stage, recovery } = classifyApplyFailure(applied.reason, applied.replacementJobId);
-    return refused(stage, applied.reason, applied.message, applied.jobId || jobId, recovery, applied.replacementJobId);
-  }
-  const expected = proposedSnapshot(before.snapshot, proposal.patch);
-  const verified = await readJobConfig({ route, jobId: applied.jobId });
-  if (!verified.ok) {
-    return refused(S.VERIFY, "verification_unreadable", verified.message, applied.jobId, "refresh", null);
-  }
-  if (!verified.exists) {
-    return refused(
-      S.VERIFY,
-      "verification_missing",
-      `the configuration was applied but the routine ${applied.jobId} is not in the re-read list \u2014 verify it before any activation`,
-      applied.jobId,
-      "refresh",
-      null
-    );
-  }
-  if (verified.snapshot.name !== expected.name || verified.snapshot.schedule !== expected.schedule || verified.snapshot.prompt !== expected.prompt) {
-    return refused(
-      S.VERIFY,
-      "verification_failed",
-      `the re-read routine ${applied.jobId} does not hold the proposed configuration \u2014 do not activate it; check the routines list`,
-      applied.jobId,
-      "refresh",
-      null
-    );
-  }
-  if (!verified.paused) {
-    return refused(
-      S.VERIFY,
-      "verification_unpaused",
-      `the re-read routine ${applied.jobId} is not paused after the apply \u2014 it must be parked before any activation decision`,
-      applied.jobId,
-      "refresh",
-      null
-    );
-  }
-  if (request?.desiredActive !== true) {
-    return { ok: true, activated: false, jobId: applied.jobId, previousJobId: applied.previousJobId, changed: applied.changed };
-  }
-  const activated = await activateConfigured({ route, jobId: applied.jobId });
-  if (activated.ok === false) return activated;
-  return { ok: true, activated: true, jobId: applied.jobId, previousJobId: applied.previousJobId, changed: applied.changed };
-}
-async function activateConfigured(request) {
-  const route = request?.route;
-  const jobId = typeof request?.jobId === "string" ? request.jobId : "";
-  const S = GUIDED_WORKFLOW_STAGE;
-  if (!scopeOf3(route) || !jobId) {
-    return refused(
-      S.RESUME,
-      "no_route",
-      "activating a routine requires the resolved profile route that owns it",
-      jobId,
-      "activation"
-    );
-  }
-  let resumeError = null;
-  try {
-    const params = buildResumeParams(route, jobId);
-    const answer = await requestCronForRoute(route, "cron.manage", params, void 0, {
-      spawnPriority: "foreground"
-    });
-    const outcome = cronOutcomeOf(answer);
-    if (!outcome.ok) resumeError = outcome.error;
-  } catch (err) {
-    resumeError = messageOf(err);
-  }
-  const after = await readJobConfig({ route, jobId });
-  if (!after.ok) {
-    return refused(S.ACTIVATE_VERIFY, "truth_unreadable", after.message, jobId, "refresh");
-  }
-  if (!after.exists) {
-    return refused(
-      S.ACTIVATE_VERIFY,
-      "job_missing",
-      `the routine ${jobId} is no longer in the re-read list \u2014 check the routines list before retrying`,
-      jobId,
-      "refresh"
-    );
-  }
-  if (!after.paused) {
-    return { ok: true, activated: true, jobId, previousJobId: "", changed: false };
-  }
-  if (resumeError !== null) {
-    return refused(
-      S.RESUME,
-      "resume_rejected",
-      `the backend refused to resume the routine (${resumeError}) \u2014 it stays configured and paused`,
-      jobId,
-      "activation"
-    );
-  }
-  return refused(
-    S.ACTIVATE_VERIFY,
-    "resume_unconfirmed",
-    `the resume was accepted but the routine ${jobId} still reads as paused \u2014 the active state was not confirmed`,
-    jobId,
-    "refresh"
-  );
-}
-
 // src/views/GuidedProposalReview.tsx
 import { jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
 function cellText(value) {
@@ -4333,7 +4768,7 @@ function GuidedProposalReview({
         /* @__PURE__ */ jsxs7("th", { scope: "row", children: [
           row.label,
           row.changed ? /* @__PURE__ */ jsx9("span", { className: "hr-review-flag", children: "changed" }) : null,
-          row.patchable ? null : /* @__PURE__ */ jsx9("span", { className: "hr-review-readonly", children: "not editable" })
+          row.patchable ? row.changed ? /* @__PURE__ */ jsx9("span", { className: "hr-review-editable", children: "editable" }) : null : /* @__PURE__ */ jsx9("span", { className: "hr-review-readonly", children: "not editable" })
         ] }),
         /* @__PURE__ */ jsx9("td", { className: "hr-review-cell", children: /* @__PURE__ */ jsx9("span", { className: "hr-review-cell-text", children: cellText(row.current) }) }),
         /* @__PURE__ */ jsx9("td", { className: "hr-review-cell hr-review-proposed", children: /* @__PURE__ */ jsx9("span", { className: "hr-review-cell-text", children: row.changed ? cellText(row.proposed) : cellText(row.current) }) })
@@ -4429,7 +4864,9 @@ function GuidedRoutinePanel({
   submittedName,
   submittedSchedule,
   submittedPrompt,
+  submittedDelivery,
   autoSubmitOnFirstLaunch,
+  activeRoute,
   onLaunch,
   onClose
 }) {
@@ -4447,6 +4884,7 @@ function GuidedRoutinePanel({
   const profile = backendTargetProfile(routine.route, routine.backendProfile);
   const review = buildProposalReview(wf.current, wf.proposal);
   const inFlight = busy || wf.state === S.APPLYING || wf.state === S.ACTIVATING;
+  const drift = guidedRouteDrift(routine.route, activeRoute ?? null);
   async function handleLaunch() {
     if (launching) return;
     setLaunching(true);
@@ -4721,6 +5159,7 @@ function GuidedRoutinePanel({
         /* @__PURE__ */ jsx10("span", { className: "hr-create-active-title", children: guidedIndicator(wf.state, wf.failure) }),
         /* @__PURE__ */ jsx10("span", { className: "hr-create-active-subtitle", children: stateSubtitle(wf.state, wf.failure, profile) })
       ] }) }),
+      drift.drifted ? /* @__PURE__ */ jsx10("div", { className: "hr-create-error", role: "alert", children: `The active profile changed to ${drift.current}. This session stays bound to ${drift.retained} \u2014 reviewing or applying here still targets the original owner.` }) : null,
       /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
         /* @__PURE__ */ jsx10("label", { className: "hr-field-label", children: "Job id" }),
         /* @__PURE__ */ jsx10(
@@ -4762,7 +5201,11 @@ function GuidedRoutinePanel({
         /* @__PURE__ */ jsxs8("div", { className: "hr-create-when-section", children: [
           /* @__PURE__ */ jsx10("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
           /* @__PURE__ */ jsx10("div", { className: "hr-create-preview-sentence", children: schedule })
-        ] })
+        ] }),
+        submittedDelivery ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx10("label", { className: "hr-field-label", children: "Delivery" }),
+          /* @__PURE__ */ jsx10("div", { className: "hr-create-preview-sentence", children: submittedDelivery })
+        ] }) : null
       ] }),
       wf.failure !== null ? /* @__PURE__ */ jsx10("div", { className: "hr-create-error", role: "alert", children: wf.failure.message }) : null,
       failed2 ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-error", role: "alert", children: [
@@ -4864,6 +5307,25 @@ function StaleBanner({ onRetry }) {
     /* @__PURE__ */ jsx12("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
   ] });
 }
+function NeedsConfigurationNotice({
+  targets,
+  onConfigure
+}) {
+  if (targets.length === 0) return null;
+  return /* @__PURE__ */ jsxs10("div", { className: "hr-stale", role: "status", children: [
+    /* @__PURE__ */ jsx12("span", { children: targets.length === 1 ? "One paused routine needs configuration." : `${targets.length} paused routines need configuration.` }),
+    targets.map((target) => /* @__PURE__ */ jsx12(
+      "button",
+      {
+        type: "button",
+        className: "hr-btn hr-btn-small",
+        onClick: () => onConfigure(target.jobId),
+        children: target.resumed ? `Resume configuration of ${target.title}` : `Configure ${target.title}`
+      },
+      target.jobId
+    ))
+  ] });
+}
 
 // src/views/RoutinesPage.tsx
 import { Fragment as Fragment4, jsx as jsx13, jsxs as jsxs11 } from "react/jsx-runtime";
@@ -4891,6 +5353,7 @@ function RoutinesPage() {
   const [selectedJobKey, setSelectedJobKey] = useState5(null);
   const [isCreating, setIsCreating] = useState5(false);
   const [guided, setGuided] = useState5(null);
+  const [guidedRecent, setGuidedRecent] = useState5(null);
   useEffect3(() => {
     if (selectedJobKey === null) return;
     const stillThere = state.jobs.some(
@@ -5023,7 +5486,7 @@ function RoutinesPage() {
     const route = activeRoute;
     void runMutation("resume", jobId, label, () => buildResumeParams(route, jobId));
   }
-  async function handleCreateRoutine(name, schedule, prompt, active) {
+  async function handleCreateRoutine(name, schedule, prompt, active, delivery) {
     if (!activeRoute) {
       dispatch({ type: "mutation-error", error: "the active profile route is no longer available" });
       return false;
@@ -5031,7 +5494,7 @@ function RoutinesPage() {
     const route = activeRoute;
     const createSlot = "";
     try {
-      const addParams = buildAddParams(route, { name, schedule, prompt });
+      const addParams = buildAddParams(route, { name, schedule, prompt, delivery });
       dispatch({ type: "mutate-start", jobId: createSlot });
       const created = await requestCronForRoute(route, "cron.manage", addParams, void 0, {
         spawnPriority: "foreground"
@@ -5081,7 +5544,7 @@ function RoutinesPage() {
       return false;
     }
   }
-  async function handleCreateGuided(name, schedule, prompt) {
+  async function handleCreateGuided(name, schedule, prompt, delivery) {
     if (!activeRoute) {
       dispatch({ type: "mutation-error", error: "the active profile route is no longer available" });
       return false;
@@ -5089,14 +5552,15 @@ function RoutinesPage() {
     const createSlot = "";
     dispatch({ type: "mutate-start", jobId: createSlot });
     try {
-      const result = await createProvisionalRoutine({ route: activeRoute, name, schedule, prompt });
+      const result = await createProvisionalRoutine({ route: activeRoute, name, schedule, prompt, delivery });
       dispatch({ type: "mutate-end", jobId: createSlot });
       dispatch({ type: "retry-list" });
       if (result.ok === false) {
         dispatch({ type: "mutation-error", error: "failed to create routine: " + result.message });
         return false;
       }
-      setGuided({ routine: result.routine, name, schedule, prompt });
+      setGuided({ routine: result.routine, name, schedule, prompt, delivery });
+      setGuidedRecent(null);
       setIsCreating(false);
       setSelectedJobKey(null);
       dispatch({ type: "notice", notice: "routine " + name + " created paused \u2014 it needs configuration" });
@@ -5109,6 +5573,68 @@ function RoutinesPage() {
   }
   async function handleGuidedLaunch(routine, submitted, autoSubmit) {
     return launchGuidedConfiguration({ routine, submitted, autoSubmit });
+  }
+  function handleGuidedClose() {
+    if (guided !== null) setGuidedRecent(guided);
+    setGuided(null);
+  }
+  function handleGuidedReopen(jobId) {
+    if (guidedRecent !== null && guidedRecent.routine.jobId === jobId) {
+      setGuided(guidedRecent);
+      setGuidedRecent(null);
+      setIsCreating(false);
+      setSelectedJobKey(null);
+      return;
+    }
+    const row = state.jobs.find((job) => jobIdOf(job) === jobId) ?? null;
+    if (row === null || guidedConfigCandidateOf(row) === null) {
+      dispatch({
+        type: "notice",
+        notice: "that routine can no longer be opened for configuration \u2014 check the routines list"
+      });
+      return;
+    }
+    const handle = activeRoute === null ? null : buildReopenHandle(activeRoute, row);
+    if (handle === null) {
+      dispatch({
+        type: "notice",
+        notice: "that routine can no longer be opened for configuration \u2014 check the routines list"
+      });
+      return;
+    }
+    setGuided({
+      routine: handle,
+      name: routineTitle(row, "Routine"),
+      schedule: humanScheduleOf(row) || "",
+      prompt: routinePromptOf(row) ?? ""
+    });
+    setGuidedRecent(null);
+    setIsCreating(false);
+    setSelectedJobKey(null);
+  }
+  function guidedReopenTargets() {
+    if (guided !== null) return [];
+    const targets = [];
+    const seen = [];
+    if (guidedRecent !== null) {
+      const id = guidedRecent.routine.jobId;
+      const row = state.jobs.find((job) => jobIdOf(job) === id) ?? null;
+      if (row !== null && guidedConfigCandidateOf(row) !== null) {
+        targets.push({
+          jobId: id,
+          title: routineTitle(row, guidedRecent.name || "Routine"),
+          resumed: true
+        });
+        seen.push(id);
+      }
+    }
+    for (const job of state.jobs) {
+      const id = jobIdOf(job);
+      if (!id || seen.indexOf(id) !== -1) continue;
+      if (guidedConfigCandidateOf(job) === null) continue;
+      targets.push({ jobId: id, title: routineTitle(job, "Routine"), resumed: false });
+    }
+    return targets;
   }
   function renderList() {
     const totalCount = state.jobs.length;
@@ -5163,7 +5689,7 @@ function RoutinesPage() {
             setSelectedJobKey(key);
             if (key) {
               setIsCreating(false);
-              setGuided(null);
+              handleGuidedClose();
             }
           },
           onPause: handlePause,
@@ -5242,6 +5768,19 @@ function RoutinesPage() {
       )
     );
   } else if (state.status === S.READY) {
+    const reopenTargets = guidedReopenTargets();
+    if (reopenTargets.length > 0) {
+      body.push(
+        /* @__PURE__ */ jsx13(
+          NeedsConfigurationNotice,
+          {
+            targets: reopenTargets,
+            onConfigure: handleGuidedReopen
+          },
+          "needs-configuration"
+        )
+      );
+    }
     body.push(/* @__PURE__ */ jsx13("div", { children: renderList() }, "ready-list"));
   }
   const profileLabel = typeof activeProfile === "string" && activeProfile ? activeProfile : "\u2014";
@@ -5260,6 +5799,7 @@ function RoutinesPage() {
                 onClick: () => {
                   setSelectedJobKey(null);
                   setGuided(null);
+                  setGuidedRecent(null);
                   setIsCreating(true);
                 },
                 "aria-label": "New routine",
@@ -5313,8 +5853,10 @@ function RoutinesPage() {
           submittedName: guided.name,
           submittedSchedule: guided.schedule,
           submittedPrompt: guided.prompt,
+          submittedDelivery: guided.delivery,
+          activeRoute,
           onLaunch: handleGuidedLaunch,
-          onClose: () => setGuided(null)
+          onClose: handleGuidedClose
         }
       ) : isCreating ? /* @__PURE__ */ jsx13(
         RoutineComposerPanel,
@@ -5372,6 +5914,7 @@ export {
   INTERVAL_VALUES,
   PLUGIN_ID,
   PLUGIN_NAME,
+  REVIEW_PATCHABLE,
   ROUTE_ID,
   ROUTE_PATH,
   ROUTINES_VIEW_STATUS,
@@ -5403,6 +5946,7 @@ export {
   buildPauseParams,
   buildProposalReview,
   buildRemoveParams,
+  buildReopenHandle,
   buildResumeParams,
   canGuidedTransition,
   coerceRoutes,
@@ -5413,19 +5957,26 @@ export {
   plugin_default as default,
   describeSchedule2 as describeSchedule,
   describeScheduleConfig,
+  diagOfConfirmResult,
+  diagOfLaunchResult,
+  diagOfProvisionalResult,
+  findAppliedDuplicate,
   findRouteByKey,
   fingerprintJob,
   fingerprintSnapshot,
   formatDate,
   formatWhen,
   generateTimeSlots,
+  guidedConfigCandidateOf,
   guidedIndicator,
+  guidedRouteDrift,
   guidedWorkflowReducer,
   humanScheduleOf,
   initialGuidedWorkflow,
   initialRoutinesState,
   isFailedStatus,
   isProposalStale,
+  isRetriableGatewayError,
   isSafeOptimistic,
   isValidJobId,
   issueOf,
@@ -5456,6 +6007,7 @@ export {
   rawScheduleOf,
   readJobConfig,
   register,
+  relaunchGuidedConfiguration,
   removeJob,
   requestCronForRoute,
   resolveActiveRoute,

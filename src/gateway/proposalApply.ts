@@ -24,7 +24,9 @@
 //      result is an explicit partial: the replacement id is returned, both
 //      rows are paused, nothing was lost, nothing was hidden;
 //   7. re-read the list (backend truth after mutation, never the echo of
-//      the write).
+//      the write) and compare EVERY patched field, `delivery` included (#65)
+//      — a green apply that persisted a different value is a lie the write's
+//      own echo would have hidden.
 //
 // Properties: route/profile scoped, job-id scoped, no name targeting,
 // fail closed on missing/stale identity, never resumes, refreshes truth
@@ -34,12 +36,13 @@
 
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import { messageOf } from '../lib/errors';
-import { jobIdFromResponse, jobIdOf, normalizeJobs } from '../domain/jobs';
+import { jobIdFromResponse, jobIdOf, normalizeJobs, type RoutineJob } from '../domain/jobs';
 import {
   fingerprintSnapshot,
   isProposalStale,
   snapshotJobConfig,
   validateProposal,
+  type ProposalBaseSnapshot,
   type ValidatedProposal,
 } from '../domain/routineProposal';
 import { backendTargetProfile } from '../domain/routing';
@@ -69,6 +72,8 @@ export type ProposalApplyFailureReason =
   | 'create_rejected'
   /** The replacement id has no usable `job_id` in the add answer. */
   | 'identity_unresolved'
+  /** A paused row already holds the exact proposed configuration. */
+  | 'duplicate_suspected'
   /** The replacement could not be proven paused (original untouched). */
   | 'replacement_not_paused'
   /** Replacement proven paused, but the superseded id could not be removed. */
@@ -121,6 +126,38 @@ function failed(
   replacementJobId: string | null = null,
 ): ProposalApplyResult {
   return { ok: false, reason, message, jobId, replacementJobId, backendProfile };
+}
+
+/**
+ * Did a previous apply already land this configuration? Scan the freshly
+ * read rows for a PAUSED row — other than the target — whose stored
+ * values equal the proposed end state on every compared field.
+ *
+ * Pure: it decides on rows the caller already holds, so the guard costs
+ * zero host calls. The target itself is excluded (its own match is the
+ * no-op path above, not a duplicate), and only paused rows match — an
+ * active twin is somebody's running routine, not proof of our write.
+ */
+export function findAppliedDuplicate(
+  rows: RoutineJob[],
+  excludeJobId: string,
+  expected: ProposalBaseSnapshot,
+): { jobId: string } | null {
+  for (const row of rows) {
+    const id = jobIdOf(row);
+    if (!id || id === excludeJobId) continue;
+    const snapshot = snapshotJobConfig(row);
+    if (!snapshot.paused) continue;
+    if (
+      snapshot.name === expected.name &&
+      snapshot.schedule === expected.schedule &&
+      snapshot.prompt === expected.prompt &&
+      snapshot.delivery === expected.delivery
+    ) {
+      return { jobId: id };
+    }
+  }
+  return null;
 }
 
 /**
@@ -208,6 +245,11 @@ export async function applyValidatedProposal(request: ProposalApplyRequest): Pro
   const name = proposal.patch.name ?? snapshot.name;
   const schedule = proposal.patch.schedule ?? snapshot.schedule;
   const prompt = proposal.patch.prompt ?? snapshot.prompt;
+  // #65: `delivery` rides the same replacement (the gateway RPC forwards
+  // `deliver` on create — see reports/issue-65-decisions.md D1). Absent in the
+  // patch means "keep whatever is stored", never "clear it": clearing is an
+  // explicit empty-string patch, which normalizes to ''.
+  const delivery = proposal.patch.delivery ?? snapshot.delivery;
   if (!name || !schedule || !prompt) {
     return failed(
       'unapplyable_base',
@@ -216,8 +258,33 @@ export async function applyValidatedProposal(request: ProposalApplyRequest): Pro
       backendProfile,
     );
   }
-  if (name === snapshot.name && schedule === snapshot.schedule && prompt === snapshot.prompt) {
+  if (
+    name === snapshot.name &&
+    schedule === snapshot.schedule &&
+    prompt === snapshot.prompt &&
+    delivery === snapshot.delivery
+  ) {
     return { ok: true, jobId, previousJobId: '', changed: false, backendProfile };
+  }
+
+  // Duplicate-apply guard (issue #65 Part B, scenario 6): a retry after a
+  // partial success — e.g. the replacement was minted and parked but the
+  // superseded id could not be removed, or the verification read was
+  // lost — must NOT mint a second replacement. When another paused row
+  // already holds the exact proposed configuration, refuse and name it
+  // so the caller verifies instead of reapplying. Zero extra host calls:
+  // the rows were just read above.
+  const expected = { ...snapshot, name, schedule, prompt, delivery };
+  const duplicate = findAppliedDuplicate(rows, jobId, expected);
+  if (duplicate !== null) {
+    return failed(
+      'duplicate_suspected',
+      `a paused routine ${duplicate.jobId} already holds this exact configuration — ` +
+        'verify it in the routines list instead of applying again',
+      jobId,
+      backendProfile,
+      duplicate.jobId,
+    );
   }
 
   // 4. Add-first: the replacement is minted before anything is destroyed.
@@ -225,7 +292,7 @@ export async function applyValidatedProposal(request: ProposalApplyRequest): Pro
   // backend calls and leaves no half-configured job behind it.
   let addParams: Record<string, unknown>;
   try {
-    addParams = buildAddParams(route, { name, schedule, prompt });
+    addParams = buildAddParams(route, { name, schedule, prompt, delivery });
   } catch (err) {
     return failed('invalid_proposal', 'the patched configuration is not valid: ' + messageOf(err), jobId, backendProfile);
   }
@@ -375,7 +442,8 @@ export async function applyValidatedProposal(request: ProposalApplyRequest): Pro
   if (
     confirmedSnapshot.name !== name ||
     confirmedSnapshot.schedule !== schedule ||
-    confirmedSnapshot.prompt !== prompt
+    confirmedSnapshot.prompt !== prompt ||
+    confirmedSnapshot.delivery !== delivery
   ) {
     return failed(
       'truth_unconfirmed',

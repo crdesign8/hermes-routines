@@ -8,6 +8,12 @@ import {
   routinePromptOf,
   routineTitle,
 } from '../domain/present';
+import {
+  MODEL_OVERRIDE_READONLY_NOTE,
+  readStoredDelivery,
+  readStoredModelOverride,
+} from '../domain/advancedSettings';
+import { guidedConfigCandidateOf } from '../domain/provisional';
 import { ResultTone, RunWhen } from './RoutineDetails';
 
 export interface RoutineInspectorPanelProps {
@@ -30,6 +36,19 @@ export function RoutineInspectorPanel({
   const title = routineTitle(job, fallback);
   const schedule = humanScheduleOf(job) || '—';
   const execution = lastExecutionOf(job);
+  // Stored advanced values, shown ONLY when they differ from the
+  // defaults (issue #65 Part A): an absent delivery is the backend
+  // default and an absent model override is the profile default, so
+  // neither is painted. Stored truth reads back verbatim — never
+  // re-validated, because the backend owns what is stored.
+  const row = (job ?? null) as unknown as Record<string, unknown> | null;
+  const storedDelivery = readStoredDelivery(row);
+  const storedModelOverride = readStoredModelOverride(row);
+  // Incomplete configuration (issue #65 Part B, scenario 1): paused and
+  // never run means no complete configuration to preserve. Read-only
+  // text — never a control, never a resume: the reopen action lives on
+  // the list, where the owning route is known.
+  const needsConfiguration = guidedConfigCandidateOf(job) !== null;
 
   return (
     <aside className="hr-inspector" aria-label={`Details for ${title}`}>
@@ -61,6 +80,20 @@ export function RoutineInspectorPanel({
             read-only by construction: it carries no control, only the
             latest run's outcome, so it can never become an edit seam. */}
         <h3 className="hr-create-title">{title}</h3>
+
+        {/* Paused and never run: its configuration is incomplete. Stated
+            in words so the list/inspector answer scenario 1 even after a
+            reload wiped the guided panel state. */}
+        {needsConfiguration ? (
+          <div className="hr-create-active-card">
+            <div className="hr-create-active-info">
+              <span className="hr-create-active-title">Paused · needs configuration</span>
+              <span className="hr-create-active-subtitle">
+                This routine is paused and has never run — its configuration is incomplete.
+              </span>
+            </div>
+          </div>
+        ) : null}
 
         {/* Active Toggle Card (disabled mirror) */}
         <div className="hr-create-active-card">
@@ -113,6 +146,45 @@ export function RoutineInspectorPanel({
           <div className="hr-create-section-label">WHEN TO RUN</div>
           <div className="hr-create-preview-sentence">{schedule}</div>
         </div>
+
+        {/* ADVANCED (stored values only, and only when they differ from
+            the defaults). Mirrors the composer's secondary section with
+            every value read-only: the delivery the backend holds, and the
+            model override labelled as not settable on this surface (D2).
+            No control, no button — this block can never become an edit
+            seam by accident. */}
+        {storedDelivery !== null || storedModelOverride !== null ? (
+          <div className="hr-create-when-section">
+            <div className="hr-create-section-label">ADVANCED</div>
+            {storedDelivery !== null ? (
+              <div className="hr-create-field">
+                <label className="hr-field-label">Delivery</label>
+                <input
+                  type="text"
+                  className="hr-create-input"
+                  value={storedDelivery}
+                  disabled
+                  readOnly
+                  aria-label="Stored delivery"
+                />
+              </div>
+            ) : null}
+            {storedModelOverride !== null ? (
+              <div className="hr-create-field">
+                <label className="hr-field-label">Model override</label>
+                <input
+                  type="text"
+                  className="hr-create-input"
+                  value={storedModelOverride}
+                  disabled
+                  readOnly
+                  aria-label="Stored model override"
+                />
+                <div className="hr-create-preview-sentence">{MODEL_OVERRIDE_READONLY_NOTE}</div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* LAST EXECUTION (read-only run outcome, separated from the
             editable/configuration content above). Values come from
