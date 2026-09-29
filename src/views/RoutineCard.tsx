@@ -30,7 +30,7 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
   const title = routineTitle(job, fallback);
   const paused = routinePausedOf(job);
   const terminal = routineTerminal(job);
-  const { tone } = statusOf(job);
+  const { tone, failure } = statusOf(job);
   const schedule = humanScheduleOf(job) || '—';
   // State-aware copy from the domain: a past next_run_at reads "Overdue by
   // 2 hours", never a past distance behind a "Next" label. A terminal
@@ -123,12 +123,32 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
 
       <div className="hr-row-sub">
         {!expanded ? (
+          // Failure copy is TEXT, never the icon's color alone (issue #76).
+          // A failed row states it between the schedule and the next run —
+          // "Every day at 09:00 | Last run failed | Next run in 19 hours" —
+          // while a success or a clean pause keeps its own copy and grows
+          // no error affordance. The words come from the same derivation
+          // as the indicator, so they cannot disagree.
           <div className="hr-row-subtitle">
             {paused ? (
-              <span className="hr-sub-paused">Paused</span>
+              <>
+                <span className="hr-sub-paused">Paused</span>
+                {failure !== null ? (
+                  <>
+                    <span className="hr-sub-sep">|</span>
+                    <span className="hr-sub-failed">{failure}</span>
+                  </>
+                ) : null}
+              </>
             ) : (
               <>
                 <span className="hr-sub-schedule">{schedule}</span>
+                {failure !== null ? (
+                  <>
+                    <span className="hr-sub-sep">|</span>
+                    <span className="hr-sub-failed">{failure}</span>
+                  </>
+                ) : null}
                 {nextCopy ? (
                   <>
                     <span className="hr-sub-sep">|</span>

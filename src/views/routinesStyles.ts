@@ -342,6 +342,9 @@ export const ROUTINES_CSS = [
   '.hr-sub-schedule { color: var(--ui-text-tertiary, #999); }',
   '.hr-sub-sep { margin: 0 6px; color: var(--ui-stroke-tertiary, rgba(255,255,255,0.2)); font-size: 11px; }',
   '.hr-sub-next { color: var(--ui-text-tertiary, #888); }',
+  // Failure text for the row: words plus color, so the failure reads even
+  // when color is unavailable (issue #76).
+  '.hr-sub-failed { color: var(--ui-red, #f87171); font-weight: 500; }',
   '',
   '/* Expanded In-Place Details (media_1790206808519.png) */',
   '.hr-details {',
@@ -449,7 +452,22 @@ export const ROUTINES_CSS = [
   '  border-top: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.06));',
   '}',
   '.hr-inspector-last-run .hr-create-section-label { margin-bottom: 6px; }',
-  '.hr-inspector-issue { white-space: pre-wrap; overflow-wrap: anywhere; }',
+  // ── failure hierarchy (issue #76) ──
+  // What failed first (words, never the icon's color alone), then the
+  // derived reason, then — collapsed and visually secondary — the raw
+  // evidence. The summary is the loudest thing in the block on purpose.
+  '.hr-failure-summary { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }',
+  '.hr-failure-summary-head { font-size: 13px; font-weight: 600; color: var(--ui-text-primary, #fff); }',
+  '.hr-failure-summary-reason { font-size: 12px; line-height: 1.5; color: var(--ui-text-secondary, #ccc); }',
+  // Native disclosure: collapsed by default, keyboard reachable, and it
+  // needs no control — the block stays read-only by construction.
+  '.hr-tech-details { margin-top: 2px; }',
+  '.hr-tech-summary { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ui-text-tertiary, #888); cursor: pointer; padding: 2px 0; }',
+  '.hr-tech-summary:hover { color: var(--ui-text-secondary, #ccc); }',
+  '.hr-tech-body { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }',
+  // Evidence stays verbatim: wrapped, never ellipsized, and long output
+  // scrolls inside its own cell instead of being cut off.
+  '.hr-tech-value { font-family: var(--dt-font-mono, monospace); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }',
   '.hr-inspector-actions-bar { display: flex; gap: 8px; }',
   '.hr-btn { display: inline-flex; align-items: center; justify-content: center; padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--ui-text-primary, #fff); background: var(--ui-bg-card, #222); border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.12)); border-radius: 6px; cursor: pointer; transition: all 0.15s ease; }',
   '.hr-btn:hover { background: var(--chrome-action-hover, rgba(255,255,255,0.08)); }',
