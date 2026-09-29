@@ -5,6 +5,13 @@ import {
 } from '../domain/guidedEnvelope';
 import type { ProvisionalRoutine } from '../domain/provisional';
 import { openGuidedRoutineChat, type GuidedRoutineChatFailure } from './guidedChat';
+import { readJobConfig } from './proposalConfirm';
+import {
+  GUIDED_DIAG_STAGES,
+  recordGuidedDiag,
+  type GuidedDiagRecord,
+} from '../domain/diagnostics';
+import type { ProposalBaseSnapshot } from '../domain/routineProposal';
 
 // The one door from "a routine exists, paused and addressable" to "a
 // Hermes conversation is configuring exactly that routine".
@@ -97,4 +104,117 @@ export async function launchGuidedConfiguration(
     autoSubmitted: opened.autoSubmitted,
     prompt,
   };
+}
+
+// ── fresh session after session loss (issue #65 Part B, scenario 8) ──
+// A chat can die while its routine survives: abandoned, reloaded away, or
+// its Desktop session closed. Starting over must NOT reuse the dead
+// session's snapshot — the job may have moved meanwhile — so the relaunch
+// re-reads authoritative truth FIRST and the new session carries a NEW
+// snapshot/fingerprint. A missing or unpaused target fails closed before
+// any chat is opened: a fresh session for a gone routine would be worse
+// than none, and an active routine needs no configuration session.
+//
+// There is deliberately no TTL/expiry concept here: the backend offers no
+// session expiry to honor, so "freshness" is the fingerprint match the
+// review and confirm paths already enforce — not a clock. A session that
+// outlives its snapshot is refused by the stale guard, never by a timer.
+
+/** Why a fresh guided session could not be started. */
+export type GuidedRelaunchFailure =
+  | 'envelope_unavailable'
+  | GuidedRoutineChatFailure
+  /** The authoritative list could not be read. */
+  | 'session_target_unreadable'
+  /** The id no longer exists on the owning profile: never recreate it. */
+  | 'session_target_gone'
+  /** The routine is active: it needs no configuration session. */
+  | 'session_target_active';
+
+/** A fresh session: the launch proof plus the NEW authoritative basis. */
+export type GuidedRelaunchResult =
+  | {
+      ok: true;
+      routeKey: string;
+      jobId: string;
+      autoSubmitted: boolean;
+      prompt: string;
+      /** Authoritative configuration read DURING the relaunch. */
+      snapshot: ProposalBaseSnapshot;
+      /** Fingerprint of `snapshot` — the new session's staleness currency. */
+      fingerprint: string;
+    }
+  | {
+      ok: false;
+      reason: GuidedRelaunchFailure;
+      /** Why, in words fit to show the user. */
+      message: string;
+      /** The id the caller asked about ('' when it never resolved). */
+      jobId: string;
+    };
+
+/**
+ * Start a fresh guided session for an already-existing paused job.
+ *
+ * Truth first, chat second: the job is re-read and must exist paused on
+ * its owner route before anything opens. Nothing here resumes, applies,
+ * or recreates — a gone target stays gone and reported.
+ */
+export async function relaunchGuidedConfiguration(
+  request: GuidedLaunchRequest,
+): Promise<GuidedRelaunchResult> {
+  const routine = request?.routine;
+  const jobId = typeof routine?.jobId === 'string' ? routine.jobId : '';
+  if (!jobId) {
+    return {
+      ok: false,
+      reason: 'envelope_unavailable',
+      message: 'starting a fresh session requires the authoritative job id',
+      jobId: '',
+    };
+  }
+
+  // The fresh basis: re-read BEFORE opening anything, so a moved target
+  // fails here — with zero Desktop calls — instead of mid-conversation.
+  const read = await readJobConfig({ route: routine.route, jobId });
+  if (!read.ok) {
+    return { ok: false, reason: 'session_target_unreadable', message: read.message, jobId };
+  }
+  if (!read.exists) {
+    return {
+      ok: false,
+      reason: 'session_target_gone',
+      message:
+        'the routine no longer exists on its owning profile — check the routines list; it is not recreated',
+      jobId,
+    };
+  }
+  if (!read.paused) {
+    return {
+      ok: false,
+      reason: 'session_target_active',
+      message: 'the routine is active, so it needs no configuration session',
+      jobId,
+    };
+  }
+
+  const launched = await launchGuidedConfiguration(request);
+  if (launched.ok === false) {
+    return { ok: false, reason: launched.reason, message: launched.message, jobId: launched.jobId };
+  }
+  return {
+    ok: true,
+    routeKey: launched.routeKey,
+    jobId: launched.jobId,
+    autoSubmitted: launched.autoSubmitted,
+    prompt: launched.prompt,
+    snapshot: read.snapshot,
+    fingerprint: read.fingerprint,
+  };
+}
+
+/** Classify a launch outcome as a stage record (observability). */
+export function diagOfLaunchResult(result: GuidedLaunchResult | GuidedRelaunchResult): GuidedDiagRecord {
+  if (result.ok) return recordGuidedDiag(GUIDED_DIAG_STAGES.SESSION_LAUNCH, 'ok');
+  return recordGuidedDiag(GUIDED_DIAG_STAGES.SESSION_LAUNCH, result.reason);
 }

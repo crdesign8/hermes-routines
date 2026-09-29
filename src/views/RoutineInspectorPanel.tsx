@@ -13,6 +13,7 @@ import {
   readStoredDelivery,
   readStoredModelOverride,
 } from '../domain/advancedSettings';
+import { guidedConfigCandidateOf } from '../domain/provisional';
 import { ResultTone, RunWhen } from './RoutineDetails';
 
 export interface RoutineInspectorPanelProps {
@@ -43,6 +44,11 @@ export function RoutineInspectorPanel({
   const row = (job ?? null) as unknown as Record<string, unknown> | null;
   const storedDelivery = readStoredDelivery(row);
   const storedModelOverride = readStoredModelOverride(row);
+  // Incomplete configuration (issue #65 Part B, scenario 1): paused and
+  // never run means no complete configuration to preserve. Read-only
+  // text — never a control, never a resume: the reopen action lives on
+  // the list, where the owning route is known.
+  const needsConfiguration = guidedConfigCandidateOf(job) !== null;
 
   return (
     <aside className="hr-inspector" aria-label={`Details for ${title}`}>
@@ -74,6 +80,20 @@ export function RoutineInspectorPanel({
             read-only by construction: it carries no control, only the
             latest run's outcome, so it can never become an edit seam. */}
         <h3 className="hr-create-title">{title}</h3>
+
+        {/* Paused and never run: its configuration is incomplete. Stated
+            in words so the list/inspector answer scenario 1 even after a
+            reload wiped the guided panel state. */}
+        {needsConfiguration ? (
+          <div className="hr-create-active-card">
+            <div className="hr-create-active-info">
+              <span className="hr-create-active-title">Paused · needs configuration</span>
+              <span className="hr-create-active-subtitle">
+                This routine is paused and has never run — its configuration is incomplete.
+              </span>
+            </div>
+          </div>
+        ) : null}
 
         {/* Active Toggle Card (disabled mirror) */}
         <div className="hr-create-active-card">

@@ -42,6 +42,11 @@ import {
   type GuidedWorkflowStage,
 } from '../domain/guidedWorkflow';
 import { backendTargetProfile } from '../domain/routing';
+import {
+  GUIDED_DIAG_STAGES,
+  recordGuidedDiag,
+  type GuidedDiagRecord,
+} from '../domain/diagnostics';
 import { listRoutines, requestCronForRoute } from './cronGateway';
 import { buildResumeParams } from './cronParams';
 import { cronOutcomeOf } from '../domain/provisional';
@@ -181,6 +186,10 @@ function classifyApplyFailure(
     case 'create_rejected':
       // The add was refused: nothing exists, so re-confirming is safe.
       return { stage: S.APPLY, recovery: 'apply' };
+    case 'duplicate_suspected':
+      // A paused row already holds the configuration: re-confirming
+      // would mint a second replacement, so re-read before anything.
+      return { stage: S.APPLY, recovery: 'refresh' };
     case 'identity_unresolved':
     case 'supersede_incomplete':
       return { stage: S.APPLY, recovery: 'refresh' };
@@ -395,4 +404,35 @@ export async function activateConfigured(request: ActivateRequest): Promise<Conf
     jobId,
     'refresh',
   );
+}
+
+// ── diagnostics mapping (issue #65 Part B, §Observability) ──
+// A ConfirmResult already names its stage and reason; this maps it to the
+// shared stage vocabulary without touching the result shape. Success maps
+// to the stage that completed it (verification when still paused,
+// activation when the resume was proven), so an operator can follow a
+// whole lifecycle in stage/reason lines.
+
+/**
+ * Classify a confirmation/activation outcome as a stage record.
+ * Pure: it reads the result the gateway already returned.
+ */
+export function diagOfConfirmResult(result: ConfirmResult): GuidedDiagRecord {
+  const D = GUIDED_DIAG_STAGES;
+  if (result.ok) {
+    return recordGuidedDiag(result.activated ? D.ACTIVATION : D.VERIFICATION, 'ok');
+  }
+  switch (result.stage) {
+    case GUIDED_WORKFLOW_STAGE.STALE:
+      return recordGuidedDiag(D.STALE_REJECTION, result.reason);
+    case GUIDED_WORKFLOW_STAGE.APPLY:
+      return recordGuidedDiag(D.APPLY, result.reason);
+    case GUIDED_WORKFLOW_STAGE.VERIFY:
+      return recordGuidedDiag(D.VERIFICATION, result.reason);
+    case GUIDED_WORKFLOW_STAGE.RESUME:
+    case GUIDED_WORKFLOW_STAGE.ACTIVATE_VERIFY:
+      return recordGuidedDiag(D.ACTIVATION, result.reason);
+    default:
+      return recordGuidedDiag(D.PROPOSAL_VALIDATION, result.reason);
+  }
 }

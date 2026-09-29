@@ -9,7 +9,7 @@ import {
 } from '../state/routinesState';
 import { findRouteByKey } from '../domain/routing';
 import { jobIdFromResponse, jobIdOf, visibleJobs } from '../domain/jobs';
-import { humanScheduleOf, routineKey, routineTitle } from '../domain/present';
+import { humanScheduleOf, routineKey, routinePromptOf, routineTitle } from '../domain/present';
 import { wrapHostError } from '../lib/errors';
 import {
   buildAddParams,
@@ -21,7 +21,12 @@ import {
 import { listProfileRoutes, listRoutines, requestCronForRoute } from '../gateway/cronGateway';
 import { createProvisionalRoutine } from '../gateway/provisionalCreate';
 import { launchGuidedConfiguration, type GuidedLaunchResult } from '../gateway/guidedLaunch';
-import { cronOutcomeOf, type ProvisionalRoutine } from '../domain/provisional';
+import {
+  buildReopenHandle,
+  cronOutcomeOf,
+  guidedConfigCandidateOf,
+  type ProvisionalRoutine,
+} from '../domain/provisional';
 import { ROUTINES_CSS } from './routinesStyles';
 import { FilterNav } from './FilterNav';
 import { RoutineList } from './RoutineList';
@@ -34,8 +39,10 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
+  NeedsConfigurationNotice,
   StaleBanner,
   UnavailableState,
+  type GuidedReopenTarget,
 } from './RoutineStates';
 
 // Routines page for the Desktop's active profile connection.
@@ -81,6 +88,15 @@ function pastTense(kind: string): string {
   return 'saved';
 }
 
+/** The guided panel's inputs: an addressable handle plus submitted values. */
+interface GuidedPanelState {
+  routine: ProvisionalRoutine;
+  name: string;
+  schedule: string;
+  prompt: string;
+  delivery?: string;
+}
+
 export function RoutinesPage() {
   const [state, setState] = useState<RoutinesState>(initialRoutinesState);
   const [routesNonce, setRoutesNonce] = useState(0);
@@ -112,13 +128,13 @@ export function RoutinesPage() {
   // owning route, so the launch (and every retry) stays bound to the job
   // the backend minted — never to a name, and never to whichever profile
   // is active when the user clicks.
-  const [guided, setGuided] = useState<{
-    routine: ProvisionalRoutine;
-    name: string;
-    schedule: string;
-    prompt: string;
-    delivery?: string;
-  } | null>(null);
+  const [guided, setGuided] = useState<GuidedPanelState | null>(null);
+  // The session the user closed without finishing (issue #65 Part B,
+  // scenario 1). Retained so closing the panel can only ever leave the
+  // routine paused — and the user can resume exactly that handle instead
+  // of starting over. Appended after `guided`: preset-position tests
+  // address earlier slots.
+  const [guidedRecent, setGuidedRecent] = useState<GuidedPanelState | null>(null);
 
   // Clear selected job if it is no longer present in the jobs inventory
   useEffect(() => {
@@ -406,6 +422,7 @@ export function RoutinesPage() {
         return false;
       }
       setGuided({ routine: result.routine, name, schedule, prompt, delivery });
+      setGuidedRecent(null);
       setIsCreating(false);
       setSelectedJobKey(null);
       // Honest copy: the routine EXISTS and is paused; nothing about its
@@ -431,6 +448,90 @@ export function RoutinesPage() {
     autoSubmit: boolean,
   ): Promise<GuidedLaunchResult> {
     return launchGuidedConfiguration({ routine, submitted, autoSubmit });
+  }
+
+  /**
+   * Closing the guided panel abandons the chat, never the routine: the
+   * handle is retained so the user can resume it, and the routine stays
+   * exactly as paused as it already was. No resume, no remove, no write
+   * of any kind happens here.
+   */
+  function handleGuidedClose(): void {
+    if (guided !== null) setGuidedRecent(guided);
+    setGuided(null);
+  }
+
+  /**
+   * (Re)open a guided session from the list (issue #65 Part B, scenarios
+   * 1–2). A retained in-session handle resumes verbatim; otherwise the
+   * handle is rebuilt from the durable row on the CURRENT active route.
+   * Either way the panel re-reads truth on review and the confirm path
+   * re-runs its stale guard — opening proves nothing and changes nothing.
+   */
+  function handleGuidedReopen(jobId: string): void {
+    if (guidedRecent !== null && guidedRecent.routine.jobId === jobId) {
+      setGuided(guidedRecent);
+      setGuidedRecent(null);
+      setIsCreating(false);
+      setSelectedJobKey(null);
+      return;
+    }
+    const row = state.jobs.find((job) => jobIdOf(job) === jobId) ?? null;
+    if (row === null || guidedConfigCandidateOf(row) === null) {
+      dispatch({
+        type: 'notice',
+        notice: 'that routine can no longer be opened for configuration — check the routines list',
+      });
+      return;
+    }
+    const handle = activeRoute === null ? null : buildReopenHandle(activeRoute, row);
+    if (handle === null) {
+      dispatch({
+        type: 'notice',
+        notice: 'that routine can no longer be opened for configuration — check the routines list',
+      });
+      return;
+    }
+    setGuided({
+      routine: handle,
+      name: routineTitle(row, 'Routine'),
+      schedule: humanScheduleOf(row) || '',
+      prompt: routinePromptOf(row) ?? '',
+    });
+    setGuidedRecent(null);
+    setIsCreating(false);
+    setSelectedJobKey(null);
+  }
+
+  /**
+   * Incomplete-configuration targets for the list notice: the retained
+   * in-session handle first (when its row is still paused below), then
+   * every other paused-never-ran row. Computed per render from backend
+   * rows — never from ephemeral panel state — so it survives a reload.
+   */
+  function guidedReopenTargets(): GuidedReopenTarget[] {
+    if (guided !== null) return [];
+    const targets: GuidedReopenTarget[] = [];
+    const seen: string[] = [];
+    if (guidedRecent !== null) {
+      const id = guidedRecent.routine.jobId;
+      const row = state.jobs.find((job) => jobIdOf(job) === id) ?? null;
+      if (row !== null && guidedConfigCandidateOf(row) !== null) {
+        targets.push({
+          jobId: id,
+          title: routineTitle(row, guidedRecent.name || 'Routine'),
+          resumed: true,
+        });
+        seen.push(id);
+      }
+    }
+    for (const job of state.jobs) {
+      const id = jobIdOf(job);
+      if (!id || seen.indexOf(id) !== -1) continue;
+      if (guidedConfigCandidateOf(job) === null) continue;
+      targets.push({ jobId: id, title: routineTitle(job, 'Routine'), resumed: false });
+    }
+    return targets;
   }
 
   function renderList(): ReactNode {
@@ -495,7 +596,7 @@ export function RoutinesPage() {
               setSelectedJobKey(key);
               if (key) {
                 setIsCreating(false);
-                setGuided(null);
+                handleGuidedClose();
               }
             }}
             onPause={handlePause}
@@ -576,6 +677,16 @@ export function RoutinesPage() {
       />,
     );
   } else if (state.status === S.READY) {
+    const reopenTargets = guidedReopenTargets();
+    if (reopenTargets.length > 0) {
+      body.push(
+        <NeedsConfigurationNotice
+          key="needs-configuration"
+          targets={reopenTargets}
+          onConfigure={handleGuidedReopen}
+        />,
+      );
+    }
     body.push(<div key="ready-list">{renderList()}</div>);
   }
 
@@ -597,6 +708,7 @@ export function RoutinesPage() {
                 onClick={() => {
                   setSelectedJobKey(null);
                   setGuided(null);
+                  setGuidedRecent(null);
                   setIsCreating(true);
                 }}
                 aria-label="New routine"
@@ -644,8 +756,9 @@ export function RoutinesPage() {
             submittedSchedule={guided.schedule}
             submittedPrompt={guided.prompt}
             submittedDelivery={guided.delivery}
+            activeRoute={activeRoute}
             onLaunch={handleGuidedLaunch}
-            onClose={() => setGuided(null)}
+            onClose={handleGuidedClose}
           />
         ) : isCreating ? (
           <RoutineComposerPanel

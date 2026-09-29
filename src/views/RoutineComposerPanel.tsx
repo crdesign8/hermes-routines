@@ -128,24 +128,18 @@ export function RoutineComposerPanel({
         // The guided path is deliberately not a variation of the Active
         // toggle: it always creates PAUSED, because a routine whose
         // configuration is an unfinished conversation must not be runnable.
-        // Absent delivery stays absent from the call as well (never an
-        // explicit undefined fourth argument): the guided handler's arity
-        // is pinned — it never receives an active flag, and it receives a
-        // delivery only when one was chosen.
-        const ok = await (delivery === undefined
-          ? onSubmitGuided(trimmedName, cronExpr, promptText)
-          : onSubmitGuided(trimmedName, cronExpr, promptText, delivery));
+        // The trailing `delivery` is undefined for the backend default —
+        // the handler arity (name, schedule, prompt, delivery) is pinned,
+        // and it never receives an active flag.
+        const ok = await onSubmitGuided(trimmedName, cronExpr, promptText, delivery);
         if (!ok) {
           setError('Failed to create routine. Please verify parameters.');
         }
         return;
       }
       // The name is submitted as typed (trimmed): it is a human-readable
-      // title, not a technical id — Hermes generates the job_id. Absent
-      // delivery stays absent from the call, mirroring the guided path.
-      const ok = await (delivery === undefined
-        ? onSubmit(trimmedName, cronExpr, promptText, active)
-        : onSubmit(trimmedName, cronExpr, promptText, active, delivery));
+      // title, not a technical id — Hermes generates the job_id.
+      const ok = await onSubmit(trimmedName, cronExpr, promptText, active, delivery);
       if (!ok) {
         setError('Failed to create routine. Please verify parameters.');
       }

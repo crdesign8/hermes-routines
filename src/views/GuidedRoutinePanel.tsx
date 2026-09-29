@@ -1,4 +1,5 @@
 import { useState, type ReactElement } from 'react';
+import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import type { GuidedLaunchResult } from '../gateway/guidedLaunch';
 import type { ProvisionalRoutine } from '../domain/provisional';
 import { backendTargetProfile } from '../domain/routing';
@@ -8,6 +9,7 @@ import {
   GUIDED_WORKFLOW_STATE,
   buildProposalReview,
   guidedIndicator,
+  guidedRouteDrift,
   guidedWorkflowReducer,
   initialGuidedWorkflow,
   proposedSnapshot,
@@ -62,6 +64,13 @@ export interface GuidedRoutinePanelProps {
   submittedDelivery?: string;
   /** Auto-send on the first launch only; a retry always drafts. */
   autoSubmitOnFirstLaunch?: boolean;
+  /**
+   * The Desktop's CURRENT active route, for the route-drift banner
+   * (issue #65 Part B, scenario 3). Absent means unknown — no banner,
+   * and the apply-time owner check still fails closed. Never used as a
+   * mutation target: the session stays bound to `routine.route`.
+   */
+  activeRoute?: PluginProfileRoute | null;
   onLaunch: (
     routine: ProvisionalRoutine,
     submitted: { name: string; schedule: string; prompt: string },
@@ -118,6 +127,7 @@ export function GuidedRoutinePanel({
   submittedPrompt,
   submittedDelivery,
   autoSubmitOnFirstLaunch,
+  activeRoute,
   onLaunch,
   onClose,
 }: GuidedRoutinePanelProps): ReactElement {
@@ -140,6 +150,11 @@ export function GuidedRoutinePanel({
   const profile = backendTargetProfile(routine.route, routine.backendProfile);
   const review = buildProposalReview(wf.current, wf.proposal);
   const inFlight = busy || wf.state === S.APPLYING || wf.state === S.ACTIVATING;
+  // Route drift is computed, never stored: the active profile may switch
+  // on any render, and a stored copy would go stale the same way. No
+  // effect, no mutation target change — the banner only says the switch
+  // happened, while every mutation keeps riding `routine.route`.
+  const drift = guidedRouteDrift(routine.route, activeRoute ?? null);
 
   async function handleLaunch(): Promise<void> {
     if (launching) return;
@@ -458,6 +473,16 @@ export function GuidedRoutinePanel({
             </span>
           </div>
         </div>
+
+        {/* Route drift (scenario 3): the Desktop's profile moved while
+            this session stayed bound to its original owner. Informational
+            only — nothing here re-targets, and the apply-time owner check
+            still refuses a proposal that no longer belongs. */}
+        {drift.drifted ? (
+          <div className="hr-create-error" role="alert">
+            {`The active profile changed to ${drift.current}. This session stays bound to ${drift.retained} — reviewing or applying here still targets the original owner.`}
+          </div>
+        ) : null}
 
         <div className="hr-create-field">
           <label className="hr-field-label">Job id</label>

@@ -1,6 +1,11 @@
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import { backendTargetProfile } from './routing';
-import { jobIdFromResponse, type RoutineJob } from './jobs';
+import { jobIdFromResponse, jobPaused, type RoutineJob } from './jobs';
+import {
+  GUIDED_DIAG_STAGES,
+  recordGuidedDiag,
+  type GuidedDiagRecord,
+} from './diagnostics';
 
 // ── provisional (guided) routine creation ──
 // A guided configuration conversation needs a routine identity before the
@@ -271,4 +276,97 @@ export function resolveProvisionalCreate(input: ProvisionalCreateInput): Provisi
       job: rowOf(input.pause.answer) ?? minted.job,
     },
   };
+}
+
+// ── reload rehydration (issue #65 Part B, scenario 2) ──
+// A Desktop/plugin reload wipes every React slot, so the ONLY durable
+// truth is the backend row. `_format_job` returns `paused_reason` +
+// `paused_at` on every row — but the plugin surface cannot STAMP a
+// distinct reason: the `cron.manage` RPC forwards only
+// name/schedule/prompt/repeat/continuity/deliver on add and only the
+// job_id on pause (`tui_gateway/methods_tools.py`), and `pause_job`
+// stores `paused_reason: None` when it receives none (`cron/jobs.py`).
+// A guided provisional is therefore row-indistinguishable from a
+// user-paused routine. This module does NOT pretend otherwise.
+//
+// What IS durable and honest: a routine that is paused and has NEVER run
+// has no complete configuration to preserve — whether it came from the
+// guided flow, the composer's create-on-hold, or a manual pause before
+// the first run. Such a row is a *candidate* for (re)opening a guided
+// session: the reopen re-reads truth, re-binds identity by exact job_id,
+// and no path below resumes or mutates anything. A row with any run
+// evidence is never a candidate, so a configured routine can never be
+// mislabelled as needing configuration.
+
+/** Row keys that prove a routine has fired at least once. */
+const RUN_EVIDENCE_KEYS = Object.freeze([
+  'last_run_at',
+  'lastRunAt',
+  'last_run',
+  'lastRun',
+  'last_status',
+  'lastStatus',
+  'last_fire_error',
+  'lastFireError',
+  'last_error',
+  'lastError',
+]);
+
+function hasRunEvidence(job: RoutineJob): boolean {
+  for (const key of RUN_EVIDENCE_KEYS) {
+    const value = job[key];
+    if (typeof value === 'string' && value.trim() !== '') return true;
+    if (value !== undefined && value !== null && typeof value !== 'string') return true;
+  }
+  return false;
+}
+
+/**
+ * Is this row a candidate for (re)opening a guided configuration
+ * session? Paused, addressable by exact job_id, and never run. Null for
+ * anything else — an active, missing-id, or already-run row is never
+ * mislabelled, and returning null is what keeps the affordance away
+ * from configured routines.
+ */
+export function guidedConfigCandidateOf(job: RoutineJob | null | undefined): { jobId: string } | null {
+  if (job === null || job === undefined) return null;
+  const row = job as RoutineJob;
+  const id = typeof row.job_id === 'string' ? row.job_id.trim() : '';
+  if (!id) return null;
+  if (!jobPaused(row)) return null;
+  if (hasRunEvidence(row)) return null;
+  return { jobId: id };
+}
+
+/**
+ * Rebuild an addressable guided handle from a durable row, e.g. after a
+ * reload wiped the panel state, or to resume a configuration the user
+ * closed. The row must be a `guidedConfigCandidateOf` candidate AND the
+ * caller must hand the route that owns it; anything else is null, never
+ * a guessed handle. The handle re-proves paused-ness from the list read
+ * it was built from — it never auto-resumes, and the confirm path still
+ * re-runs its stale guard before any mutation.
+ */
+export function buildReopenHandle(
+  route: PluginProfileRoute | null | undefined,
+  job: RoutineJob | null | undefined,
+): ProvisionalRoutine | null {
+  const candidate = guidedConfigCandidateOf(job);
+  if (candidate === null) return null;
+  if (!route || typeof route.connectionId !== 'string' || !route.connectionId) return null;
+  const backendProfile = backendTargetProfile(route, '') || null;
+  if (!backendProfile) return null;
+  return {
+    jobId: candidate.jobId,
+    route,
+    backendProfile,
+    createdPaused: true,
+    job: (job as RoutineJob) ?? null,
+  };
+}
+
+/** Classify a provisional-create outcome as a stage record (observability). */
+export function diagOfProvisionalResult(result: ProvisionalResult): GuidedDiagRecord {
+  if (result.ok) return recordGuidedDiag(GUIDED_DIAG_STAGES.PROVISIONAL_CREATE, 'ok');
+  return recordGuidedDiag(GUIDED_DIAG_STAGES.PROVISIONAL_CREATE, result.reason);
 }

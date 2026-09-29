@@ -108,3 +108,46 @@ export async function listRoutines(
     profile: target,
   });
 }
+
+// ── gateway-failure classification (issue #65 Part B, scenario 7) ──
+// A network/gateway interruption must retain a recoverable paused state,
+// show an actionable error, and offer a retry — and success must never be
+// inferred from dispatch alone (every gateway in this file already reads
+// the backend's in-band verdict). What was missing is telling a transient
+// transport failure ("retry the same read") apart from a refusal ("go look
+// at the list"). This pure classifier is that distinction.
+//
+// Deliberately no automatic retry/backoff here: re-sending a MUTATION on
+// a timer risks a duplicate the caller cannot see, while the workflow's
+// explicit recoveries (retry chat, refresh status, re-confirm a
+// never-started write) already retry with the user's intent behind them.
+// The classifier only labels; the UI decides.
+//
+// Heuristic by necessity: transport errors arrive as free-text messages,
+// so this matches stable substrings. Unknown text is NOT retriable — a
+// failure we cannot recognize fails closed toward human review.
+
+const RETRIABLE_GATEWAY_PATTERNS: readonly RegExp[] = [
+  /timed?\s?out/i,
+  /\btimeout\b/i,
+  /\beconn\w*/i,
+  /\beai_again\b/i,
+  /\bsocket\b/i,
+  /\bnetwork\b/i,
+  /fetch\s+failed/i,
+  /temporar\w*\s+unavailable/i,
+  /service\s+unavailable/i,
+  /\b503\b/,
+  /\b502\b/,
+  /\b504\b/,
+  /rate[\s_-]?limit/i,
+  /overloaded/i,
+  /try\s+again/i,
+  /connection\s+(reset|refused|closed|aborted)/i,
+];
+
+/** True when `message` looks like a transient transport failure. */
+export function isRetriableGatewayError(message: unknown): boolean {
+  if (typeof message !== 'string' || !message.trim()) return false;
+  return RETRIABLE_GATEWAY_PATTERNS.some((pattern) => pattern.test(message));
+}

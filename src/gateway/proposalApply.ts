@@ -36,12 +36,13 @@
 
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import { messageOf } from '../lib/errors';
-import { jobIdFromResponse, jobIdOf, normalizeJobs } from '../domain/jobs';
+import { jobIdFromResponse, jobIdOf, normalizeJobs, type RoutineJob } from '../domain/jobs';
 import {
   fingerprintSnapshot,
   isProposalStale,
   snapshotJobConfig,
   validateProposal,
+  type ProposalBaseSnapshot,
   type ValidatedProposal,
 } from '../domain/routineProposal';
 import { backendTargetProfile } from '../domain/routing';
@@ -71,6 +72,8 @@ export type ProposalApplyFailureReason =
   | 'create_rejected'
   /** The replacement id has no usable `job_id` in the add answer. */
   | 'identity_unresolved'
+  /** A paused row already holds the exact proposed configuration. */
+  | 'duplicate_suspected'
   /** The replacement could not be proven paused (original untouched). */
   | 'replacement_not_paused'
   /** Replacement proven paused, but the superseded id could not be removed. */
@@ -123,6 +126,38 @@ function failed(
   replacementJobId: string | null = null,
 ): ProposalApplyResult {
   return { ok: false, reason, message, jobId, replacementJobId, backendProfile };
+}
+
+/**
+ * Did a previous apply already land this configuration? Scan the freshly
+ * read rows for a PAUSED row — other than the target — whose stored
+ * values equal the proposed end state on every compared field.
+ *
+ * Pure: it decides on rows the caller already holds, so the guard costs
+ * zero host calls. The target itself is excluded (its own match is the
+ * no-op path above, not a duplicate), and only paused rows match — an
+ * active twin is somebody's running routine, not proof of our write.
+ */
+export function findAppliedDuplicate(
+  rows: RoutineJob[],
+  excludeJobId: string,
+  expected: ProposalBaseSnapshot,
+): { jobId: string } | null {
+  for (const row of rows) {
+    const id = jobIdOf(row);
+    if (!id || id === excludeJobId) continue;
+    const snapshot = snapshotJobConfig(row);
+    if (!snapshot.paused) continue;
+    if (
+      snapshot.name === expected.name &&
+      snapshot.schedule === expected.schedule &&
+      snapshot.prompt === expected.prompt &&
+      snapshot.delivery === expected.delivery
+    ) {
+      return { jobId: id };
+    }
+  }
+  return null;
 }
 
 /**
@@ -230,6 +265,26 @@ export async function applyValidatedProposal(request: ProposalApplyRequest): Pro
     delivery === snapshot.delivery
   ) {
     return { ok: true, jobId, previousJobId: '', changed: false, backendProfile };
+  }
+
+  // Duplicate-apply guard (issue #65 Part B, scenario 6): a retry after a
+  // partial success — e.g. the replacement was minted and parked but the
+  // superseded id could not be removed, or the verification read was
+  // lost — must NOT mint a second replacement. When another paused row
+  // already holds the exact proposed configuration, refuse and name it
+  // so the caller verifies instead of reapplying. Zero extra host calls:
+  // the rows were just read above.
+  const expected = { ...snapshot, name, schedule, prompt, delivery };
+  const duplicate = findAppliedDuplicate(rows, jobId, expected);
+  if (duplicate !== null) {
+    return failed(
+      'duplicate_suspected',
+      `a paused routine ${duplicate.jobId} already holds this exact configuration — ` +
+        'verify it in the routines list instead of applying again',
+      jobId,
+      backendProfile,
+      duplicate.jobId,
+    );
   }
 
   // 4. Add-first: the replacement is minted before anything is destroyed.

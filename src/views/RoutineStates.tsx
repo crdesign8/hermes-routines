@@ -83,3 +83,46 @@ export function StaleBanner({ onRetry }: { onRetry: () => void }) {
     </div>
   );
 }
+
+/** One paused-never-ran routine the user may (re)open for configuration. */
+export interface GuidedReopenTarget {
+  jobId: string;
+  title: string;
+  /** True when this is the session the user just closed (in-session resume). */
+  resumed: boolean;
+}
+
+/**
+ * Incomplete-configuration notice (issue #65 Part B, scenarios 1–2): the
+ * list names paused routines whose configuration is incomplete and offers
+ * to (re)open each one. Opening only rebuilds an addressable handle and
+ * re-reads truth — it never resumes, applies, or recreates anything.
+ */
+export function NeedsConfigurationNotice({
+  targets,
+  onConfigure,
+}: {
+  targets: GuidedReopenTarget[];
+  onConfigure: (jobId: string) => void;
+}) {
+  if (targets.length === 0) return null;
+  return (
+    <div className="hr-stale" role="status">
+      <span>
+        {targets.length === 1
+          ? 'One paused routine needs configuration.'
+          : `${targets.length} paused routines need configuration.`}
+      </span>
+      {targets.map((target) => (
+        <button
+          key={target.jobId}
+          type="button"
+          className="hr-btn hr-btn-small"
+          onClick={() => onConfigure(target.jobId)}
+        >
+          {target.resumed ? `Resume configuration of ${target.title}` : `Configure ${target.title}`}
+        </button>
+      ))}
+    </div>
+  );
+}
