@@ -12,11 +12,20 @@ import { readStoredDelivery, readStoredModelOverride } from '../domain/advancedS
 import { describeDestination } from '../domain/destinations';
 import { explainFailureOf } from '../domain/failureExplain';
 import { guidedConfigCandidateOf } from '../domain/provisional';
-import { ResultTone, RunWhen } from './RoutineDetails';
+import { ResultTone, RunWhen } from './RunOutcome';
+
+/**
+ * Id of the detail surface the list rows disclose. Declared once here and
+ * consumed by both the panel and the rows, so the disclosure relation can
+ * never point at a node that does not exist (issue #77).
+ */
+export const INSPECTOR_PANEL_ID = 'hermes-routines-inspector';
 
 export interface RoutineInspectorPanelProps {
   job: RoutineJob;
   fallback: string;
+  /** Id the list rows' disclosures point at. */
+  id?: string;
   activeRoute: PluginProfileRoute | null;
   activeProfile: string | null;
   busy: boolean;
@@ -29,6 +38,7 @@ export interface RoutineInspectorPanelProps {
 export function RoutineInspectorPanel({
   job,
   fallback,
+  id = INSPECTOR_PANEL_ID,
   onClose,
 }: RoutineInspectorPanelProps): ReactElement {
   const title = routineTitle(job, fallback);
@@ -61,7 +71,7 @@ export function RoutineInspectorPanel({
   const failure = explainFailureOf(job);
 
   return (
-    <aside className="hr-inspector" aria-label={`Details for ${title}`}>
+    <aside className="hr-inspector" id={id} aria-label={`Details for ${title}`}>
       <header className="hr-inspector-header">
         <button
           type="button"

@@ -469,6 +469,15 @@ describe('routines-view render branches', () => {
     ]);
   }
 
+  // RoutinesPage hooks: [state, routesNonce, searchQuery, selectedJobKey, isCreating, guided, guidedRecent]
+  function paintSelected(state, selectedJobKey) {
+    const noop = () => {};
+    reactStub.__presetStates([
+      [state, noop], [0, noop], ['', noop], [selectedJobKey, noop], [false, noop], [null, noop], [null, noop],
+    ]);
+    return renderView();
+  }
+
   it('ready list renders humanized cards with status and pause/resume only', () => {
     const tree = paint(readyWith([
       { job_id: '84c47f11a2bd', name: 'Morning Political Manager Brief', schedule: '0 9 * * *' },
@@ -502,12 +511,33 @@ describe('routines-view render branches', () => {
     assert.match(texts(tree).join(' '), /nameless row/);
   });
 
-  it('cards disclose details on demand with aria-expanded', () => {
+  it('a row discloses the inspector only while it is open', () => {
     const tree = paint(readyWith([{ job_id: '84c47f11a2bd', name: 'Morning brief', schedule: '0 9 * * *' }]));
     const nodes = collect(tree);
     const toggle = nodes.find((n) => n.type === 'button' && n.props['aria-expanded'] !== undefined);
-    assert.ok(toggle, 'expand toggle required');
+    assert.ok(toggle, 'details toggle required');
     assert.equal(toggle.props['aria-expanded'], false);
+    // The panel is unmounted while nothing is selected, so a collapsed
+    // disclosure must not reference a node that does not exist.
+    assert.equal(
+      toggle.props['aria-controls'],
+      undefined,
+      'a collapsed row points at no panel, because there is none',
+    );
+
+    const open = paintSelected(
+      readyWith([{ job_id: '84c47f11a2bd', name: 'Morning brief', schedule: '0 9 * * *' }]),
+      '84c47f11a2bd',
+    );
+    const opened = collect(open).find(
+      (n) => n.type === 'button' && n.props['aria-expanded'] === true,
+    );
+    assert.ok(opened, 'the selected row discloses the panel');
+    assert.equal(
+      opened.props['aria-controls'],
+      routines.INSPECTOR_PANEL_ID,
+      'and the relation points at the panel, not at a block inside the row',
+    );
   });
 
   it('filter nav marks the current filter and filters rows', () => {

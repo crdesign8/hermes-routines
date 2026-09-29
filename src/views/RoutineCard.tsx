@@ -9,24 +9,32 @@ import {
   routineTerminal,
   routineTitle,
 } from '../domain/present';
-import { RoutineDetails } from './RoutineDetails';
 import { RoutineStatus, statusOf } from './RoutineStatus';
 
 export interface RoutineCardProps {
   job: RoutineJob;
   fallback: string;
-  expanded: boolean;
   inspected?: boolean;
   busy: boolean;
   disabled: boolean;
-  onToggleExpand: () => void;
-  onEdit?: () => void;
+  /** Id of the panel the disclosure controls — the inspector, beside the list. */
+  inspectorId: string;
+  onSelect: () => void;
   onPause: () => void;
   onResume: () => void;
 }
 
+/**
+ * One list row: status, title, actions and a compact one-line summary.
+ *
+ * A row NEVER expands into a detail block (issue #77). Schedule, next run,
+ * last run and last result have one primary home — the inspector — so
+ * selecting a row cannot reflow the list, and no value is painted twice.
+ * What the row keeps is the concise summary an operator scans for, on a
+ * single line whose height is identical whether or not the row is selected.
+ */
 export function RoutineCard(props: RoutineCardProps): ReactElement {
-  const { job, fallback, expanded, inspected = false, busy, disabled } = props;
+  const { job, fallback, inspected = false, busy, disabled, inspectorId } = props;
   const title = routineTitle(job, fallback);
   const paused = routinePausedOf(job);
   const terminal = routineTerminal(job);
@@ -34,17 +42,16 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
   const schedule = humanScheduleOf(job) || '—';
   // State-aware copy from the domain: a past next_run_at reads "Overdue by
   // 2 hours", never a past distance behind a "Next" label. A terminal
-  // routine has no future, so its stale field is dropped the same way the
-  // expanded card and the inspector drop it.
+  // routine has no future, so its stale field is dropped — the same way the
+  // inspector drops it.
   const nextCopy = routineActive(job) ? nextRunCopyOf(nextRunIso(job)) : null;
-  const controlsId = `hr-details-${fallback.replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
 
   return (
     <li
-      className={`hr-row hr-row-${tone}${expanded ? ' hr-row-expanded' : ''}${inspected ? ' hr-row-selected' : ''}`}
+      className={`hr-row hr-row-${tone}${inspected ? ' hr-row-selected' : ''}`}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest('button, .hr-row-actions')) return;
-        props.onToggleExpand();
+        props.onSelect();
       }}
       style={{ cursor: 'pointer' }}
     >
@@ -55,14 +62,19 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
             className="hr-row-title"
             role="button"
             tabIndex={0}
+            aria-expanded={inspected}
+            // Only while open: the panel is unmounted when nothing is
+            // selected, so a collapsed disclosure must not reference a node
+            // that does not exist (issue #77).
+            aria-controls={inspected ? inspectorId : undefined}
             onClick={(e) => {
               e.stopPropagation();
-              props.onToggleExpand();
+              props.onSelect();
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                props.onToggleExpand();
+                props.onSelect();
               }
             }}
           >
@@ -106,63 +118,54 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
           <button
             type="button"
             className={`hr-icon-btn hr-icon-btn-edit${inspected ? ' hr-icon-btn-active' : ''}`}
-            aria-expanded={expanded}
-            aria-controls={controlsId}
-            aria-label={`${inspected ? 'Close inspector' : 'Edit'} details for ${title}`}
+            aria-expanded={inspected}
+            aria-controls={inspected ? inspectorId : undefined}
+            aria-label={`${inspected ? 'Close details for' : 'Show details for'} ${title}`}
             onClick={(e) => {
               e.stopPropagation();
-              if (props.onEdit) props.onEdit();
-              else props.onToggleExpand();
+              props.onSelect();
             }}
-            title="Edit routine"
+            title="Details"
           >
-            Edit
+            Details
           </button>
         </div>
       </div>
 
+      {/* One line, always. The failure summary stays compactly visible here
+          (issue #76) because a row that failed must say so while scanning —
+          but it is a summary, not a restatement of the inspector's detail
+          rows, and it never changes the row's height. */}
       <div className="hr-row-sub">
-        {!expanded ? (
-          // Failure copy is TEXT, never the icon's color alone (issue #76).
-          // A failed row states it between the schedule and the next run —
-          // "Every day at 09:00 | Last run failed | Next run in 19 hours" —
-          // while a success or a clean pause keeps its own copy and grows
-          // no error affordance. The words come from the same derivation
-          // as the indicator, so they cannot disagree.
-          <div className="hr-row-subtitle">
-            {paused ? (
-              <>
-                <span className="hr-sub-paused">Paused</span>
-                {failure !== null ? (
-                  <>
-                    <span className="hr-sub-sep">|</span>
-                    <span className="hr-sub-failed">{failure}</span>
-                  </>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <span className="hr-sub-schedule">{schedule}</span>
-                {failure !== null ? (
-                  <>
-                    <span className="hr-sub-sep">|</span>
-                    <span className="hr-sub-failed">{failure}</span>
-                  </>
-                ) : null}
-                {nextCopy ? (
-                  <>
-                    <span className="hr-sub-sep">|</span>
-                    <span className="hr-sub-next">{nextCopy.sentence}</span>
-                  </>
-                ) : null}
-              </>
-            )}
-          </div>
-        ) : (
-          <div id={controlsId} className="hr-row-details">
-            <RoutineDetails job={job} fallback={fallback} />
-          </div>
-        )}
+        <div className="hr-row-subtitle">
+          {paused ? (
+            <>
+              <span className="hr-sub-paused">Paused</span>
+              {failure !== null ? (
+                <>
+                  <span className="hr-sub-sep">|</span>
+                  <span className="hr-sub-failed">{failure}</span>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <span className="hr-sub-schedule">{schedule}</span>
+              {failure !== null ? (
+                <>
+                  <span className="hr-sub-sep">|</span>
+                  <span className="hr-sub-failed">{failure}</span>
+                </>
+              ) : null}
+              {nextCopy ? (
+                <>
+                  <span className="hr-sub-sep">|</span>
+                  <span className="hr-sub-next">{nextCopy.sentence}</span>
+                </>
+              ) : null}
+            </>
+          )}
+        </div>
       </div>
     </li>
   );
