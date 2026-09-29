@@ -2,6 +2,7 @@ import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import { activeRouteKey, coerceRoutes, resolveActiveRoute } from '../domain/routing';
 import { jobIdOf, normalizeJobs, withPausedFlag, type RoutineFilter, type RoutineJob } from '../domain/jobs';
 import { attentionTargets } from '../domain/attention';
+import { guidedConfigCandidateOf } from '../domain/provisional';
 import { messageOf } from '../lib/errors';
 
 // Page state machine for the Routines view. Pure and reducer-driven: every
@@ -57,6 +58,17 @@ export interface RoutinesState {
    * the list down to nothing with no way back except a fresh chip click.
    */
   attentionFocus: string[] | null;
+  /**
+   * Canonical `job_id`s the user asked to focus from the
+   * needs-configuration summary (issue #93), or null for no focus. This is
+   * a FOURTH dimension beside `filter` and `attentionFocus`: a routine that
+   * needs configuration is paused and never ran, so it can never be in the
+   * attention slice, and the two summaries must never narrow the list at
+   * the same time. Setting one focus clears the other, and every path that
+   * drops the inventory clears both — a focus that outlives its rows would
+   * filter the list down to nothing with no way back except a fresh click.
+   */
+  configFocus: string[] | null;
 }
 
 export type RoutinesEvent =
@@ -72,6 +84,8 @@ export type RoutinesEvent =
   | { type: 'filter-changed'; filter: unknown }
   | { type: 'attention-focus'; jobs: unknown }
   | { type: 'attention-focus-cleared' }
+  | { type: 'config-focus'; jobs: unknown }
+  | { type: 'config-focus-cleared' }
   | { type: 'mutate-start'; jobId: unknown }
   | { type: 'mutate-end'; jobId: unknown }
   | { type: 'optimistic-pause'; jobId: string }
@@ -94,6 +108,7 @@ export function initialRoutinesState(): RoutinesState {
     filter: 'all',
     snapshot: null,
     attentionFocus: null,
+    configFocus: null,
   };
 }
 
@@ -128,6 +143,28 @@ function pruneAttentionFocus(focus: string[] | null, jobs: RoutineJob[]): string
   return kept.length > 0 ? kept : null;
 }
 
+/**
+ * Keep only the focus targets that are STILL configuration candidates in
+ * the inventory that just arrived, or null when none of them is.
+ *
+ * The focus is a claim about specific routines, so it is re-derived
+ * instead of trusted: a routine that ran (or was resumed, or was deleted)
+ * is no longer a `guidedConfigCandidateOf` candidate and must leave the
+ * focus. The result is null, never `[]`, when nothing survives — null
+ * means "not focused" and shows every row, while `[]` would filter the
+ * list down to nothing with no control explaining why.
+ */
+function pruneConfigFocus(focus: string[] | null, jobs: RoutineJob[]): string[] | null {
+  if (focus === null) return null;
+  const alive: string[] = [];
+  for (const job of jobs) {
+    const candidate = guidedConfigCandidateOf(job);
+    if (candidate !== null && alive.indexOf(candidate.jobId) === -1) alive.push(candidate.jobId);
+  }
+  const kept = focus.filter((id) => alive.indexOf(id) !== -1);
+  return kept.length > 0 ? kept : null;
+}
+
 export function routinesViewReducer(
   state: RoutinesState | undefined,
   event: RoutinesEvent | null,
@@ -150,6 +187,7 @@ export function routinesViewReducer(
         pending: [],
         snapshot: null,
         attentionFocus: null,
+        configFocus: null,
       };
     case 'routes-loaded': {
       const usable = coerceRoutes(event.routes);
@@ -171,6 +209,7 @@ export function routinesViewReducer(
           pending: [],
           snapshot: null,
           attentionFocus: null,
+          configFocus: null,
         };
       }
       return {
@@ -186,6 +225,7 @@ export function routinesViewReducer(
         pending: [],
         snapshot: null,
         attentionFocus: null,
+        configFocus: null,
       };
     }
     case 'routes-error':
@@ -199,6 +239,7 @@ export function routinesViewReducer(
         activeConnectionId: null,
         jobs: [],
         attentionFocus: null,
+        configFocus: null,
       };
     case 'retry-routes':
       return {
@@ -214,6 +255,7 @@ export function routinesViewReducer(
         pending: [],
         snapshot: null,
         attentionFocus: null,
+        configFocus: null,
       };
     case 'active-changed': {
       const profile = profileText(event.profile);
@@ -234,6 +276,7 @@ export function routinesViewReducer(
           pending: [],
           snapshot: null,
           attentionFocus: null,
+          configFocus: null,
         };
       }
       return {
@@ -248,6 +291,7 @@ export function routinesViewReducer(
         pending: [],
         snapshot: null,
         attentionFocus: null,
+        configFocus: null,
       };
     }
     case 'list-loading':
@@ -270,6 +314,11 @@ export function routinesViewReducer(
         // it is dropped entirely — an empty focus would empty the list and
         // leave the user on a blank page with no control that says why.
         attentionFocus: pruneAttentionFocus(base.attentionFocus, jobs),
+        // The configuration focus is re-derived the same way: a routine
+        // that ran, resumed, or vanished is no longer a candidate and
+        // leaves it, and an emptied focus is dropped instead of blanking
+        // the page.
+        configFocus: pruneConfigFocus(base.configFocus, jobs),
       };
     }
     case 'list-error': {
@@ -282,12 +331,14 @@ export function routinesViewReducer(
       return {
         ...base,
         filter: event.filter === 'active' || event.filter === 'paused' ? event.filter : 'all',
-        // A lifecycle chip is a different question from the attention focus,
-        // and the user answering one has answered the other: they are no
-        // longer looking at "what is failing". Keeping both would leave the
-        // list showing a slice of one question while the focus bar claims
-        // another, with no way back to the rest of the list.
+        // A lifecycle chip is a different question from either focus, and
+        // the user answering one has answered the other: they are no longer
+        // looking at "what is failing" or "what needs configuration".
+        // Keeping any of them would leave the list showing a slice of one
+        // question while a focus bar claims another, with no way back to
+        // the rest of the list.
         attentionFocus: null,
+        configFocus: null,
       };
     case 'attention-focus': {
       // Focus the routines that currently need attention, by canonical
@@ -300,10 +351,31 @@ export function routinesViewReducer(
         .map((job) => jobIdOf(job))
         .filter((id) => id !== '');
       if (ids.length === 0) return { ...base, attentionFocus: null };
-      return { ...base, filter: 'all', attentionFocus: ids };
+      // The two foci are exclusive: entering the attention slice leaves the
+      // configuration slice, so the list can never be narrowed by both at
+      // once with only one focus bar explaining why it shrank.
+      return { ...base, filter: 'all', attentionFocus: ids, configFocus: null };
     }
     case 'attention-focus-cleared':
       return base.attentionFocus === null ? base : { ...base, attentionFocus: null };
+    case 'config-focus': {
+      // Focus the routines that still need configuration, by canonical
+      // identity. Ids are taken from the domain verdict, never from the
+      // event payload, so a caller cannot focus a configured routine (or a
+      // row with no id) by passing its name. The lifecycle filter is reset
+      // because the focus IS the slice now, and the attention focus is
+      // cleared because the two foci are exclusive.
+      const ids: string[] = [];
+      const rows = Array.isArray(event.jobs) ? event.jobs : [];
+      for (const job of rows) {
+        const candidate = guidedConfigCandidateOf(job as RoutineJob);
+        if (candidate !== null && ids.indexOf(candidate.jobId) === -1) ids.push(candidate.jobId);
+      }
+      if (ids.length === 0) return { ...base, configFocus: null };
+      return { ...base, filter: 'all', attentionFocus: null, configFocus: ids };
+    }
+    case 'config-focus-cleared':
+      return base.configFocus === null ? base : { ...base, configFocus: null };
     case 'mutate-start': {
       // '' is the create slot: a create has no job_id until the backend
       // answers, and the lock must cover that window too.

@@ -303,29 +303,36 @@ describe('attention budget (issue #92)', () => {
     assert.equal(mirror.props['aria-checked'], false);
   });
 
-  it('states the list configuration notice quietly, with working actions', () => {
-    const seen = [];
+  it('states the list configuration summary quietly, with exactly one action', () => {
+    let views = 0;
     const element = routines.NeedsConfigurationNotice({
-      targets: [
-        { jobId: 'j1', title: 'Ops Digest', resumed: false },
-        { jobId: 'j2', title: 'Nightly', resumed: true },
-      ],
-      onConfigure: (jobId) => seen.push(jobId),
+      count: 2,
+      onView: () => {
+        views += 1;
+      },
     });
     const nodes = collect(element);
     const note = nodes.find((n) => n.props && n.props.className === 'hr-config-note');
-    assert.ok(note, 'the notice takes no borrowed banner');
+    assert.ok(note, 'the summary takes no borrowed banner');
     assert.equal(note.props.role, 'status');
-    assert.match(textOf(element), /2 paused routines need configuration/);
+    assert.match(textOf(element), /2 routines need configuration/);
     const buttons = nodes.filter((n) => n.type === 'button');
-    assert.equal(buttons.length, 2, 'one action per target');
+    assert.equal(buttons.length, 1, 'the aggregate banner offers exactly one action');
+    assert.match(textOf(buttons[0]), /View/);
     buttons[0].props.onClick();
-    buttons[1].props.onClick();
-    assert.deepEqual(seen, ['j1', 'j2']);
+    assert.equal(views, 1);
     assert.equal(
       nodes.some((n) => n.props && n.props.className === 'hr-stale'),
       false,
       'the stale band stays reserved for stale states',
+    );
+  });
+
+  it('hides the configuration summary when zero routines need configuration', () => {
+    assert.equal(
+      routines.NeedsConfigurationNotice({ count: 0, onView: () => {} }),
+      null,
+      'a healthy list paints no configuration band at all',
     );
   });
 

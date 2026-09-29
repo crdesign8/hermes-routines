@@ -51,15 +51,16 @@ import { GuidedRoutinePanel } from './GuidedRoutinePanel';
 import { StatusLine } from './panels';
 import {
   ATTENTION_BAND_ID,
+  CONFIG_BAND_ID,
   EmptyFilterState,
   EmptyState,
   ErrorState,
   LoadingState,
   NeedsAttentionNotice,
+  NeedsConfigurationFocusBar,
   NeedsConfigurationNotice,
   StaleBanner,
   UnavailableState,
-  type GuidedReopenTarget,
 } from './RoutineStates';
 
 // Routines page for the Desktop's active profile connection.
@@ -192,22 +193,31 @@ export function RoutinesPage() {
   }, [state.jobs, searchQuery]);
 
   const filteredJobs = useMemo(() => {
-    // Search first, then the attention focus: the focus is a THIRD dimension
-    // beside the lifecycle filter (issue #80), narrowing to the routines
-    // whose latest run is failing. It intersects whatever is showing rather
-    // than replacing it, and the reducer resets the lifecycle filter to
-    // 'all' when a focus starts, so a focus can never hide a target at the
-    // very moment the user asked to see them.
+    // Search first, then the foci: attention is the THIRD dimension beside
+    // the lifecycle filter (issue #80) and configuration the FOURTH
+    // (issue #93),
+    // narrowing to the routines that are failing or that still need
+    // configuration. Each intersects whatever is showing rather than
+    // replacing it, and the reducer resets the lifecycle filter to 'all'
+    // when a focus starts (and keeps the two foci exclusive), so a focus
+    // can never hide a target at the very moment the user asked to see it.
     const searched = searchQuery.trim()
       ? shown.filter((job) => matchesQuery(job, searchQuery))
       : shown;
-    if (state.attentionFocus === null) return searched;
-    const focus = state.attentionFocus;
-    return searched.filter((job) => {
+    const inAttention =
+      state.attentionFocus === null
+        ? searched
+        : searched.filter((job) => {
+            const id = jobIdOf(job);
+            return id !== '' && state.attentionFocus !== null && state.attentionFocus.indexOf(id) !== -1;
+          });
+    if (state.configFocus === null) return inAttention;
+    const focus = state.configFocus;
+    return inAttention.filter((job) => {
       const id = jobIdOf(job);
       return id !== '' && focus.indexOf(id) !== -1;
     });
-  }, [shown, searchQuery, state.attentionFocus]);
+  }, [shown, searchQuery, state.attentionFocus, state.configFocus]);
 
   // The needs-attention summary (issue #80): how many routines are failing
   // right now, and how many paused ones carry an older failure.
@@ -227,6 +237,18 @@ export function RoutinesPage() {
     ).length;
     return { count: failing.length, pausedFailures };
   }, [searchMatches]);
+
+  // The needs-configuration summary (issue #93): how many routines are
+  // paused and never ran, and therefore have no complete configuration to
+  // preserve. Counted over the SEARCH matches, like the chip counts and
+  // the attention summary, because the number must answer "how many would
+  // I open?". Derived per render from backend rows — never from ephemeral
+  // panel state — so it survives a reload, and hidden while the guided
+  // panel is open: the user is already configuring one of them.
+  const configCandidates = useMemo(() => {
+    if (guided !== null) return [];
+    return searchMatches.filter((job) => guidedConfigCandidateOf(job) !== null);
+  }, [searchMatches, guided]);
 
   const selectedJob = useMemo(() => {
     if (!selectedJobKey) return null;
@@ -544,6 +566,11 @@ export function RoutinesPage() {
         submitted: { name, schedule, prompt },
         autoSubmit: true,
       });
+      // Opening the guided panel takes over the configuration question, so
+      // any configuration focus is left behind — same reason as
+      // handleGuidedReopen: both bands hide while the panel is open, so a
+      // live focus would narrow the list with no visible way back.
+      dispatch({ type: 'config-focus-cleared' });
       setGuided({ routine: result.routine, name, schedule, prompt, delivery, initialLaunch });
       setGuidedRecent(null);
       setIsCreating(false);
@@ -592,6 +619,11 @@ export function RoutinesPage() {
    * re-runs its stale guard — opening proves nothing and changes nothing.
    */
   function handleGuidedReopen(jobId: string): void {
+    // Opening the guided panel takes over the configuration question, so
+    // the configuration focus is left behind: keeping it would hold the
+    // list narrowed to a slice whose focus bar is hidden while the panel
+    // is open, with no visible way back.
+    dispatch({ type: 'config-focus-cleared' });
     if (guidedRecent !== null && guidedRecent.routine.jobId === jobId) {
       setGuided(guidedRecent);
       setGuidedRecent(null);
@@ -627,37 +659,6 @@ export function RoutinesPage() {
   }
 
   /**
-   * Incomplete-configuration targets for the list notice: the retained
-   * in-session handle first (when its row is still paused below), then
-   * every other paused-never-ran row. Computed per render from backend
-   * rows — never from ephemeral panel state — so it survives a reload.
-   */
-  function guidedReopenTargets(): GuidedReopenTarget[] {
-    if (guided !== null) return [];
-    const targets: GuidedReopenTarget[] = [];
-    const seen: string[] = [];
-    if (guidedRecent !== null) {
-      const id = guidedRecent.routine.jobId;
-      const row = state.jobs.find((job) => jobIdOf(job) === id) ?? null;
-      if (row !== null && guidedConfigCandidateOf(row) !== null) {
-        targets.push({
-          jobId: id,
-          title: routineTitle(row, guidedRecent.name || 'Routine'),
-          resumed: true,
-        });
-        seen.push(id);
-      }
-    }
-    for (const job of state.jobs) {
-      const id = jobIdOf(job);
-      if (!id || seen.indexOf(id) !== -1) continue;
-      if (guidedConfigCandidateOf(job) === null) continue;
-      targets.push({ jobId: id, title: routineTitle(job, 'Routine'), resumed: false });
-    }
-    return targets;
-  }
-
-  /**
    * Enter or leave the attention focus (issue #80). The band swaps itself
    * for the other state, which unmounts the control the user just pressed —
    * so focus is handed to the band that replaced it on the next tick, for the
@@ -673,6 +674,24 @@ export function RoutinesPage() {
     }
     setTimeout(() => {
       focusById(ATTENTION_BAND_ID);
+    }, 0);
+  }
+
+  /**
+   * Enter or leave the configuration focus (issue #93). Mirrors the
+   * attention focus exactly: the band swaps itself for the other state,
+   * which unmounts the control the user just pressed — so focus is handed
+   * to the band that replaced it on the next tick. The ids come from the
+   * domain verdict over the search matches, never from display titles.
+   */
+  function setConfigFocus(event: 'focus' | 'clear'): void {
+    if (event === 'focus') {
+      dispatch({ type: 'config-focus', jobs: searchMatches });
+    } else {
+      dispatch({ type: 'config-focus-cleared' });
+    }
+    setTimeout(() => {
+      focusById(CONFIG_BAND_ID);
     }, 0);
   }
 
@@ -782,6 +801,15 @@ export function RoutinesPage() {
               title="No failing routine matches this search"
               hint="Clear the search box to see the routines that need attention."
             />
+          ) : state.configFocus !== null ? (
+            // Same trap one dimension over: the only way a live
+            // configuration focus can match nothing is a search that no
+            // longer covers any candidate — a configured or vanished
+            // routine would have dropped the focus on the next list load.
+            <EmptyFilterState
+              title="No routine needing configuration matches this search"
+              hint="Clear the search box to see the routines that need configuration."
+            />
           ) : (
             <EmptyFilterState />
           )
@@ -878,15 +906,29 @@ export function RoutinesPage() {
       />,
     );
   } else if (state.status === S.READY) {
-    const reopenTargets = guidedReopenTargets();
-    if (reopenTargets.length > 0) {
-      body.push(
-        <NeedsConfigurationNotice
-          key="needs-configuration"
-          targets={reopenTargets}
-          onConfigure={handleGuidedReopen}
-        />,
-      );
+    // Aggregate configuration banner (issue #93): the count over the
+    // search matches plus at most one navigation action — never one
+    // button per routine. While a configuration focus is active the
+    // summary is replaced by its focus bar, the same swap the attention
+    // band performs. Both stay hidden while the guided panel is open.
+    if (guided === null) {
+      if (state.configFocus !== null && state.configFocus.length > 0) {
+        body.push(
+          <NeedsConfigurationFocusBar
+            key="config-focus"
+            visibleCount={filteredJobs.length}
+            onClear={() => setConfigFocus('clear')}
+          />,
+        );
+      } else if (configCandidates.length > 0) {
+        body.push(
+          <NeedsConfigurationNotice
+            key="needs-configuration"
+            count={configCandidates.length}
+            onView={() => setConfigFocus('focus')}
+          />,
+        );
+      }
     }
     body.push(<div key="ready-list">{renderList()}</div>);
   }
@@ -958,6 +1000,7 @@ export function RoutinesPage() {
             onClose={() => closeSurface('inspector')}
             onPause={() => handlePause(selectedJobId, selectedJobLabel)}
             onResume={() => handleResume(selectedJobId, selectedJobLabel)}
+            onConfigure={handleGuidedReopen}
           />
         ) : guided ? (
           <GuidedRoutinePanel

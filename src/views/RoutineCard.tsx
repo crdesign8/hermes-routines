@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import type { RoutineJob } from '../domain/jobs';
+import { guidedConfigCandidateOf } from '../domain/provisional';
 import {
   humanScheduleOf,
   nextRunCopyOf,
@@ -51,6 +52,10 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
   // routine has no future, so its stale field is dropped — the same way the
   // inspector drops it.
   const nextCopy = routineActive(job) ? nextRunCopyOf(nextRunIso(job)) : null;
+  // Incomplete configuration (issue #93): a paused, never-ran row states
+  // it in words on its single summary line. Text only — never a button,
+  // never a badge: the row identifies, the inspector acts.
+  const needsConfiguration = guidedConfigCandidateOf(job) !== null;
 
   return (
     <li
@@ -152,6 +157,12 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
                 <>
                   <span className="hr-sub-sep">|</span>
                   <span className="hr-sub-failed">{failure}</span>
+                </>
+              ) : null}
+              {needsConfiguration ? (
+                <>
+                  <span className="hr-sub-sep">|</span>
+                  <span className="hr-sub-config">Needs configuration</span>
                 </>
               ) : null}
             </>

@@ -390,6 +390,10 @@ export const ROUTINES_CSS = [
   // Failure text for the row: words plus color, so the failure reads even
   // when color is unavailable (issue #76).
   '.hr-sub-failed { color: var(--ui-red, #f87171); font-weight: 500; }',
+  // Configuration state for the row (issue #93): plain secondary words on
+  // the single summary line — no button, no badge, no bordered chrome.
+  // The row identifies; the inspector acts.
+  '.hr-sub-config { color: var(--ui-text-secondary, #ccc); }',
   '',
   '/* Shared detail rows. The expanded in-place block is gone (issue #77): a row never grows, so these rows belong to the inspector alone and the label/value cells keep the same rendering wherever they are read. */',
   '.hr-detail {',
@@ -755,8 +759,9 @@ export const ROUTINES_CSS = [
   '  gap: 2px;',
   '  padding: 0;',
   '}',
-  // Quiet needs-configuration notice (issue #92): this names paused rows
-  // that can be (re)opened, not a failure — so it takes no bordered band.
+  // Quiet aggregate needs-configuration summary (issues #92 and #93):
+  // this names how many paused rows still need configuration, not a
+  // failure — so it takes no bordered band and offers exactly one action.
   // The StaleBanner keeps .hr-stale; errors and the attention band keep
   // their stronger treatment.
   '.hr-config-note {',
@@ -1086,5 +1091,9 @@ export const ROUTINES_CSS = [
   // its label, so it still says what it does at any width (issue #79).
   '  .hr-btn-new { padding: 0 10px; gap: 5px; }',
   '  .hr-row-sub { margin-left: 26px; }',
+  // The aggregate configuration summary keeps its single action beside
+  // the count on a narrow viewport (issue #93): the row already wraps,
+  // so the banner only tightens its spacing instead of stacking.
+  '  .hr-config-note { gap: 6px; margin: 0 0 10px; }',
   '}',
 ].join('\n');
