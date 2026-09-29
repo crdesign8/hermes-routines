@@ -1175,8 +1175,8 @@ function routineHealthOf(job) {
   if (routineCompleted(job)) return "completed";
   if (routineErrored(job)) return "failed";
   if (routinePausedOf(job)) return "paused";
-  if (lastRanWithError(job)) return "failed";
   if (lastRanSuccessfully(job)) return "healthy";
+  if (lastRanWithError(job)) return "failed";
   return "unknown";
 }
 function collapsedSubtitleOf(job) {
@@ -3383,6 +3383,9 @@ var ROUTINES_CSS = [
   ".hr-sub-schedule { color: var(--ui-text-tertiary, #999); }",
   ".hr-sub-sep { margin: 0 6px; color: var(--ui-stroke-tertiary, rgba(255,255,255,0.2)); font-size: 11px; }",
   ".hr-sub-next { color: var(--ui-text-tertiary, #888); }",
+  // Failure text for the row: words plus color, so the failure reads even
+  // when color is unavailable (issue #76).
+  ".hr-sub-failed { color: var(--ui-red, #f87171); font-weight: 500; }",
   "",
   "/* Expanded In-Place Details (media_1790206808519.png) */",
   ".hr-details {",
@@ -3490,7 +3493,22 @@ var ROUTINES_CSS = [
   "  border-top: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.06));",
   "}",
   ".hr-inspector-last-run .hr-create-section-label { margin-bottom: 6px; }",
-  ".hr-inspector-issue { white-space: pre-wrap; overflow-wrap: anywhere; }",
+  // ── failure hierarchy (issue #76) ──
+  // What failed first (words, never the icon's color alone), then the
+  // derived reason, then — collapsed and visually secondary — the raw
+  // evidence. The summary is the loudest thing in the block on purpose.
+  ".hr-failure-summary { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }",
+  ".hr-failure-summary-head { font-size: 13px; font-weight: 600; color: var(--ui-text-primary, #fff); }",
+  ".hr-failure-summary-reason { font-size: 12px; line-height: 1.5; color: var(--ui-text-secondary, #ccc); }",
+  // Native disclosure: collapsed by default, keyboard reachable, and it
+  // needs no control — the block stays read-only by construction.
+  ".hr-tech-details { margin-top: 2px; }",
+  ".hr-tech-summary { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ui-text-tertiary, #888); cursor: pointer; padding: 2px 0; }",
+  ".hr-tech-summary:hover { color: var(--ui-text-secondary, #ccc); }",
+  ".hr-tech-body { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }",
+  // Evidence stays verbatim: wrapped, never ellipsized, and long output
+  // scrolls inside its own cell instead of being cut off.
+  ".hr-tech-value { font-family: var(--dt-font-mono, monospace); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }",
   ".hr-inspector-actions-bar { display: flex; gap: 8px; }",
   ".hr-btn { display: inline-flex; align-items: center; justify-content: center; padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--ui-text-primary, #fff); background: var(--ui-bg-card, #222); border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.12)); border-radius: 6px; cursor: pointer; transition: all 0.15s ease; }",
   ".hr-btn:hover { background: var(--chrome-action-hover, rgba(255,255,255,0.08)); }",
@@ -4054,17 +4072,19 @@ function statusOf(job) {
   const health = routineHealthOf(job);
   switch (health) {
     case "completed":
-      return { label: "Completed", tone: "completed" };
+      return { label: "Completed", tone: "completed", failure: null };
     case "failed":
-      if (routineErrored(job)) return { label: "Error", tone: "error" };
-      return { label: "Active \u2014 last run failed", tone: "failed" };
+      if (routineErrored(job)) return { label: "Error", tone: "error", failure: "Error" };
+      return { label: "Active \u2014 last run failed", tone: "failed", failure: "Last run failed" };
     case "paused":
-      if (isFailedStatus(job)) return { label: "Paused \u2014 last run failed", tone: "paused" };
-      return { label: "Paused", tone: "paused" };
+      if (isFailedStatus(job)) {
+        return { label: "Paused \u2014 last run failed", tone: "paused", failure: "Last run failed" };
+      }
+      return { label: "Paused", tone: "paused", failure: null };
     case "unknown":
-      return { label: "Active", tone: "unknown" };
+      return { label: "Active", tone: "unknown", failure: null };
     case "healthy":
-      return { label: "Active", tone: "active" };
+      return { label: "Active", tone: "active", failure: null };
   }
 }
 function RoutineStatus({ job }) {
@@ -4096,7 +4116,7 @@ function RoutineCard(props) {
   const title = routineTitle(job, fallback);
   const paused = routinePausedOf(job);
   const terminal = routineTerminal(job);
-  const { tone } = statusOf(job);
+  const { tone, failure: failure3 } = statusOf(job);
   const schedule = humanScheduleOf(job) || "\u2014";
   const nextCopy = routineActive(job) ? nextRunCopyOf(nextRunIso(job)) : null;
   const controlsId = `hr-details-${fallback.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
@@ -4182,13 +4202,31 @@ function RoutineCard(props) {
             )
           ] })
         ] }),
-        /* @__PURE__ */ jsx4("div", { className: "hr-row-sub", children: !expanded ? /* @__PURE__ */ jsx4("div", { className: "hr-row-subtitle", children: paused ? /* @__PURE__ */ jsx4("span", { className: "hr-sub-paused", children: "Paused" }) : /* @__PURE__ */ jsxs3(Fragment, { children: [
-          /* @__PURE__ */ jsx4("span", { className: "hr-sub-schedule", children: schedule }),
-          nextCopy ? /* @__PURE__ */ jsxs3(Fragment, { children: [
-            /* @__PURE__ */ jsx4("span", { className: "hr-sub-sep", children: "|" }),
-            /* @__PURE__ */ jsx4("span", { className: "hr-sub-next", children: nextCopy.sentence })
-          ] }) : null
-        ] }) }) : /* @__PURE__ */ jsx4("div", { id: controlsId, className: "hr-row-details", children: /* @__PURE__ */ jsx4(RoutineDetails, { job, fallback }) }) })
+        /* @__PURE__ */ jsx4("div", { className: "hr-row-sub", children: !expanded ? (
+          // Failure copy is TEXT, never the icon's color alone (issue #76).
+          // A failed row states it between the schedule and the next run —
+          // "Every day at 09:00 | Last run failed | Next run in 19 hours" —
+          // while a success or a clean pause keeps its own copy and grows
+          // no error affordance. The words come from the same derivation
+          // as the indicator, so they cannot disagree.
+          /* @__PURE__ */ jsx4("div", { className: "hr-row-subtitle", children: paused ? /* @__PURE__ */ jsxs3(Fragment, { children: [
+            /* @__PURE__ */ jsx4("span", { className: "hr-sub-paused", children: "Paused" }),
+            failure3 !== null ? /* @__PURE__ */ jsxs3(Fragment, { children: [
+              /* @__PURE__ */ jsx4("span", { className: "hr-sub-sep", children: "|" }),
+              /* @__PURE__ */ jsx4("span", { className: "hr-sub-failed", children: failure3 })
+            ] }) : null
+          ] }) : /* @__PURE__ */ jsxs3(Fragment, { children: [
+            /* @__PURE__ */ jsx4("span", { className: "hr-sub-schedule", children: schedule }),
+            failure3 !== null ? /* @__PURE__ */ jsxs3(Fragment, { children: [
+              /* @__PURE__ */ jsx4("span", { className: "hr-sub-sep", children: "|" }),
+              /* @__PURE__ */ jsx4("span", { className: "hr-sub-failed", children: failure3 })
+            ] }) : null,
+            nextCopy ? /* @__PURE__ */ jsxs3(Fragment, { children: [
+              /* @__PURE__ */ jsx4("span", { className: "hr-sub-sep", children: "|" }),
+              /* @__PURE__ */ jsx4("span", { className: "hr-sub-next", children: nextCopy.sentence })
+            ] }) : null
+          ] }) })
+        ) : /* @__PURE__ */ jsx4("div", { id: controlsId, className: "hr-row-details", children: /* @__PURE__ */ jsx4(RoutineDetails, { job, fallback }) }) })
       ]
     }
   );
@@ -4424,6 +4462,77 @@ function destinationDelivery(choice, advanced = EMPTY_ADVANCED_DESTINATION) {
   return normalizeDelivery(choice);
 }
 
+// src/domain/failureExplain.ts
+var GENERIC_FAILURE_SUMMARY = "The last run failed.";
+var REASON_PATTERNS = [
+  [/\bcommand not found\b|\bENOENT\b/i, "A required command or file was not found."],
+  [/\bpermission denied\b|\bEACCES\b/i, "Permission was denied."],
+  [/\btim(?:ed|e)?[ -]?out\b|\bETIMEDOUT\b/i, "The run timed out."],
+  [
+    /\bconnection refused\b|\bECONNREFUSED\b|\bENOTFOUND\b|\bEAI_AGAIN\b/i,
+    "The network request failed."
+  ],
+  [
+    /\btoo many requests\b|\brate[ -]?limit(?:ed|ing)?\b|\b(?:status|http)[ :]*429\b/i,
+    "The service rate limit was hit."
+  ],
+  [
+    /\bunauthorized\b|\bauthentication (?:failed|required)\b|\binvalid api key\b/i,
+    "Authentication was rejected."
+  ],
+  [/\bno space left on device\b|\bENOSPC\b/i, "The disk is full."]
+];
+function deriveFailureReason(...texts) {
+  for (const [pattern, reason] of REASON_PATTERNS) {
+    for (const text of texts) {
+      if (typeof text === "string" && pattern.test(text)) return reason;
+    }
+  }
+  return null;
+}
+function asRecord4(value) {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  return null;
+}
+function firstText(row, keys) {
+  if (row === null) return null;
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return null;
+}
+function explainFailureOf(job) {
+  const execution = lastExecutionOf(job);
+  if (!execution.known || execution.resultKind !== "error") return null;
+  const row = asRecord4(job);
+  const message = issueOf(job);
+  const stderr = firstText(row, ["last_stderr", "lastStderr", "stderr"]);
+  const exitCode = firstText(row, ["last_exit_code", "lastExitCode", "exit_code", "exitCode"]);
+  const runAt = lastRunIso(job);
+  const runId = firstText(row, ["last_run_id", "lastRunId", "run_id", "runId"]);
+  const evidence = [];
+  const push = (label, value) => {
+    if (value !== null) evidence.push({ label, value });
+  };
+  push("Exit code", exitCode);
+  push("Stderr", stderr === message ? null : stderr);
+  push("Run timestamp", runAt);
+  push("Issue", message);
+  push("Run id", runId);
+  return {
+    summary: GENERIC_FAILURE_SUMMARY,
+    reason: deriveFailureReason(message, stderr),
+    evidence
+  };
+}
+
 // src/views/RoutineInspectorPanel.tsx
 import { jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
 function RoutineInspectorPanel({
@@ -4439,6 +4548,7 @@ function RoutineInspectorPanel({
   const storedModelOverride = readStoredModelOverride(row);
   const describedDelivery = describeDestination(storedDelivery);
   const needsConfiguration = guidedConfigCandidateOf(job) !== null;
+  const failure3 = explainFailureOf(job);
   return /* @__PURE__ */ jsxs4("aside", { className: "hr-inspector", "aria-label": `Details for ${title}`, children: [
     /* @__PURE__ */ jsx6("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs4(
       "button",
@@ -4551,9 +4661,16 @@ function RoutineInspectorPanel({
             /* @__PURE__ */ jsx6("span", { className: "hr-muted", children: "No runs yet." })
           )
         ] }),
-        execution.issue !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
-          /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Issue" }),
-          /* @__PURE__ */ jsx6("span", { className: "hr-detail-value hr-inspector-issue", children: execution.issue })
+        failure3 !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-failure-summary", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-failure-summary-head", children: failure3.summary }),
+          failure3.reason !== null ? /* @__PURE__ */ jsx6("span", { className: "hr-failure-summary-reason", children: failure3.reason }) : null
+        ] }) : null,
+        failure3 !== null && failure3.evidence.length > 0 ? /* @__PURE__ */ jsxs4("details", { className: "hr-tech-details", children: [
+          /* @__PURE__ */ jsx6("summary", { className: "hr-tech-summary", children: "Technical details" }),
+          /* @__PURE__ */ jsx6("div", { className: "hr-tech-body", children: failure3.evidence.map((item) => /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
+            /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: item.label }),
+            /* @__PURE__ */ jsx6("span", { className: "hr-detail-value hr-tech-value", children: item.value })
+          ] }, item.label)) })
         ] }) : null,
         execution.nextRun !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
           /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Next run" }),
@@ -6230,6 +6347,7 @@ export {
   DESTINATION_DEFAULT,
   DESTINATION_HISTORY,
   EMPTY_ADVANCED_DESTINATION,
+  GENERIC_FAILURE_SUMMARY,
   GUIDED_CHAT_DRAFT,
   GUIDED_ENVELOPE_MARKER,
   GUIDED_TRANSITIONS,
@@ -6286,6 +6404,7 @@ export {
   createProvisionalRoutine,
   cronOutcomeOf,
   plugin_default as default,
+  deriveFailureReason,
   describeDestination,
   describeSchedule2 as describeSchedule,
   describeScheduleConfig,
@@ -6294,6 +6413,7 @@ export {
   diagOfConfirmResult,
   diagOfLaunchResult,
   diagOfProvisionalResult,
+  explainFailureOf,
   findAppliedDuplicate,
   findDestinationOption,
   findRouteByKey,

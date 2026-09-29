@@ -10,6 +10,7 @@ import {
 } from '../domain/present';
 import { readStoredDelivery, readStoredModelOverride } from '../domain/advancedSettings';
 import { describeDestination } from '../domain/destinations';
+import { explainFailureOf } from '../domain/failureExplain';
 import { guidedConfigCandidateOf } from '../domain/provisional';
 import { ResultTone, RunWhen } from './RoutineDetails';
 
@@ -52,6 +53,12 @@ export function RoutineInspectorPanel({
   // text — never a control, never a resume: the reopen action lives on
   // the list, where the owning route is known.
   const needsConfiguration = guidedConfigCandidateOf(job) !== null;
+  // Failure hierarchy (issue #76): the run's story reads what failed,
+  // then the concise reason when one can be safely derived, then —
+  // collapsed and visually secondary — the raw evidence. Null for every
+  // row whose latest run did not fail, so success and pause stay free of
+  // failure affordances.
+  const failure = explainFailureOf(job);
 
   return (
     <aside className="hr-inspector" aria-label={`Details for ${title}`}>
@@ -218,11 +225,36 @@ export function RoutineInspectorPanel({
               <span className="hr-muted">No runs yet.</span>
             )}
           </div>
-          {execution.issue !== null ? (
-            <div className="hr-detail">
-              <span className="hr-detail-label">Issue</span>
-              <span className="hr-detail-value hr-inspector-issue">{execution.issue}</span>
+          {/* Failure hierarchy (issue #76): WHAT failed comes first as a
+              plain sentence, THEN the concise reason when the backend
+              output can be safely summarized. The headline stays generic
+              on purpose — a summary invented from output we cannot parse
+              would be a worse lie than no summary at all. */}
+          {failure !== null ? (
+            <div className="hr-failure-summary">
+              <span className="hr-failure-summary-head">{failure.summary}</span>
+              {failure.reason !== null ? (
+                <span className="hr-failure-summary-reason">{failure.reason}</span>
+              ) : null}
             </div>
+          ) : null}
+          {/* Technical details: collapsed by default and visually
+              secondary, but nothing inside is trimmed — the exit code,
+              stderr, timestamps, raw message and identifiers stay
+              reachable verbatim, and the native disclosure needs no
+              control (the block stays read-only by construction). */}
+          {failure !== null && failure.evidence.length > 0 ? (
+            <details className="hr-tech-details">
+              <summary className="hr-tech-summary">Technical details</summary>
+              <div className="hr-tech-body">
+                {failure.evidence.map((item) => (
+                  <div className="hr-detail" key={item.label}>
+                    <span className="hr-detail-label">{item.label}</span>
+                    <span className="hr-detail-value hr-tech-value">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
           ) : null}
           {execution.nextRun !== null ? (
             <div className="hr-detail">

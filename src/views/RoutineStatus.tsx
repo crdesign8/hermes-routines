@@ -8,25 +8,39 @@ import {
 
 export type StatusTone = 'active' | 'paused' | 'completed' | 'error' | 'failed' | 'unknown';
 
-export function statusOf(job: RoutineJob | null | undefined): { label: string; tone: StatusTone } {
+export interface StatusView {
+  label: string;
+  tone: StatusTone;
+  /**
+   * Compact failure copy for the list row (issue #76), or null when the
+   * row claims no failure. One derivation serves both the sr-only label
+   * and the visible text, so the words and the icon can never disagree —
+   * and a success or a clean pause never grows an error affordance.
+   */
+  failure: string | null;
+}
+
+export function statusOf(job: RoutineJob | null | undefined): StatusView {
   const health = routineHealthOf(job);
   switch (health) {
     case 'completed':
-      return { label: 'Completed', tone: 'completed' };
+      return { label: 'Completed', tone: 'completed', failure: null };
     case 'failed':
       // Error lifecycle state keeps its own copy even when the health token
       // is a plain failure.
-      if (routineErrored(job)) return { label: 'Error', tone: 'error' };
-      return { label: 'Active — last run failed', tone: 'failed' };
+      if (routineErrored(job)) return { label: 'Error', tone: 'error', failure: 'Error' };
+      return { label: 'Active — last run failed', tone: 'failed', failure: 'Last run failed' };
     case 'paused':
       // Status-token-only gate: a clean pause carrying a benign
       // paused_reason is 'Paused', never 'Paused — last run failed'.
-      if (isFailedStatus(job)) return { label: 'Paused — last run failed', tone: 'paused' };
-      return { label: 'Paused', tone: 'paused' };
+      if (isFailedStatus(job)) {
+        return { label: 'Paused — last run failed', tone: 'paused', failure: 'Last run failed' };
+      }
+      return { label: 'Paused', tone: 'paused', failure: null };
     case 'unknown':
-      return { label: 'Active', tone: 'unknown' };
+      return { label: 'Active', tone: 'unknown', failure: null };
     case 'healthy':
-      return { label: 'Active', tone: 'active' };
+      return { label: 'Active', tone: 'active', failure: null };
   }
 }
 

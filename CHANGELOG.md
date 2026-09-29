@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Failures are now explained before they are dumped. The list row states
+  the failure in words — `Every day at 09:00 | Last run failed | Next run
+  in 19 hours` — beside the icon instead of behind its color, and a paused
+  row whose last run failed says so too. The inspector reads a failure in
+  hierarchy: what failed (**The last run failed.**), then the concise
+  reason *when one can be safely derived*, and only then the raw output,
+  collapsed behind **Technical details**.
+
+  The reason comes from a closed table of machine tokens the backend
+  actually emitted (`command not found`, `ENOENT`, `EACCES`, `timeout`,
+  `ECONNREFUSED`, rate-limit wording, and a few more), and each mapped
+  sentence restates the token rather than diagnosing it. Output that
+  matches nothing derives nothing: an unparseable failure keeps the
+  generic headline and its raw evidence, never an invented explanation.
+  Evidence (exit code, stderr, timestamps, the raw runner/backend message,
+  identifiers) is copied verbatim into the collapsed block — long stderr
+  is wrapped and scrollable, never ellipsized — and an absent field paints
+  no row at all, so an empty stderr is absent rather than an empty claim.
+  The disclosure is a native `details`/`summary` pair, so the block stays
+  free of controls and keeps its keyboard behavior for free.
+
+  A recorded success now outranks a stale `last_fire_error`: the outcome
+  belongs to the run, so a successful row carrying an earlier run's error
+  string no longer repaints itself (and its indicator) as failed.
+
 - The **Model override** block is gone from the create form. It was a
   labelled field with no control behind it, followed by a sentence
   explaining that the model cannot be set there — non-actionable

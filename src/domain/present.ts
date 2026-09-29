@@ -383,10 +383,14 @@ export function lastExecutionOf(job: RoutineJob | null | undefined): LastExecuti
 /**
  * Health indicator for the routine row: a single token combining lifecycle
  * state with the last-run outcome. Precedence is
- * completed > error(state) > paused > failed > healthy > unknown, matching
+ * completed > error(state) > paused > outcome > unknown, matching
  * statusOf/collapsedSubtitleOf, so a terminal job keeps its lifecycle token
  * even when disabled and a paused job never reports a stale failure.
- * Null rows are unknown.
+ *
+ * Inside the outcome step a recorded success outranks a failure signal
+ * (issue #76): the outcome belongs to the run, and `lastResultOf` already
+ * reads it that way — a `last_fire_error` left behind by an earlier run
+ * cannot repaint a successful one as failed. Null rows are unknown.
  */
 export type RoutineHealth = 'healthy' | 'failed' | 'paused' | 'completed' | 'unknown';
 
@@ -395,8 +399,8 @@ export function routineHealthOf(job: RoutineJob | null | undefined): RoutineHeal
   if (routineCompleted(job)) return 'completed';
   if (routineErrored(job)) return 'failed';
   if (routinePausedOf(job)) return 'paused';
-  if (lastRanWithError(job)) return 'failed';
   if (lastRanSuccessfully(job)) return 'healthy';
+  if (lastRanWithError(job)) return 'failed';
   return 'unknown';
 }
 

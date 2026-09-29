@@ -68,6 +68,7 @@ export * from './domain/guidedEnvelope';
 export * from './domain/routineProposal';
 export * from './domain/guidedWorkflow';
 export * from './domain/present';
+export * from './domain/failureExplain';
 export * from './gateway/cronGateway';
 export * from './gateway/guidedChat';
 export * from './gateway/guidedLaunch';
