@@ -435,16 +435,18 @@ describe('guided-composer-integration', () => {
     const noop = () => {};
     const guided = [];
     const direct = [];
-    // useState order: name, prompt, active, scheduleConfig, submitting,
-    // error, mode.
+    // useState order (issue #72): name, prompt, startEnabled,
+    // scheduleConfig, pendingPath, error, deliveryChoice, deliveryCustom.
+    // The path is no longer a slot: the Finish button IS the guided act.
     reactStub.__presetStates([
       ['Daily digest', noop],
       [PROMPT, noop],
       [true, noop],
       [routines.DEFAULT_SCHEDULE_CONFIG, noop],
-      [false, noop],
       [null, noop],
-      ['guided', noop],
+      [null, noop],
+      ['', noop],
+      ['', noop],
     ]);
     const element = routines.RoutineComposerPanel({
       activeProfile: 'p1',
@@ -461,14 +463,17 @@ describe('guided-composer-integration', () => {
       },
     });
     const nodes = collect(element);
-    const submit = nodes.find((n) => n.type === 'button' && /Create & Configure/.test(String(n.props.children)));
-    assert.ok(submit, 'the guided submit label must be shown in guided mode');
+    const submit = nodes.find(
+      (n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-hermes',
+    );
+    assert.ok(submit, 'the guided completion act must exist in the composer');
+    assert.match(texts(submit), /Finish with Hermes/, 'the act states its own outcome');
     await submit.props.onClick();
     assert.equal(guided.length, 1, 'guided submit routes to the guided handler');
-    // Active is true here, yet the guided path must not use it: a guided
-    // routine is created paused by construction. #65 added a trailing
-    // `delivery` argument, so the invariant is asserted by name — the
-    // handler must not receive an `active` flag — not by argument count.
+    // Start enabled is true here, yet the guided path must not use it: a
+    // guided routine is created paused by construction. #65 added a
+    // trailing `delivery` argument, so the invariant is asserted by name —
+    // the handler must not receive an `active` flag — not by argument count.
     assert.equal(guided[0].length, 4, 'guided passes name, schedule, prompt, delivery');
     assert.equal(guided[0].includes(true), false, 'the guided handler never receives an active flag');
     assert.equal(guided[0].includes(false), false, 'the guided handler never receives an active flag');
@@ -486,11 +491,9 @@ describe('guided-composer-integration', () => {
       onSubmit: async () => true,
     });
     const nodes = collect(element);
-    assert.equal(
-      nodes.some((n) => n.type === 'button' && /Configure with Hermes/.test(String(n.props.children))),
-      false,
-      'no guided affordance without a guided path',
-    );
+    const body = texts(nodes);
+    assert.doesNotMatch(body, /Finish with Hermes/, 'no guided affordance without a guided path');
+    assert.doesNotMatch(body, /Configure with Hermes/, 'the old toggle wording is gone');
     assert.ok(
       nodes.some((n) => n.type === 'button' && String(n.props.children) === 'Create Routine'),
     );

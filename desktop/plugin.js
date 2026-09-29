@@ -16,7 +16,7 @@ var SIDEBAR_LABEL = "Routines";
 var SIDEBAR_CODICON = "history";
 
 // src/views/RoutinesPage.tsx
-import { useCallback, useEffect as useEffect3, useMemo as useMemo2, useRef as useRef2, useState as useState5 } from "react";
+import { useCallback, useEffect as useEffect3, useMemo as useMemo2, useRef as useRef3, useState as useState5 } from "react";
 import { host as host3, useValue } from "@hermes/plugin-sdk";
 
 // src/domain/routing.ts
@@ -3606,6 +3606,63 @@ var ROUTINES_CSS = [
   "  opacity: 0.65;",
   "  cursor: not-allowed;",
   "}",
+  // Finish with Hermes: a distinct, bordered card ABOVE the final actions,
+  // so the secondary completion path reads as a separate offering rather
+  // than another field of the form. It is a card and not a switch because
+  // it is an act, and a switch-shaped control would promise a property the
+  // routine never keeps.
+  ".hr-create-hermes-card {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  gap: 10px;",
+  "  padding: 12px 14px;",
+  "  margin-top: 16px;",
+  "  border: 1px dashed var(--ui-stroke-secondary, var(--dt-border, rgba(255, 255, 255, 0.16)));",
+  "  border-radius: 10px;",
+  "  background: var(--ui-bg-secondary, color-mix(in srgb, var(--dt-card, #1c1917) 35%, transparent));",
+  "}",
+  ".hr-create-hermes-info {",
+  "  display: flex;",
+  "  flex-direction: column;",
+  "  gap: 4px;",
+  "}",
+  ".hr-create-hermes-title {",
+  "  font-size: 13px;",
+  "  font-weight: 600;",
+  "  color: var(--ui-text-primary, #fff);",
+  "}",
+  ".hr-create-hermes-subtitle {",
+  "  font-size: 12px;",
+  "  line-height: 1.45;",
+  "  color: var(--ui-text-secondary, #a1a1aa);",
+  "}",
+  ".hr-create-hermes-hint {",
+  "  font-size: 11px;",
+  "  line-height: 1.4;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "}",
+  ".hr-btn-create-hermes {",
+  "  width: 100%;",
+  "  height: 34px;",
+  "  border-radius: 8px;",
+  "  font-size: 13px;",
+  "  font-weight: 600;",
+  "  color: var(--ui-text-primary, #fff);",
+  "  background: transparent;",
+  "  border: 1px solid var(--ui-stroke-secondary, var(--dt-border, rgba(255, 255, 255, 0.22)));",
+  "  cursor: pointer;",
+  "  transition: opacity 0.15s ease, background 0.15s ease;",
+  "  display: flex;",
+  "  align-items: center;",
+  "  justify-content: center;",
+  "}",
+  ".hr-btn-create-hermes:hover:not(:disabled) {",
+  "  background: var(--chrome-action-hover, rgba(255, 255, 255, 0.06));",
+  "}",
+  ".hr-btn-create-hermes:disabled {",
+  "  opacity: 0.5;",
+  "  cursor: not-allowed;",
+  "}",
   "/* Field labels */",
   ".hr-field-label, .hr-select-label {",
   "  display: block;",
@@ -4314,7 +4371,7 @@ function RoutineInspectorPanel({
 }
 
 // src/views/RoutineComposerPanel.tsx
-import { useMemo, useState as useState3 } from "react";
+import { useMemo, useRef as useRef2, useState as useState3 } from "react";
 
 // src/views/SelectField.tsx
 import { useEffect as useEffect2, useRef, useState as useState2 } from "react";
@@ -4441,13 +4498,13 @@ function RoutineComposerPanel({
 }) {
   const [name, setName] = useState3("");
   const [prompt, setPrompt] = useState3("");
-  const [active, setActive] = useState3(true);
+  const [startEnabled, setStartEnabled] = useState3(true);
   const [scheduleConfig, setScheduleConfig] = useState3(DEFAULT_SCHEDULE_CONFIG);
-  const [submitting, setSubmitting] = useState3(false);
+  const [pendingPath, setPendingPath] = useState3(null);
   const [error, setError] = useState3(null);
-  const [mode, setMode] = useState3(onSubmitGuided ? "guided" : "direct");
   const [deliveryChoice, setDeliveryChoice] = useState3("");
   const [deliveryCustom, setDeliveryCustom] = useState3("");
+  const inFlightRef = useRef2(false);
   const timeOptions = useMemo(
     () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
     []
@@ -4470,9 +4527,11 @@ function RoutineComposerPanel({
   );
   const cronExpr = useMemo(() => buildCronExpression(scheduleConfig), [scheduleConfig]);
   const humanSentence = useMemo(() => describeScheduleConfig(scheduleConfig), [scheduleConfig]);
-  async function handleSubmit() {
+  const draftReady = name.trim() !== "" && prompt.trim() !== "";
+  const busy = pendingPath !== null || disabled;
+  async function handleSubmit(path) {
     const trimmedName = name.trim();
-    if (!trimmedName || submitting || disabled) return;
+    if (!trimmedName || busy) return;
     const promptText = prompt.trim();
     if (!promptText) {
       setError("Describe what this routine should do.");
@@ -4485,17 +4544,20 @@ function RoutineComposerPanel({
       return;
     }
     const delivery = normalized.present ? normalized.delivery : void 0;
-    setSubmitting(true);
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setPendingPath(path);
     setError(null);
     try {
-      if (mode === "guided" && onSubmitGuided) {
+      if (path === "guided") {
+        if (!onSubmitGuided) return;
         const ok2 = await onSubmitGuided(trimmedName, cronExpr, promptText, delivery);
         if (!ok2) {
           setError("Failed to create routine. Please verify parameters.");
         }
         return;
       }
-      const ok = await onSubmit(trimmedName, cronExpr, promptText, active, delivery);
+      const ok = await onSubmit(trimmedName, cronExpr, promptText, startEnabled, delivery);
       if (!ok) {
         setError("Failed to create routine. Please verify parameters.");
       }
@@ -4503,7 +4565,8 @@ function RoutineComposerPanel({
       const message = err instanceof Error ? err.message : "Failed to create routine.";
       setError(message);
     } finally {
-      setSubmitting(false);
+      inFlightRef.current = false;
+      setPendingPath(null);
     }
   }
   return /* @__PURE__ */ jsxs6("aside", { className: "hr-inspector hr-create-inspector", "aria-label": "Create Routine", children: [
@@ -4539,42 +4602,6 @@ function RoutineComposerPanel({
     ) }),
     /* @__PURE__ */ jsxs6("div", { className: "hr-inspector-body", children: [
       /* @__PURE__ */ jsx8("h3", { className: "hr-create-title", children: "Create Routine" }),
-      onSubmitGuided ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
-        /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
-          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-title", children: "Configure with Hermes" }),
-          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-subtitle", children: mode === "guided" ? "Creates the routine paused, then opens a chat to finish configuring it." : "Creates the routine right away with the settings below." })
-        ] }),
-        /* @__PURE__ */ jsx8(
-          "button",
-          {
-            type: "button",
-            role: "switch",
-            "aria-checked": mode === "guided",
-            "aria-label": "Toggle guided configuration",
-            className: `hr-switch-pill ${mode === "guided" ? "hr-switch-active" : ""}`,
-            onClick: () => setMode(mode === "guided" ? "direct" : "guided"),
-            children: /* @__PURE__ */ jsx8("span", { className: "hr-switch-thumb" })
-          }
-        )
-      ] }) : null,
-      mode === "direct" ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
-        /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
-          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-title", children: "Active" }),
-          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-subtitle", children: "This routine will run on the schedule below." })
-        ] }),
-        /* @__PURE__ */ jsx8(
-          "button",
-          {
-            type: "button",
-            role: "switch",
-            "aria-checked": active,
-            "aria-label": "Toggle routine active state",
-            className: `hr-switch-pill ${active ? "hr-switch-active" : ""}`,
-            onClick: () => setActive(!active),
-            children: /* @__PURE__ */ jsx8("span", { className: "hr-switch-thumb" })
-          }
-        )
-      ] }) : null,
       /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
         /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "Name" }),
         /* @__PURE__ */ jsx8(
@@ -4715,7 +4742,43 @@ function RoutineComposerPanel({
           /* @__PURE__ */ jsx8("div", { className: "hr-create-preview-sentence", children: MODEL_OVERRIDE_READONLY_NOTE })
         ] })
       ] }),
+      /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
+        /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
+          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-title", children: "Start enabled" }),
+          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-subtitle", children: startEnabled ? "The routine runs on the schedule above as soon as it is created." : "The routine is created paused, so it waits until you turn it on yourself." })
+        ] }),
+        /* @__PURE__ */ jsx8(
+          "button",
+          {
+            type: "button",
+            role: "switch",
+            "aria-checked": startEnabled,
+            "aria-label": "Start the routine enabled",
+            className: `hr-switch-pill ${startEnabled ? "hr-switch-active" : ""}`,
+            onClick: () => setStartEnabled(!startEnabled),
+            children: /* @__PURE__ */ jsx8("span", { className: "hr-switch-thumb" })
+          }
+        )
+      ] }),
       error ? /* @__PURE__ */ jsx8("div", { className: "hr-create-error", role: "alert", children: error }) : null,
+      onSubmitGuided ? /* @__PURE__ */ jsxs6("section", { className: "hr-create-hermes-card", "aria-labelledby": "hr-create-hermes-title", children: [
+        /* @__PURE__ */ jsxs6("div", { className: "hr-create-hermes-info", children: [
+          /* @__PURE__ */ jsx8("span", { className: "hr-create-hermes-title", id: "hr-create-hermes-title", children: "Finish with Hermes" }),
+          /* @__PURE__ */ jsx8("span", { className: "hr-create-hermes-subtitle", children: "Hermes reviews this draft in a chat, asks about whatever is still missing, and completes the setup for you. Nothing here has to be finished first." })
+        ] }),
+        /* @__PURE__ */ jsx8(
+          "button",
+          {
+            type: "button",
+            className: "hr-btn hr-btn-create-hermes",
+            "aria-label": "Create this routine and finish the setup with Hermes",
+            disabled: !draftReady || busy,
+            onClick: () => void handleSubmit("guided"),
+            children: pendingPath === "guided" ? "Starting\u2026" : "Finish with Hermes"
+          }
+        ),
+        /* @__PURE__ */ jsx8("span", { className: "hr-create-hermes-hint", children: draftReady ? "The routine is created paused and stays paused until you review what Hermes proposes." : "Add a name and an instruction, and the rest is what the conversation is for." })
+      ] }) : null,
       /* @__PURE__ */ jsxs6("div", { className: "hr-create-actions", children: [
         /* @__PURE__ */ jsx8(
           "button",
@@ -4731,9 +4794,9 @@ function RoutineComposerPanel({
           {
             type: "button",
             className: "hr-btn hr-btn-create-submit",
-            disabled: !name.trim() || !prompt.trim() || submitting || disabled,
-            onClick: handleSubmit,
-            children: submitting ? "Creating\u2026" : mode === "guided" && onSubmitGuided ? "Create & Configure with Hermes" : "Create Routine"
+            disabled: !draftReady || busy,
+            onClick: () => void handleSubmit("direct"),
+            children: pendingPath === "direct" ? "Creating\u2026" : "Create Routine"
           }
         )
       ] })
@@ -5337,9 +5400,9 @@ function pastTense(kind) {
 function RoutinesPage() {
   const [state, setState] = useState5(initialRoutinesState);
   const [routesNonce, setRoutesNonce] = useState5(0);
-  const headingRef = useRef2(null);
-  const statusRef = useRef2(null);
-  const generationRef = useRef2(0);
+  const headingRef = useRef3(null);
+  const statusRef = useRef3(null);
+  const generationRef = useRef3(0);
   const activeProfile = useValue(host3.state.profile);
   const activeConnectionId = useValue(host3.state.connectionId);
   const dispatch = useCallback((event) => {
