@@ -764,6 +764,12 @@ export function RoutinesPage() {
           <RoutineComposerPanel
             activeRoute={activeRoute}
             activeProfile={state.activeProfile ?? (typeof activeProfile === 'string' ? activeProfile : null)}
+            // Destinations come from the SAME route roster the page
+            // already resolved (issue #73): the picker lists what this
+            // profile really exposes and never invents a channel. The
+            // active route is included so the profile's own Bot Chat is
+            // always among the choices.
+            destinationRoutes={activeRoute === null ? state.routes : [activeRoute, ...state.routes]}
             disabled={locked}
             onClose={() => setIsCreating(false)}
             onSubmit={handleCreateRoutine}

@@ -16,12 +16,16 @@ import {
   type TriggerType,
 } from '../domain/routineSchedule';
 import { SelectField, type SelectOption } from './SelectField';
+import { MODEL_OVERRIDE_READONLY_NOTE } from '../domain/advancedSettings';
 import {
-  DELIVERY_CUSTOM_SENTINEL,
-  DELIVERY_PRESET_OPTIONS,
-  MODEL_OVERRIDE_READONLY_NOTE,
-  normalizeDelivery,
-} from '../domain/advancedSettings';
+  BROADCAST_ACKNOWLEDGEMENT,
+  DESTINATION_ADVANCED,
+  destinationDelivery,
+  destinationOptions,
+  findDestinationOption,
+  type AdvancedDestinationInput,
+  type DestinationOption,
+} from '../domain/destinations';
 
 export interface RoutineComposerPanelProps {
   activeProfile: string | null;
@@ -30,7 +34,7 @@ export interface RoutineComposerPanelProps {
   onClose: () => void;
   /**
    * Direct path. `delivery` is the normalized target, or undefined for the
-   * backend default (absent — the `deliver` key is omitted entirely).
+   * profile's own default (absent — the `deliver` key is omitted entirely).
    * Optional so pre-#65 four-argument callers keep working.
    */
   onSubmit: (
@@ -47,6 +51,13 @@ export interface RoutineComposerPanelProps {
    * `delivery` carries the same meaning as on `onSubmit`.
    */
   onSubmitGuided?: (name: string, schedule: string, prompt: string, delivery?: string) => Promise<boolean>;
+  /**
+   * Destinations the profile actually exposes (issue #73), normally the
+   * resolved route roster. Omitted means "nothing discovered" — the picker
+   * then offers only the two outcomes that always exist plus the advanced
+   * override, never an invented destination.
+   */
+  destinationRoutes?: unknown;
 }
 
 /**
@@ -61,6 +72,7 @@ export function RoutineComposerPanel({
   onClose,
   onSubmit,
   onSubmitGuided,
+  destinationRoutes,
 }: RoutineComposerPanelProps): ReactElement {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -71,12 +83,18 @@ export function RoutineComposerPanel({
   // keeping them apart would let the buttons disagree with each other.
   const [pendingPath, setPendingPath] = useState<CreationPath | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Advanced section slots, APPENDED after the originals (name, prompt,
+  // Results section slots, APPENDED after the originals (name, prompt,
   // startEnabled, scheduleConfig, pendingPath, error) — never inserted:
   // tests drive this component with a positional FIFO preset queue
-  // (reactStub.__presetStates), so order is contract.
-  const [deliveryChoice, setDeliveryChoice] = useState('');
-  const [deliveryCustom, setDeliveryCustom] = useState('');
+  // (reactStub.__presetStates), so order is contract. `destinationChoice`
+  // replaces the pre-#73 `deliveryChoice`/`deliveryCustom` pair: one
+  // answer to "where do results go", plus the structured fields of the
+  // developer override behind it.
+  const [destinationChoice, setDestinationChoice] = useState('');
+  const [advancedPlatform, setAdvancedPlatform] = useState('');
+  const [advancedChatId, setAdvancedChatId] = useState('');
+  const [advancedThreadId, setAdvancedThreadId] = useState('');
+  const [broadcastConfirmed, setBroadcastConfirmed] = useState(false);
   // Synchronous in-flight claim. A ref, not state: `setPendingPath` only
   // paints on the next render, so two clicks in one tick would both read
   // `pendingPath === null` and create the routine twice — a create is not
@@ -104,10 +122,42 @@ export function RoutineComposerPanel({
     [],
   );
 
-  const deliveryOptions: Array<SelectOption<string>> = useMemo(
-    () => DELIVERY_PRESET_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
-    [],
+  // Destinations the profile really exposes, resolved from the roster the
+  // page hands down. The advanced override is a UI affordance, not a
+  // destination, so it is added here rather than in the domain builder —
+  // the domain never offers it, so it can never be a suggestion.
+  const destinationChoices: DestinationOption[] = useMemo(
+    () => [
+      ...destinationOptions(destinationRoutes),
+      {
+        value: DESTINATION_ADVANCED,
+        label: 'Advanced override…',
+        detail: 'Name a platform and address directly, if you need to.',
+        broadcast: false,
+      },
+    ],
+    [destinationRoutes],
   );
+
+  const selectedDestination: DestinationOption | null = findDestinationOption(
+    destinationChoices,
+    destinationChoice,
+  );
+
+  const advancedInput: AdvancedDestinationInput = useMemo(
+    () => ({
+      platform: advancedPlatform,
+      chatId: advancedChatId,
+      threadId: advancedThreadId,
+    }),
+    [advancedPlatform, advancedChatId, advancedThreadId],
+  );
+
+  // Fan-out is the one choice whose blast radius is not obvious from its
+  // label, so it is the one choice that cannot be picked by accident: the
+  // submit acts stay disabled until the acknowledgement is explicit.
+  const broadcastPending = selectedDestination !== null && selectedDestination.broadcast;
+  const broadcastBlocked = broadcastPending && !broadcastConfirmed;
 
   const cronExpr = useMemo(() => buildCronExpression(scheduleConfig), [scheduleConfig]);
   const humanSentence = useMemo(() => describeScheduleConfig(scheduleConfig), [scheduleConfig]);
@@ -132,14 +182,20 @@ export function RoutineComposerPanel({
       return;
     }
 
-    // Advanced delivery, both paths: the SAME normalizer the guided
+    // Results destination, both paths: the SAME normalizer the guided
     // proposal path calls (D6), so the two cannot diverge. An invalid
-    // typed value is refused with a visible error — never submitted,
-    // never silently dropped.
-    const candidate = deliveryChoice === DELIVERY_CUSTOM_SENTINEL ? deliveryCustom : deliveryChoice;
-    const normalized = normalizeDelivery(candidate);
+    // structured override is refused with a visible error — never
+    // submitted, never silently dropped.
+    const normalized = destinationDelivery(destinationChoice, advancedInput);
     if (!normalized.ok) {
       setError(normalized.message);
+      return;
+    }
+    // The fan-out guard is re-checked here, not only on the buttons: a
+    // disabled button is a hint, and this is the check that cannot be
+    // bypassed by any other route into the submit handlers.
+    if (broadcastBlocked) {
+      setError('Confirm the delivery to every connected channel before creating the routine.');
       return;
     }
     const delivery = normalized.present ? normalized.delivery : undefined;
@@ -328,36 +384,85 @@ export function RoutineComposerPanel({
           <div className="hr-create-preview-sentence">{humanSentence}</div>
         </div>
 
-        {/* ADVANCED Section — secondary, after WHEN TO RUN. The primary
-            composer above stays focused on name / instruction / schedule;
-            everything here is an override of the backend default, and
-            absent means absent. Delivery offers ONLY the verified D3
-            options that need no discovery: `origin` is not offered (it
-            cannot resolve for a plugin create), and there is deliberately
-            NO model picker — the override is shown as a read-only line
-            (D2), because an editable control that silently does nothing
-            is the failure the issue forbids. */}
+        {/* RESULTS Section — secondary, after WHEN TO RUN, and phrased as
+            the question the user actually has (issue #73): "where should
+            results go?". The options are the destinations the profile
+            really exposes, named in human terms; the backend string is
+            generated by the domain, never typed here. `origin` is not
+            offered (it cannot resolve for a plugin create) and no
+            unreachable destination is listed — a destination that cannot
+            resolve is a dead one. There is deliberately NO model picker:
+            the override is shown as a read-only line (D2), because an
+            editable control that silently does nothing is the failure the
+            issue forbids. */}
         <div className="hr-create-when-section">
-          <div className="hr-create-section-label">ADVANCED</div>
+          <div className="hr-create-section-label">RESULTS</div>
           <SelectField<string>
-            label="Delivery"
-            value={deliveryChoice}
-            options={deliveryOptions}
-            onChange={(val) => setDeliveryChoice(val)}
+            label="Where should results go?"
+            value={destinationChoice}
+            options={destinationChoices.map((o) => ({ value: o.value, label: o.label }))}
+            onChange={(val) => setDestinationChoice(val)}
           />
-          {deliveryChoice === DELIVERY_CUSTOM_SENTINEL ? (
+          {selectedDestination !== null ? (
+            <div className="hr-create-preview-sentence">{selectedDestination.detail}</div>
+          ) : null}
+
+          {/* The developer escape hatch: structured fields, never one
+              protocol string, and hidden behind an explicit choice so it
+              cannot be the path a normal user takes by accident. */}
+          {destinationChoice === DESTINATION_ADVANCED ? (
             <div className="hr-create-field">
-              <label className="hr-field-label">Custom delivery target</label>
+              <label className="hr-field-label">Advanced destination override</label>
+              <div className="hr-create-sub-split">
+                <input
+                  type="text"
+                  className="hr-create-input"
+                  placeholder="Platform"
+                  value={advancedPlatform}
+                  onChange={(e) => setAdvancedPlatform(e.target.value)}
+                  aria-label="Advanced destination platform"
+                />
+                <input
+                  type="text"
+                  className="hr-create-input"
+                  placeholder="Channel or chat id"
+                  value={advancedChatId}
+                  onChange={(e) => setAdvancedChatId(e.target.value)}
+                  aria-label="Advanced destination channel or chat id"
+                />
+              </div>
               <input
                 type="text"
                 className="hr-create-input"
-                placeholder="platform:chat_id or bot-chat:profile"
-                value={deliveryCustom}
-                onChange={(e) => setDeliveryCustom(e.target.value)}
-                aria-label="Custom delivery target"
+                placeholder="Thread id (optional)"
+                value={advancedThreadId}
+                onChange={(e) => setAdvancedThreadId(e.target.value)}
+                aria-label="Advanced destination thread id"
               />
+              <div className="hr-create-preview-sentence">
+                {selectedDestination?.detail ?? ''}
+              </div>
             </div>
           ) : null}
+
+          {/* Fan-out guard: delivered to every connected channel is the one
+              choice whose impact is not bounded by the routine, so it
+              states the impact and requires an explicit acknowledgement
+              before any create can proceed. */}
+          {broadcastPending ? (
+            <div className="hr-create-broadcast-card">
+              <label className="hr-create-broadcast-check">
+                <input
+                  type="checkbox"
+                  checked={broadcastConfirmed}
+                  onChange={(e) => setBroadcastConfirmed(e.target.checked)}
+                  aria-label={BROADCAST_ACKNOWLEDGEMENT}
+                />
+                <span>{BROADCAST_ACKNOWLEDGEMENT}</span>
+              </label>
+            </div>
+          ) : null}
+
           <div className="hr-create-field">
             <label className="hr-field-label">Model override</label>
             <div className="hr-create-preview-sentence">{MODEL_OVERRIDE_READONLY_NOTE}</div>
@@ -418,7 +523,7 @@ export function RoutineComposerPanel({
               type="button"
               className="hr-btn hr-btn-create-hermes"
               aria-label="Create this routine and finish the setup with Hermes"
-              disabled={!draftReady || busy}
+              disabled={!draftReady || busy || broadcastBlocked}
               onClick={() => void handleSubmit('guided')}
             >
               {pendingPath === 'guided' ? 'Starting…' : 'Finish with Hermes'}
@@ -444,7 +549,7 @@ export function RoutineComposerPanel({
           <button
             type="button"
             className="hr-btn hr-btn-create-submit"
-            disabled={!draftReady || busy}
+            disabled={!draftReady || busy || broadcastBlocked}
             onClick={() => void handleSubmit('direct')}
           >
             {pendingPath === 'direct' ? 'Creating…' : 'Create Routine'}
