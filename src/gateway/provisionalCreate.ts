@@ -33,6 +33,11 @@ export interface ProvisionalCreateRequest {
   name: string;
   schedule: string;
   prompt: string;
+  /**
+   * Optional normalized delivery target (issue #65). Absent/undefined is
+   * the backend default — `buildAddParams` omits the key entirely.
+   */
+  delivery?: string;
 }
 
 /**
@@ -47,7 +52,7 @@ export interface ProvisionalCreateRequest {
 export async function createProvisionalRoutine(
   request: ProvisionalCreateRequest,
 ): Promise<ProvisionalResult> {
-  const { route, name, schedule, prompt } = request;
+  const { route, name, schedule, prompt, delivery } = request;
 
   // Build both payloads before any round trip: a local validation or
   // scoping fault must cost zero backend calls, never leave a minted job
@@ -55,7 +60,7 @@ export async function createProvisionalRoutine(
   let addParams: Record<string, unknown>;
   let pauseOf: (jobId: string) => Record<string, unknown>;
   try {
-    addParams = buildAddParams(route, { name, schedule, prompt });
+    addParams = buildAddParams(route, { name, schedule, prompt, delivery });
     pauseOf = (jobId: string) => buildPauseParams(route, jobId);
   } catch (err) {
     // A fault here is a local/scoping rejection, so no job was minted.

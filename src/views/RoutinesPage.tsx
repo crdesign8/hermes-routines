@@ -117,6 +117,7 @@ export function RoutinesPage() {
     name: string;
     schedule: string;
     prompt: string;
+    delivery?: string;
   } | null>(null);
 
   // Clear selected job if it is no longer present in the jobs inventory
@@ -297,6 +298,7 @@ export function RoutinesPage() {
     schedule: string,
     prompt: string,
     active: boolean,
+    delivery?: string,
   ): Promise<boolean> {
     if (!activeRoute) {
       dispatch({ type: 'mutation-error', error: 'the active profile route is no longer available' });
@@ -307,7 +309,9 @@ export function RoutinesPage() {
     // in-flight lock is keyed on '' rather than on any user-supplied text.
     const createSlot = '';
     try {
-      const addParams = buildAddParams(route, { name, schedule, prompt });
+      // `delivery` is the composer's normalized target, or undefined for
+      // the backend default (absent — `buildAddParams` omits the key).
+      const addParams = buildAddParams(route, { name, schedule, prompt, delivery });
       dispatch({ type: 'mutate-start', jobId: createSlot });
       const created = await requestCronForRoute(route, 'cron.manage', addParams, undefined, {
         spawnPriority: 'foreground',
@@ -385,6 +389,7 @@ export function RoutinesPage() {
     name: string,
     schedule: string,
     prompt: string,
+    delivery?: string,
   ): Promise<boolean> {
     if (!activeRoute) {
       dispatch({ type: 'mutation-error', error: 'the active profile route is no longer available' });
@@ -393,14 +398,14 @@ export function RoutinesPage() {
     const createSlot = '';
     dispatch({ type: 'mutate-start', jobId: createSlot });
     try {
-      const result = await createProvisionalRoutine({ route: activeRoute, name, schedule, prompt });
+      const result = await createProvisionalRoutine({ route: activeRoute, name, schedule, prompt, delivery });
       dispatch({ type: 'mutate-end', jobId: createSlot });
       dispatch({ type: 'retry-list' });
       if (result.ok === false) {
         dispatch({ type: 'mutation-error', error: 'failed to create routine: ' + result.message });
         return false;
       }
-      setGuided({ routine: result.routine, name, schedule, prompt });
+      setGuided({ routine: result.routine, name, schedule, prompt, delivery });
       setIsCreating(false);
       setSelectedJobKey(null);
       // Honest copy: the routine EXISTS and is paused; nothing about its
@@ -638,6 +643,7 @@ export function RoutinesPage() {
             submittedName={guided.name}
             submittedSchedule={guided.schedule}
             submittedPrompt={guided.prompt}
+            submittedDelivery={guided.delivery}
             onLaunch={handleGuidedLaunch}
             onClose={() => setGuided(null)}
           />

@@ -154,3 +154,39 @@ export function readStoredDelivery(row: Record<string, unknown> | null): string 
 export function readStoredModelOverride(row: Record<string, unknown> | null): string | null {
   return firstStoredText(row, MODEL_ROW_KEYS);
 }
+
+// ── composer/inspector-facing helpers (issue #65, phase 3) ──
+// Pure display vocabulary for the secondary Advanced section. The presets
+// below are the closed D3 set minus `origin` (unresolvable for a plugin
+// create) — `custom` is the UI's free-text slot for the explicit
+// `platform:chat_id[:thread_id]` (or `bot-chat:profile`) form, never a
+// value sent to the backend as-is.
+
+/** One preset choice in the composer delivery control. */
+export interface DeliveryPresetOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * Preset delivery choices. The empty value is the backend/global default
+ * (absent — the `deliver` key is omitted entirely). `origin` is
+ * deliberately absent: it cannot resolve for a plugin create (D3).
+ */
+export const DELIVERY_PRESET_OPTIONS: ReadonlyArray<DeliveryPresetOption> = Object.freeze([
+  { value: '', label: 'Backend default (no override)' },
+  { value: 'local', label: 'Local — save results locally, no delivery' },
+  { value: 'all', label: 'All — every connected home channel, resolved at run time' },
+  { value: 'bot-chat', label: 'Bot Chat — a Hermes Bot Chat' },
+  { value: 'custom', label: 'Custom target…' },
+]);
+
+/** Sentinel for the composer's free-text delivery slot. Never normalized directly. */
+export const DELIVERY_CUSTOM_SENTINEL = 'custom';
+
+/**
+ * Read-only model line for surfaces that cannot set it (D2). Names the
+ * default plainly so an absent picker never reads as a missing feature.
+ */
+export const MODEL_OVERRIDE_READONLY_NOTE =
+  'Model override: routines run on the profile default — it cannot be set from this surface.';

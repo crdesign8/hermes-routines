@@ -1286,6 +1286,15 @@ function readStoredDelivery(row) {
 function readStoredModelOverride(row) {
   return firstStoredText(row, MODEL_ROW_KEYS);
 }
+var DELIVERY_PRESET_OPTIONS = Object.freeze([
+  { value: "", label: "Backend default (no override)" },
+  { value: "local", label: "Local \u2014 save results locally, no delivery" },
+  { value: "all", label: "All \u2014 every connected home channel, resolved at run time" },
+  { value: "bot-chat", label: "Bot Chat \u2014 a Hermes Bot Chat" },
+  { value: "custom", label: "Custom target\u2026" }
+]);
+var DELIVERY_CUSTOM_SENTINEL = "custom";
+var MODEL_OVERRIDE_READONLY_NOTE = "Model override: routines run on the profile default \u2014 it cannot be set from this surface.";
 
 // src/gateway/cronParams.ts
 function targetProfileOf(route) {
@@ -1501,11 +1510,11 @@ function resolveProvisionalCreate(input) {
 
 // src/gateway/provisionalCreate.ts
 async function createProvisionalRoutine(request) {
-  const { route, name, schedule, prompt } = request;
+  const { route, name, schedule, prompt, delivery } = request;
   let addParams;
   let pauseOf;
   try {
-    addParams = buildAddParams(route, { name, schedule, prompt });
+    addParams = buildAddParams(route, { name, schedule, prompt, delivery });
     pauseOf = (jobId) => buildPauseParams(route, jobId);
   } catch (err) {
     return resolveProvisionalCreate({ route, addAnswer: null, pause: { status: "rejected", message: messageOf(err) } });
@@ -2476,6 +2485,7 @@ var ROUTINES_CSS = [
   "  color: var(--ui-text-primary, #fff);",
   "}",
   ".hr-review-readonly { margin-left: 6px; font-size: 9px; color: var(--ui-text-tertiary, #888); }",
+  ".hr-review-editable { margin-left: 6px; font-size: 9px; color: var(--ui-text-tertiary, #888); }",
   ".hr-review-note {",
   "  border-left: 2px solid var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.22));",
   "  padding: 2px 0 2px 8px;",
@@ -2856,6 +2866,9 @@ function RoutineInspectorPanel({
   const title = routineTitle(job, fallback);
   const schedule = humanScheduleOf(job) || "\u2014";
   const execution = lastExecutionOf(job);
+  const row = job ?? null;
+  const storedDelivery = readStoredDelivery(row);
+  const storedModelOverride = readStoredModelOverride(row);
   return /* @__PURE__ */ jsxs4("aside", { className: "hr-inspector", "aria-label": `Details for ${title}`, children: [
     /* @__PURE__ */ jsx6("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs4(
       "button",
@@ -2923,6 +2936,38 @@ function RoutineInspectorPanel({
         /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
         /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: schedule })
       ] }),
+      storedDelivery !== null || storedModelOverride !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "ADVANCED" }),
+        storedDelivery !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "Delivery" }),
+          /* @__PURE__ */ jsx6(
+            "input",
+            {
+              type: "text",
+              className: "hr-create-input",
+              value: storedDelivery,
+              disabled: true,
+              readOnly: true,
+              "aria-label": "Stored delivery"
+            }
+          )
+        ] }) : null,
+        storedModelOverride !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "Model override" }),
+          /* @__PURE__ */ jsx6(
+            "input",
+            {
+              type: "text",
+              className: "hr-create-input",
+              value: storedModelOverride,
+              disabled: true,
+              readOnly: true,
+              "aria-label": "Stored model override"
+            }
+          ),
+          /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: MODEL_OVERRIDE_READONLY_NOTE })
+        ] }) : null
+      ] }) : null,
       /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-last-run", children: [
         /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "LAST EXECUTION" }),
         execution.lastRun !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
@@ -3082,6 +3127,8 @@ function RoutineComposerPanel({
   const [submitting, setSubmitting] = useState3(false);
   const [error, setError] = useState3(null);
   const [mode, setMode] = useState3(onSubmitGuided ? "guided" : "direct");
+  const [deliveryChoice, setDeliveryChoice] = useState3("");
+  const [deliveryCustom, setDeliveryCustom] = useState3("");
   const timeOptions = useMemo(
     () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
     []
@@ -3098,6 +3145,10 @@ function RoutineComposerPanel({
     () => INTERVAL_UNITS.map((u) => ({ value: u, label: u })),
     []
   );
+  const deliveryOptions = useMemo(
+    () => DELIVERY_PRESET_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+    []
+  );
   const cronExpr = useMemo(() => buildCronExpression(scheduleConfig), [scheduleConfig]);
   const humanSentence = useMemo(() => describeScheduleConfig(scheduleConfig), [scheduleConfig]);
   async function handleSubmit() {
@@ -3108,17 +3159,24 @@ function RoutineComposerPanel({
       setError("Describe what this routine should do.");
       return;
     }
+    const candidate = deliveryChoice === DELIVERY_CUSTOM_SENTINEL ? deliveryCustom : deliveryChoice;
+    const normalized = normalizeDelivery(candidate);
+    if (!normalized.ok) {
+      setError(normalized.message);
+      return;
+    }
+    const delivery = normalized.present ? normalized.delivery : void 0;
     setSubmitting(true);
     setError(null);
     try {
       if (mode === "guided" && onSubmitGuided) {
-        const ok2 = await onSubmitGuided(trimmedName, cronExpr, promptText);
+        const ok2 = await (delivery === void 0 ? onSubmitGuided(trimmedName, cronExpr, promptText) : onSubmitGuided(trimmedName, cronExpr, promptText, delivery));
         if (!ok2) {
           setError("Failed to create routine. Please verify parameters.");
         }
         return;
       }
-      const ok = await onSubmit(trimmedName, cronExpr, promptText, active);
+      const ok = await (delivery === void 0 ? onSubmit(trimmedName, cronExpr, promptText, active) : onSubmit(trimmedName, cronExpr, promptText, active, delivery));
       if (!ok) {
         setError("Failed to create routine. Please verify parameters.");
       }
@@ -3307,6 +3365,36 @@ function RoutineComposerPanel({
           )
         ] }) : null,
         /* @__PURE__ */ jsx8("div", { className: "hr-create-preview-sentence", children: humanSentence })
+      ] }),
+      /* @__PURE__ */ jsxs6("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx8("div", { className: "hr-create-section-label", children: "ADVANCED" }),
+        /* @__PURE__ */ jsx8(
+          SelectField,
+          {
+            label: "Delivery",
+            value: deliveryChoice,
+            options: deliveryOptions,
+            onChange: (val) => setDeliveryChoice(val)
+          }
+        ),
+        deliveryChoice === DELIVERY_CUSTOM_SENTINEL ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "Custom delivery target" }),
+          /* @__PURE__ */ jsx8(
+            "input",
+            {
+              type: "text",
+              className: "hr-create-input",
+              placeholder: "platform:chat_id or bot-chat:profile",
+              value: deliveryCustom,
+              onChange: (e) => setDeliveryCustom(e.target.value),
+              "aria-label": "Custom delivery target"
+            }
+          )
+        ] }) : null,
+        /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "Model override" }),
+          /* @__PURE__ */ jsx8("div", { className: "hr-create-preview-sentence", children: MODEL_OVERRIDE_READONLY_NOTE })
+        ] })
       ] }),
       error ? /* @__PURE__ */ jsx8("div", { className: "hr-create-error", role: "alert", children: error }) : null,
       /* @__PURE__ */ jsxs6("div", { className: "hr-create-actions", children: [
@@ -4422,7 +4510,7 @@ function GuidedProposalReview({
         /* @__PURE__ */ jsxs7("th", { scope: "row", children: [
           row.label,
           row.changed ? /* @__PURE__ */ jsx9("span", { className: "hr-review-flag", children: "changed" }) : null,
-          row.patchable ? null : /* @__PURE__ */ jsx9("span", { className: "hr-review-readonly", children: "not editable" })
+          row.patchable ? row.changed ? /* @__PURE__ */ jsx9("span", { className: "hr-review-editable", children: "editable" }) : null : /* @__PURE__ */ jsx9("span", { className: "hr-review-readonly", children: "not editable" })
         ] }),
         /* @__PURE__ */ jsx9("td", { className: "hr-review-cell", children: /* @__PURE__ */ jsx9("span", { className: "hr-review-cell-text", children: cellText(row.current) }) }),
         /* @__PURE__ */ jsx9("td", { className: "hr-review-cell hr-review-proposed", children: /* @__PURE__ */ jsx9("span", { className: "hr-review-cell-text", children: row.changed ? cellText(row.proposed) : cellText(row.current) }) })
@@ -4518,6 +4606,7 @@ function GuidedRoutinePanel({
   submittedName,
   submittedSchedule,
   submittedPrompt,
+  submittedDelivery,
   autoSubmitOnFirstLaunch,
   onLaunch,
   onClose
@@ -4851,7 +4940,11 @@ function GuidedRoutinePanel({
         /* @__PURE__ */ jsxs8("div", { className: "hr-create-when-section", children: [
           /* @__PURE__ */ jsx10("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
           /* @__PURE__ */ jsx10("div", { className: "hr-create-preview-sentence", children: schedule })
-        ] })
+        ] }),
+        submittedDelivery ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx10("label", { className: "hr-field-label", children: "Delivery" }),
+          /* @__PURE__ */ jsx10("div", { className: "hr-create-preview-sentence", children: submittedDelivery })
+        ] }) : null
       ] }),
       wf.failure !== null ? /* @__PURE__ */ jsx10("div", { className: "hr-create-error", role: "alert", children: wf.failure.message }) : null,
       failed2 ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-error", role: "alert", children: [
@@ -5112,7 +5205,7 @@ function RoutinesPage() {
     const route = activeRoute;
     void runMutation("resume", jobId, label, () => buildResumeParams(route, jobId));
   }
-  async function handleCreateRoutine(name, schedule, prompt, active) {
+  async function handleCreateRoutine(name, schedule, prompt, active, delivery) {
     if (!activeRoute) {
       dispatch({ type: "mutation-error", error: "the active profile route is no longer available" });
       return false;
@@ -5120,7 +5213,7 @@ function RoutinesPage() {
     const route = activeRoute;
     const createSlot = "";
     try {
-      const addParams = buildAddParams(route, { name, schedule, prompt });
+      const addParams = buildAddParams(route, { name, schedule, prompt, delivery });
       dispatch({ type: "mutate-start", jobId: createSlot });
       const created = await requestCronForRoute(route, "cron.manage", addParams, void 0, {
         spawnPriority: "foreground"
@@ -5170,7 +5263,7 @@ function RoutinesPage() {
       return false;
     }
   }
-  async function handleCreateGuided(name, schedule, prompt) {
+  async function handleCreateGuided(name, schedule, prompt, delivery) {
     if (!activeRoute) {
       dispatch({ type: "mutation-error", error: "the active profile route is no longer available" });
       return false;
@@ -5178,14 +5271,14 @@ function RoutinesPage() {
     const createSlot = "";
     dispatch({ type: "mutate-start", jobId: createSlot });
     try {
-      const result = await createProvisionalRoutine({ route: activeRoute, name, schedule, prompt });
+      const result = await createProvisionalRoutine({ route: activeRoute, name, schedule, prompt, delivery });
       dispatch({ type: "mutate-end", jobId: createSlot });
       dispatch({ type: "retry-list" });
       if (result.ok === false) {
         dispatch({ type: "mutation-error", error: "failed to create routine: " + result.message });
         return false;
       }
-      setGuided({ routine: result.routine, name, schedule, prompt });
+      setGuided({ routine: result.routine, name, schedule, prompt, delivery });
       setIsCreating(false);
       setSelectedJobKey(null);
       dispatch({ type: "notice", notice: "routine " + name + " created paused \u2014 it needs configuration" });
@@ -5402,6 +5495,7 @@ function RoutinesPage() {
           submittedName: guided.name,
           submittedSchedule: guided.schedule,
           submittedPrompt: guided.prompt,
+          submittedDelivery: guided.delivery,
           onLaunch: handleGuidedLaunch,
           onClose: () => setGuided(null)
         }

@@ -466,8 +466,12 @@ describe('guided-composer-integration', () => {
     await submit.props.onClick();
     assert.equal(guided.length, 1, 'guided submit routes to the guided handler');
     // Active is true here, yet the guided path must not use it: a guided
-    // routine is created paused by construction.
-    assert.equal(guided[0].length, 3, 'the guided handler never receives an active flag');
+    // routine is created paused by construction. #65 added a trailing
+    // `delivery` argument, so the invariant is asserted by name — the
+    // handler must not receive an `active` flag — not by argument count.
+    assert.equal(guided[0].length, 4, 'guided passes name, schedule, prompt, delivery');
+    assert.equal(guided[0].includes(true), false, 'the guided handler never receives an active flag');
+    assert.equal(guided[0].includes(false), false, 'the guided handler never receives an active flag');
     assert.equal(direct.length, 0);
   });
 

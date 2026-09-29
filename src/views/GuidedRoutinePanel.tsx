@@ -54,6 +54,12 @@ export interface GuidedRoutinePanelProps {
   submittedName: string;
   submittedSchedule: string;
   submittedPrompt: string;
+  /**
+   * The delivery the composer submitted with the provisional create, for
+   * the same reason as the other submitted values. Absent/empty means the
+   * backend default — nothing is painted.
+   */
+  submittedDelivery?: string;
   /** Auto-send on the first launch only; a retry always drafts. */
   autoSubmitOnFirstLaunch?: boolean;
   onLaunch: (
@@ -110,6 +116,7 @@ export function GuidedRoutinePanel({
   submittedName,
   submittedSchedule,
   submittedPrompt,
+  submittedDelivery,
   autoSubmitOnFirstLaunch,
   onLaunch,
   onClose,
@@ -492,6 +499,16 @@ export function GuidedRoutinePanel({
               <div className="hr-create-section-label">WHEN TO RUN</div>
               <div className="hr-create-preview-sentence">{schedule}</div>
             </div>
+
+            {/* Submitted delivery, shown only when it differs from the
+                backend default. Read-only text, never a control: the
+                provisional shell already carries it. */}
+            {submittedDelivery ? (
+              <div className="hr-create-field">
+                <label className="hr-field-label">Delivery</label>
+                <div className="hr-create-preview-sentence">{submittedDelivery}</div>
+              </div>
+            ) : null}
           </>
         )}
 

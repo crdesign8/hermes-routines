@@ -19,9 +19,11 @@ import type { ProposalReview } from '../domain/guidedWorkflow';
 //   - the agent's `note` renders in its own block, visually and
 //     semantically separate from the authoritative values, so prose can
 //     never be mistaken for configuration;
-//   - fields no proposal can write (delivery, model override) are shown
-//     as current values instead of being hidden — a review that quietly
-//     drops a column is not a review;
+//   - fields no proposal can write (the model override) are shown as
+//     current values instead of being hidden — a review that quietly
+//     drops a column is not a review; `delivery` IS writable (issue
+//     #65: the gateway RPC forwards `deliver` on create), so its row
+//     reads as editable exactly like name/schedule/prompt;
 //   - long instructions scroll inside their cell instead of being
 //     truncated: the full text stays reachable and honest.
 
@@ -66,7 +68,17 @@ export function GuidedProposalReview({
               <th scope="row">
                 {row.label}
                 {row.changed ? <span className="hr-review-flag">changed</span> : null}
-                {row.patchable ? null : <span className="hr-review-readonly">not editable</span>}
+                {/* Patchability is read off the row, never hardcoded:
+                    a patchable change reads as editable, a field no
+                    proposal can write (the model override) reads as
+                    read-only. */}
+                {row.patchable ? (
+                  row.changed ? (
+                    <span className="hr-review-editable">editable</span>
+                  ) : null
+                ) : (
+                  <span className="hr-review-readonly">not editable</span>
+                )}
               </th>
               <td className="hr-review-cell">
                 <span className="hr-review-cell-text">{cellText(row.current)}</span>
