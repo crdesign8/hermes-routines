@@ -16,7 +16,6 @@ import {
   type TriggerType,
 } from '../domain/routineSchedule';
 import { SelectField, type SelectOption } from './SelectField';
-import { MODEL_OVERRIDE_READONLY_NOTE } from '../domain/advancedSettings';
 import {
   BROADCAST_ACKNOWLEDGEMENT,
   DESTINATION_ADVANCED,
@@ -463,10 +462,11 @@ export function RoutineComposerPanel({
             </div>
           ) : null}
 
-          <div className="hr-create-field">
-            <label className="hr-field-label">Model override</label>
-            <div className="hr-create-preview-sentence">{MODEL_OVERRIDE_READONLY_NOTE}</div>
-          </div>
+          {/* No model block here (issue #74): the RPC the plugin calls has
+              no `model`/`provider` key, so any control would be a lie.
+              A setting that cannot be taken is not a field — the stored
+              pin stays where it is honest, in the inspector's read-only
+              report of what the backend actually holds. */}
         </div>
 
         {/* Start enabled — a CREATION outcome, not an existing state. The

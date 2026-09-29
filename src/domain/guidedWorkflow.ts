@@ -562,7 +562,7 @@ export function guidedIndicator(
 // validated proposal. Pure, so the review is deterministic and testable
 // without a DOM.
 
-/** Fields the review shows. `delivery`/`modelOverride` have no write path. */
+/** Fields the review shows. `modelOverride` is reported, never offered. */
 export type ReviewField = 'name' | 'schedule' | 'prompt' | 'delivery' | 'modelOverride';
 
 export interface ProposalReviewRow {
@@ -615,7 +615,12 @@ const REVIEW_LABELS: Readonly<Record<ReviewField, string>> = Object.freeze({
   // `bot-chat` plus a profile name) — a review that showed a prettified value would
   // not be comparing what the backend holds.
   delivery: 'Results go to',
-  modelOverride: 'Model override',
+  // Issue #74: the model is no longer a field of any routine form. The
+  // review keeps reporting it — dropping a value the backend actually
+  // applies would make the comparison untrue — under a plain name, with
+  // the `not editable` badge below carrying the only fact that matters:
+  // a proposal can never change it.
+  modelOverride: 'Model',
 });
 
 const REVIEW_ORDER: readonly ReviewField[] = ['name', 'schedule', 'prompt', 'delivery', 'modelOverride'];

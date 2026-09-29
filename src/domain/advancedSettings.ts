@@ -16,8 +16,8 @@
 //     row but the gateway RPC the plugin calls has no key for them and
 //     would drop them silently (D2). There is deliberately NO writer here
 //     — only `readStoredModelOverride`, so a model picker cannot be built
-//     on this module by accident. The inspector shows the stored value
-//     labelled as not settable on this surface.
+//     on this module by accident. No routine form presents it as a field
+//     (issue #74); the inspector reports a stored pin read-only.
 //
 // Everything in this module is pure: no host access, no clock, no throwing
 // for domain refusals (every refusal is a `{ ok: false, code, message }`
@@ -156,8 +156,14 @@ export function readStoredModelOverride(row: Record<string, unknown> | null): st
 }
 
 // ── composer/inspector-facing helpers (issue #65, phase 3) ──
-// Read-only model line for surfaces that cannot set it (D2). Names the
-// default plainly so an absent picker never reads as a missing feature.
+// The model has no picker and no explanatory note on any surface (issue
+// #74): a read-only block inside a creation form presents a value the
+// user cannot act on as though it were a setting, and the note that
+// explained it was itself the dead text the issue asks to remove. The
+// stored pin is still READ by `readStoredModelOverride` and reported in
+// the inspector's technical area, which is where a diagnostic belongs —
+// a value the backend applies must stay falsifiable, even though nothing
+// in the primary flow offers it as a choice.
 //
 // The delivery PICKER does not live here: issue #73 moved it to
 // `domain/destinations.ts`, which owns the intention-named options and
@@ -167,10 +173,3 @@ export function readStoredModelOverride(row: Record<string, unknown> | null): st
 // ("Backend default (no override)", "Custom target…") were the
 // backend-centric wording this issue removes, and keeping them exported
 // would leave the old surface one import away.
-
-/**
- * Read-only model line for surfaces that cannot set it (D2). Names the
- * default plainly so an absent picker never reads as a missing feature.
- */
-export const MODEL_OVERRIDE_READONLY_NOTE =
-  'Model override: routines run on the profile default — it cannot be set from this surface.';

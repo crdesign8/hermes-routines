@@ -70,8 +70,9 @@ export function GuidedProposalReview({
                 {row.changed ? <span className="hr-review-flag">changed</span> : null}
                 {/* Patchability is read off the row, never hardcoded:
                     a patchable change reads as editable, a field no
-                    proposal can write (the model override) reads as
-                    read-only. */}
+                    proposal can write (the model) reads as read-only —
+                    the one row in this table an apply cannot touch
+                    (issue #74). */}
                 {row.patchable ? (
                   row.changed ? (
                     <span className="hr-review-editable">editable</span>

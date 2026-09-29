@@ -1286,7 +1286,6 @@ function readStoredDelivery(row) {
 function readStoredModelOverride(row) {
   return firstStoredText(row, MODEL_ROW_KEYS);
 }
-var MODEL_OVERRIDE_READONLY_NOTE = "Model override: routines run on the profile default \u2014 it cannot be set from this surface.";
 
 // src/gateway/cronParams.ts
 function targetProfileOf(route) {
@@ -2382,7 +2381,12 @@ var REVIEW_LABELS = Object.freeze({
   // `bot-chat` plus a profile name) — a review that showed a prettified value would
   // not be comparing what the backend holds.
   delivery: "Results go to",
-  modelOverride: "Model override"
+  // Issue #74: the model is no longer a field of any routine form. The
+  // review keeps reporting it — dropping a value the backend actually
+  // applies would make the comparison untrue — under a plain name, with
+  // the `not editable` badge below carrying the only fact that matters:
+  // a proposal can never change it.
+  modelOverride: "Model"
 });
 var REVIEW_ORDER = ["name", "schedule", "prompt", "delivery", "modelOverride"];
 var REVIEW_PATCHABLE = Object.freeze({
@@ -4520,21 +4524,15 @@ function RoutineInspectorPanel({
             }
           )
         ] }) : null,
-        storedModelOverride !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-create-field", children: [
-          /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "Model override" }),
-          /* @__PURE__ */ jsx6(
-            "input",
-            {
-              type: "text",
-              className: "hr-create-input",
-              value: storedModelOverride,
-              disabled: true,
-              readOnly: true,
-              "aria-label": "Stored model override"
-            }
-          ),
-          /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: MODEL_OVERRIDE_READONLY_NOTE })
-        ] }) : null
+        storedModelOverride !== null ? (
+          // A report of stored truth, not a setting: a plain read-only
+          // line, never an input. A disabled input still reads as a
+          // form field the user failed to fill in (issue #74).
+          /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
+            /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Model" }),
+            /* @__PURE__ */ jsx6("span", { className: "hr-detail-value", children: storedModelOverride })
+          ] })
+        ) : null
       ] }) : null,
       /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-last-run", children: [
         /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "LAST EXECUTION" }),
@@ -4995,11 +4993,7 @@ function RoutineComposerPanel({
             }
           ),
           /* @__PURE__ */ jsx8("span", { children: BROADCAST_ACKNOWLEDGEMENT })
-        ] }) }) : null,
-        /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
-          /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "Model override" }),
-          /* @__PURE__ */ jsx8("div", { className: "hr-create-preview-sentence", children: MODEL_OVERRIDE_READONLY_NOTE })
-        ] })
+        ] }) }) : null
       ] }),
       /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
         /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
