@@ -96,6 +96,41 @@ const BROADCAST_OPTION: DestinationOption = Object.freeze({
 export const BROADCAST_ACKNOWLEDGEMENT =
   'I understand this delivers results to every connected channel.';
 
+/**
+ * Secondary act that opts into fan-out. It is not a primary picker label:
+ * the words appear only after the user has opened the advanced path
+ * (issue #90).
+ */
+export const BROADCAST_ADVANCED_ACTION = 'Send to every connected channel instead';
+
+/** Leave the fan-out path and return to a specific address. */
+export const BROADCAST_ADDRESS_ACTION = 'Use a specific address instead';
+
+/** Shown when a proposal would deliver to every connected channel. */
+export const BROADCAST_REVIEW_WARNING =
+  'This proposal delivers results to every connected channel. Apply it only if that is what you asked for.';
+
+/**
+ * Standing rule for the guided configuration prompt. `all` stays a backend
+ * capability; the agent may propose it only when the user was explicit.
+ */
+export const GUIDED_BROADCAST_CONSTRAINT = [
+  'Delivery:',
+  'Prefer the profile default, routine history, or one specific destination.',
+  'Propose delivery "all" (results to every connected channel) only when the user stated that every connected channel should receive them.',
+  'A request to send, notify, or deliver the results is not that statement.',
+].join('\n');
+
+/** The exceptional fan-out option. Not part of `destinationOptions`. */
+export function broadcastDestinationOption(): DestinationOption {
+  return BROADCAST_OPTION;
+}
+
+/** True for the backend fan-out token, in any casing the normalizer accepts. */
+export function isBroadcastDelivery(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().toLowerCase() === DESTINATION_BROADCAST;
+}
+
 /** The fixed, always-available choices in picker order. */
 export function baseDestinationOptions(): DestinationOption[] {
   return [DEFAULT_OPTION, HISTORY_OPTION];
@@ -143,12 +178,13 @@ export function botChatDestinations(routes: unknown): DestinationOption[] {
 }
 
 /**
- * The full picker, in the order the user reads it: the two outcomes that
- * always exist, the destinations this profile actually exposes, then the
- * fan-out last — separated from the quiet choices on purpose.
+ * The primary picker, in the order the user reads it: the two outcomes that
+ * always exist, then the destinations this profile actually exposes.
+ * Fan-out is deliberately absent (issue #90): delivering to every connected
+ * channel is an exceptional act, offered only from the advanced path.
  */
 export function destinationOptions(routes: unknown): DestinationOption[] {
-  return [...baseDestinationOptions(), ...botChatDestinations(routes), BROADCAST_OPTION];
+  return [...baseDestinationOptions(), ...botChatDestinations(routes)];
 }
 
 /** The option matching a stored/selected value, or null when it is not offered. */
@@ -317,4 +353,45 @@ export function destinationDelivery(
     };
   }
   return normalizeDelivery(choice);
+}
+
+/** How the composer records an explicit fan-out opt-in. Both flags required. */
+export interface BroadcastOptIn {
+  /** True only after the user opened advanced delivery and chose fan-out. */
+  optedIn: boolean;
+  /** True only after the explicit acknowledgement. */
+  confirmed: boolean;
+}
+
+const BROADCAST_NOT_PRIMARY: NormalizedDelivery = {
+  ok: false,
+  code: 'bad_delivery',
+  message:
+    'Sending to every connected channel is not a primary destination. Open advanced delivery and confirm it there.',
+};
+
+const BROADCAST_UNCONFIRMED: NormalizedDelivery = {
+  ok: false,
+  code: 'bad_delivery',
+  message: 'Confirm the delivery to every connected channel before creating the routine.',
+};
+
+/**
+ * Resolve a composer answer. Ordinary choices use `destinationDelivery`.
+ * Fan-out is accepted only from the advanced path, and only after the
+ * acknowledgement — a primary value of `all` is refused even if the flags
+ * are set, so the token cannot sneak back into the common flow.
+ */
+export function composerDestinationDelivery(
+  choice: unknown,
+  advanced: AdvancedDestinationInput | null | undefined = EMPTY_ADVANCED_DESTINATION,
+  broadcast: BroadcastOptIn = { optedIn: false, confirmed: false },
+): NormalizedDelivery {
+  const optedIn = broadcast.optedIn === true;
+  const confirmed = broadcast.confirmed === true;
+  if (choice === DESTINATION_ADVANCED && optedIn) {
+    return confirmed ? destinationDelivery(DESTINATION_BROADCAST) : BROADCAST_UNCONFIRMED;
+  }
+  if (isBroadcastDelivery(choice)) return BROADCAST_NOT_PRIMARY;
+  return destinationDelivery(choice, advanced);
 }

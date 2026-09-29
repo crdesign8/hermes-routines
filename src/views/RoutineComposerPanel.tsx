@@ -19,8 +19,10 @@ import { SelectField, type SelectOption } from './SelectField';
 import { PanelNav } from './PanelNav';
 import {
   BROADCAST_ACKNOWLEDGEMENT,
+  BROADCAST_ADDRESS_ACTION,
+  BROADCAST_ADVANCED_ACTION,
   DESTINATION_ADVANCED,
-  destinationDelivery,
+  composerDestinationDelivery,
   destinationOptions,
   findDestinationOption,
   type AdvancedDestinationInput,
@@ -95,6 +97,10 @@ export function RoutineComposerPanel({
   const [advancedChatId, setAdvancedChatId] = useState('');
   const [advancedThreadId, setAdvancedThreadId] = useState('');
   const [broadcastConfirmed, setBroadcastConfirmed] = useState(false);
+  // Appended, never inserted: tests drive this component with a positional
+  // FIFO preset queue. Fan-out is not a picker value; it is an explicit act
+  // inside the advanced path (issue #90).
+  const [broadcastOptIn, setBroadcastOptIn] = useState(false);
   // Synchronous in-flight claim. A ref, not state: `setPendingPath` only
   // paints on the next render, so two clicks in one tick would both read
   // `pendingPath === null` and create the routine twice — a create is not
@@ -153,10 +159,10 @@ export function RoutineComposerPanel({
     [advancedPlatform, advancedChatId, advancedThreadId],
   );
 
-  // Fan-out is the one choice whose blast radius is not obvious from its
-  // label, so it is the one choice that cannot be picked by accident: the
-  // submit acts stay disabled until the acknowledgement is explicit.
-  const broadcastPending = selectedDestination !== null && selectedDestination.broadcast;
+  // Fan-out is not a picker row. It exists only after the user opens the
+  // advanced path and then chooses it — opening advanced does not select it,
+  // and a primary value of `all` cannot submit (issue #90).
+  const broadcastPending = destinationChoice === DESTINATION_ADVANCED && broadcastOptIn;
   const broadcastBlocked = broadcastPending && !broadcastConfirmed;
 
   const cronExpr = useMemo(() => buildCronExpression(scheduleConfig), [scheduleConfig]);
@@ -186,16 +192,12 @@ export function RoutineComposerPanel({
     // proposal path calls (D6), so the two cannot diverge. An invalid
     // structured override is refused with a visible error — never
     // submitted, never silently dropped.
-    const normalized = destinationDelivery(destinationChoice, advancedInput);
+    const normalized = composerDestinationDelivery(destinationChoice, advancedInput, {
+      optedIn: broadcastOptIn,
+      confirmed: broadcastConfirmed,
+    });
     if (!normalized.ok) {
       setError(normalized.message);
-      return;
-    }
-    // The fan-out guard is re-checked here, not only on the buttons: a
-    // disabled button is a hint, and this is the check that cannot be
-    // bypassed by any other route into the submit handlers.
-    if (broadcastBlocked) {
-      setError('Confirm the delivery to every connected channel before creating the routine.');
       return;
     }
     const delivery = normalized.present ? normalized.delivery : undefined;
@@ -383,7 +385,11 @@ export function RoutineComposerPanel({
             label="Where should results go?"
             value={destinationChoice}
             options={destinationChoices.map((o) => ({ value: o.value, label: o.label }))}
-            onChange={(val) => setDestinationChoice(val)}
+            onChange={(val) => {
+              setDestinationChoice(val);
+              setBroadcastOptIn(false);
+              setBroadcastConfirmed(false);
+            }}
           />
           {selectedDestination !== null ? (
             <div className="hr-create-preview-sentence">{selectedDestination.detail}</div>
@@ -392,7 +398,7 @@ export function RoutineComposerPanel({
           {/* The developer escape hatch: structured fields, never one
               protocol string, and hidden behind an explicit choice so it
               cannot be the path a normal user takes by accident. */}
-          {destinationChoice === DESTINATION_ADVANCED ? (
+          {destinationChoice === DESTINATION_ADVANCED && !broadcastOptIn ? (
             <div className="hr-create-field">
               <label className="hr-field-label">Advanced destination override</label>
               <div className="hr-create-sub-split">
@@ -424,15 +430,30 @@ export function RoutineComposerPanel({
               <div className="hr-create-preview-sentence">
                 {selectedDestination?.detail ?? ''}
               </div>
+              <div className="hr-create-broadcast-card">
+                <p className="hr-create-broadcast-note">
+                  Sending to every connected channel is not a normal destination.
+                </p>
+                <button
+                  type="button"
+                  className="hr-btn"
+                  onClick={() => {
+                    setBroadcastOptIn(true);
+                    setBroadcastConfirmed(false);
+                  }}
+                >
+                  {BROADCAST_ADVANCED_ACTION}
+                </button>
+              </div>
             </div>
           ) : null}
 
-          {/* Fan-out guard: delivered to every connected channel is the one
-              choice whose impact is not bounded by the routine, so it
-              states the impact and requires an explicit acknowledgement
-              before any create can proceed. */}
           {broadcastPending ? (
             <div className="hr-create-broadcast-card">
+              <p className="hr-create-broadcast-note">
+                Results are delivered to every channel this profile is connected to. Nothing narrows
+                this later.
+              </p>
               <label className="hr-create-broadcast-check">
                 <input
                   type="checkbox"
@@ -442,6 +463,16 @@ export function RoutineComposerPanel({
                 />
                 <span>{BROADCAST_ACKNOWLEDGEMENT}</span>
               </label>
+              <button
+                type="button"
+                className="hr-btn"
+                onClick={() => {
+                  setBroadcastOptIn(false);
+                  setBroadcastConfirmed(false);
+                }}
+              >
+                {BROADCAST_ADDRESS_ACTION}
+              </button>
             </div>
           ) : null}
 

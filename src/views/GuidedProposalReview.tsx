@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { BROADCAST_REVIEW_WARNING, isBroadcastDelivery } from '../domain/destinations';
 import type { ProposalReview } from '../domain/guidedWorkflow';
 
 // Current-vs-proposed review of one validated proposal (issue #64).
@@ -98,6 +99,12 @@ export function GuidedProposalReview({
         <div className="hr-review-note">
           <span className="hr-review-note-label">From Hermes (explanation, not configuration)</span>
           <p className="hr-review-note-text">{review.note}</p>
+        </div>
+      ) : null}
+
+      {isBroadcastDelivery(review.proposed.delivery) ? (
+        <div className="hr-create-broadcast-card" role="status">
+          <p className="hr-create-broadcast-note">{BROADCAST_REVIEW_WARNING}</p>
         </div>
       ) : null}
 

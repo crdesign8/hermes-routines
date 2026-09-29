@@ -746,11 +746,9 @@ export const ROUTINES_CSS = [
   '  opacity: 0.5;',
   '  cursor: not-allowed;',
   '}',
-  // Fan-out guard for "send to every connected channel" (issue #73). A
-  // bordered block, not a hint line: the delivery reaches every channel
-  // the profile is connected to, so it is painted apart from the quiet
-  // choices and the acknowledgement has to be clicked before any create
-  // proceeds. Deliberately monochrome — the risk is stated in words.
+  // Fan-out guard (issue #90). The card is painted only inside the advanced
+  // path, after an explicit opt-in: delivering to every connected channel
+  // is not a primary destination, and opening advanced does not select it.
   '.hr-create-broadcast-card {',
   '  display: flex;',
   '  flex-direction: column;',
@@ -773,6 +771,12 @@ export const ROUTINES_CSS = [
   '.hr-create-broadcast-check input {',
   '  margin: 1px 0 0 0;',
   '  flex-shrink: 0;',
+  '}',
+  '.hr-create-broadcast-note {',
+  '  margin: 0;',
+  '  font-size: 12px;',
+  '  line-height: 1.45;',
+  '  color: var(--ui-text-secondary, #a1a1aa);',
   '}',
   '/* Field labels */',
   '.hr-field-label, .hr-select-label {',

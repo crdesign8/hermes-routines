@@ -71,8 +71,8 @@ function texts(tree) {
  * Composer useState order (issue #72, extended by #73): name, prompt,
  * startEnabled, scheduleConfig, pendingPath, error, then the destination
  * slots — destinationChoice, advancedPlatform, advancedChatId,
- * advancedThreadId, broadcastConfirmed. The creation path is no longer a
- * slot: it is the act each button performs.
+ * advancedThreadId, broadcastConfirmed, broadcastOptIn. The creation path
+ * is no longer a slot: it is the act each button performs.
  */
 function presetComposer({
   name,
@@ -82,6 +82,7 @@ function presetComposer({
   advancedChatId = '',
   advancedThreadId = '',
   broadcastConfirmed = false,
+  broadcastOptIn = false,
   errorSlot,
 } = {}) {
   reactStub.__presetStates([
@@ -96,6 +97,7 @@ function presetComposer({
     [advancedChatId, noop],
     [advancedThreadId, noop],
     [broadcastConfirmed, noop],
+    [broadcastOptIn, noop],
   ]);
 }
 
@@ -215,6 +217,8 @@ describe('advanced-ui composer', () => {
     assert.doesNotMatch(body, /Model override/);
     assert.doesNotMatch(body, /cannot be set from this surface/);
     assert.doesNotMatch(body, /profile default/);
+    assert.doesNotMatch(body, /every connected channel/i);
+    assert.doesNotMatch(body, /Send to every connected channel/);
     // The destination control is a SelectField: its label lives in props
     // (expanded by collect), not in text children.
     destinationSelect(element);
@@ -228,17 +232,28 @@ describe('advanced-ui composer', () => {
     });
   });
 
-  it('passes an explicit destination override to submit', async () => {
-    presetComposer({ destinationChoice: 'all', broadcastConfirmed: true });
-    let submitted = null;
+  it('refuses a primary broadcast token instead of submitting it', async () => {
+    let reported = null;
+    presetComposer({
+      destinationChoice: 'all',
+      broadcastConfirmed: true,
+      broadcastOptIn: true,
+      errorSlot: (message) => {
+        reported = message;
+      },
+    });
+    let calls = 0;
     const element = renderComposer({
-      onSubmit: async (name, schedule, prompt, active, delivery) => {
-        submitted = { name, schedule, prompt, active, delivery };
+      onSubmit: async () => {
+        calls += 1;
         return true;
       },
     });
+    const labels = destinationSelect(element).props.options.map((o) => o.label);
+    assert.ok(!labels.includes('Send to every connected channel'));
     await submitButton(element).props.onClick();
-    assert.equal(submitted.delivery, 'all');
+    assert.equal(calls, 0, 'a primary broadcast value must never reach submit');
+    assert.match(reported, /not a primary destination/i);
   });
 
   it('resolves a chosen Bot Chat into the backend representation the guided path also uses', async () => {
@@ -376,7 +391,11 @@ describe('advanced-ui composer', () => {
     const preset = destinationSelect(renderComposer({ onSubmit: async () => true }));
     assert.deepEqual(
       preset.props.options.map((o) => o.value),
-      ['', 'local', 'bot-chat:matias', 'all', 'advanced'],
+      ['', 'local', 'bot-chat:matias', 'advanced'],
+    );
+    assert.ok(
+      !preset.props.options.some((o) => o.value === 'all' || /every connected channel/i.test(o.label)),
+      'broadcast must not be a primary destination',
     );
     presetComposer({ destinationChoice: 'advanced' });
     const custom = collect(renderComposer({ onSubmit: async () => true })).find(
@@ -410,14 +429,41 @@ describe('advanced-ui composer', () => {
     const element = renderComposer({ onSubmit: async () => true, destinationRoutes: [] });
     assert.deepEqual(
       destinationSelect(element).props.options.map((o) => o.value),
-      ['', 'local', 'all', 'advanced'],
+      ['', 'local', 'advanced'],
+    );
+    assert.ok(
+      !destinationSelect(element).props.options.some((o) => o.value === 'all'),
+      'an empty roster still must not offer broadcast',
     );
   });
 });
 
 describe('advanced-ui broadcast guard', () => {
+  it('hides fan-out until the advanced path is opened, and does not select it there', async () => {
+    presetComposer();
+    const quiet = renderComposer({ onSubmit: async () => true });
+    assert.equal(
+      collect(quiet).some((n) => texts(n).join('').includes('Send to every connected channel')),
+      false,
+      'the primary flow must not name fan-out',
+    );
+
+    presetComposer({ destinationChoice: 'advanced' });
+    const advanced = renderComposer({ onSubmit: async () => true });
+    const optIn = collect(advanced).find(
+      (n) => n.type === 'button' && texts(n).join('').includes('Send to every connected channel instead'),
+    );
+    assert.ok(optIn, 'the advanced path must offer fan-out as a separate act');
+    assert.equal(
+      collect(advanced).some((n) => n.type === 'input' && n.props.type === 'checkbox'),
+      false,
+      'opening advanced must not select fan-out',
+    );
+    assert.equal(submitButton(advanced).props.disabled, false);
+  });
+
   it('requires an explicit acknowledgement before any create can proceed', async () => {
-    presetComposer({ destinationChoice: 'all' });
+    presetComposer({ destinationChoice: 'advanced', broadcastOptIn: true });
     let calls = 0;
     const element = renderComposer({
       onSubmit: async () => {
@@ -446,7 +492,8 @@ describe('advanced-ui broadcast guard', () => {
     // button that some other route could bypass.
     let reported = null;
     presetComposer({
-      destinationChoice: 'all',
+      destinationChoice: 'advanced',
+      broadcastOptIn: true,
       errorSlot: (message) => {
         reported = message;
       },
@@ -463,7 +510,13 @@ describe('advanced-ui broadcast guard', () => {
   });
 
   it('lets the create through once the fan-out is acknowledged', async () => {
-    presetComposer({ destinationChoice: 'all', broadcastConfirmed: true });
+    presetComposer({
+      destinationChoice: 'advanced',
+      broadcastOptIn: true,
+      broadcastConfirmed: true,
+      advancedPlatform: 'telegram',
+      advancedChatId: 'ops',
+    });
     let submitted = null;
     const element = renderComposer({
       onSubmit: async (name, schedule, prompt, active, delivery) => {
@@ -566,6 +619,7 @@ describe('advanced-ui review', () => {
     // truth, because this table IS the comparison against stored values.
     assert.match(body, /Results go to/);
     assert.match(body, /editable/);
+    assert.match(body, /every connected channel/i);
   });
 
   it('reports the model as read-only, driven by the row rather than hardcoded', async () => {
@@ -587,6 +641,11 @@ describe('advanced-ui review', () => {
     assert.ok(nameHeader, 'name row must exist');
     assert.match(reviewTexts(nameHeader), /editable/);
     assert.doesNotMatch(reviewTexts(nameHeader), /not editable/);
+    assert.doesNotMatch(
+      reviewTexts(tree),
+      /every connected channel/i,
+      'an ordinary proposal must not warn about fan-out',
+    );
   });
 });
 

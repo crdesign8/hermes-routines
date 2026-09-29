@@ -77,6 +77,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Send to every connected channel** is no longer a primary destination.
+  The common picker stays on the low-friction choices: the profile default,
+  routine history, and a specific destination the profile can actually reach.
+  Fan-out remains a backend capability (`deliver: all` is unchanged) but it
+  is reached only from the advanced path, and only after a second explicit
+  act plus the existing acknowledgement. Opening advanced does not select
+  it, and a primary value of `all` cannot be submitted.
+
+  A guided configuration may still propose fan-out, and only when the user
+  stated that every connected channel should receive the results. A request
+  to send or notify is not that statement. A proposal that would deliver to
+  every connected channel says so in the review before it can be applied.
+
 - The routines list now labels its primary action and states each filter's
   size. The creation control was a bare `+` whose meaning lived only in an
   `aria-label`, so a sighted user had to already know what the glyph meant;
