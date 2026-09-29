@@ -8,11 +8,7 @@ import {
   routinePromptOf,
   routineTitle,
 } from '../domain/present';
-import {
-  MODEL_OVERRIDE_READONLY_NOTE,
-  readStoredDelivery,
-  readStoredModelOverride,
-} from '../domain/advancedSettings';
+import { readStoredDelivery, readStoredModelOverride } from '../domain/advancedSettings';
 import { describeDestination } from '../domain/destinations';
 import { guidedConfigCandidateOf } from '../domain/provisional';
 import { ResultTone, RunWhen } from './RoutineDetails';
@@ -157,9 +153,13 @@ export function RoutineInspectorPanel({
         {/* ADVANCED (stored values only, and only when they differ from
             the defaults). Mirrors the composer's secondary section with
             every value read-only: where the results go, in the same human
-            words the composer offered, and the model override labelled as
-            not settable on this surface (D2). No control, no button —
-            this block can never become an edit seam by accident. */}
+            words the composer offered. No control, no button — this block
+            can never become an edit seam by accident.
+
+            A stored model pin stays here as a plain read-only line
+            (issue #74): the composer no longer pretends it is a setting,
+            and hiding a pin the backend actually applies would make an
+            unexplained model unfalsifiable. It is a report, not a field. */}
         {describedDelivery !== null || storedModelOverride !== null ? (
           <div className="hr-create-when-section">
             <div className="hr-create-section-label">ADVANCED</div>
@@ -186,17 +186,12 @@ export function RoutineInspectorPanel({
               </div>
             ) : null}
             {storedModelOverride !== null ? (
-              <div className="hr-create-field">
-                <label className="hr-field-label">Model override</label>
-                <input
-                  type="text"
-                  className="hr-create-input"
-                  value={storedModelOverride}
-                  disabled
-                  readOnly
-                  aria-label="Stored model override"
-                />
-                <div className="hr-create-preview-sentence">{MODEL_OVERRIDE_READONLY_NOTE}</div>
+              // A report of stored truth, not a setting: a plain read-only
+              // line, never an input. A disabled input still reads as a
+              // form field the user failed to fill in (issue #74).
+              <div className="hr-detail">
+                <span className="hr-detail-label">Model</span>
+                <span className="hr-detail-value">{storedModelOverride}</span>
               </div>
             ) : null}
           </div>

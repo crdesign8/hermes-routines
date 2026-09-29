@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The **Model override** block is gone from the create form. It was a
+  labelled field with no control behind it, followed by a sentence
+  explaining that the model cannot be set there — non-actionable
+  information inside an action form, in vocabulary the user had to
+  interpret to make no decision. The composer no longer spends
+  attention on a setting it cannot take, and the note that defended it
+  is deleted rather than reworded.
+
+  The create path's behavior is unchanged: routines still run on the
+  profile default, and no `model`/`provider` key ever reaches the
+  `cron.manage` payload. The gateway RPC the plugin calls has no such
+  key (D2), so there was never a write path to restore.
+
+  A model pin the backend actually holds is still **reported** where it
+  is true rather than hidden: the inspector's ADVANCED block now shows
+  it as a plain read-only **Model** row instead of a disabled text input
+  with the "cannot be set from this surface" note — a disabled input
+  still reads as a form field the user failed to fill in. The proposal
+  review keeps its row for the same reason it keeps every other row: a
+  review that quietly drops a value the backend applies is not a
+  review. That row is labelled **Model**, and the existing `not editable`
+  badge is now the only statement about it, instead of the field name
+  plus a badge plus an explanation.
+
 - The composer's **Advanced → Delivery** control is now **Results**, and it
   asks the question the user actually has: *where should this routine's
   results go?* The backend-centric vocabulary is gone from the ordinary

@@ -209,7 +209,12 @@ describe('advanced-ui composer', () => {
     assert.match(body, /What should this routine do\?/);
     assert.match(body, /WHEN TO RUN/);
     assert.match(body, /RESULTS/);
-    assert.match(body, /cannot be set from this surface/);
+    // Issue #74: the create form carries no model block at all. A field
+    // with no control, and the note explaining why, were both noise the
+    // user had to interpret to make no decision.
+    assert.doesNotMatch(body, /Model override/);
+    assert.doesNotMatch(body, /cannot be set from this surface/);
+    assert.doesNotMatch(body, /profile default/);
     // The destination control is a SelectField: its label lives in props
     // (expanded by collect), not in text children.
     destinationSelect(element);
@@ -503,18 +508,25 @@ describe('advanced-ui inspector', () => {
     assert.doesNotMatch(body, /\bplatform:chat_id\b/);
   });
 
-  it('shows a stored model override as read-only with the not-settable wording', async () => {
+  it('reports a stored model pin as a read-only line, never as a field', async () => {
     const tree = renderInspector({ ...BASE_JOB, model: 'custom-pin-1' });
     const body = texts(tree).join(' ');
     assert.match(body, /ADVANCED/);
-    assert.match(body, /Model override/);
-    assert.match(body, /cannot be set from this surface/);
-    const input = collect(tree).find(
-      (n) => n.type === 'input' && n.props['aria-label'] === 'Stored model override',
+    assert.match(body, /Model/);
+    assert.match(body, /custom-pin-1/);
+    // Issue #74: a disabled input is still a form field the user looks
+    // like they failed to fill in, and the "cannot be set from this
+    // surface" note is the dead text the issue asks to remove. The pin
+    // stays reported — the backend applies it, so it must stay
+    // falsifiable — as a plain read-only row with no control and no
+    // explanation to interpret.
+    assert.doesNotMatch(body, /Model override/);
+    assert.doesNotMatch(body, /cannot be set from this surface/);
+    assert.equal(
+      collect(tree).some((n) => n.type === 'input' && n.props['aria-label'] === 'Stored model override'),
+      false,
+      'the stored model must not render as an input',
     );
-    assert.ok(input, 'stored model override must render');
-    assert.equal(input.props.value, 'custom-pin-1');
-    assert.equal(input.props.disabled, true);
   });
 
   it('hides the advanced block when everything is the default', async () => {
@@ -556,7 +568,7 @@ describe('advanced-ui review', () => {
     assert.match(body, /editable/);
   });
 
-  it('reads the model override as read-only, driven by the row rather than hardcoded', async () => {
+  it('reports the model as read-only, driven by the row rather than hardcoded', async () => {
     const current = snapshotOf(ROW);
     const proposal = validatedFor(ROW, { name: 'Evening Political Manager Brief' });
     const review = routines.buildProposalReview(current, proposal);
@@ -564,9 +576,13 @@ describe('advanced-ui review', () => {
     assert.equal(model.patchable, false);
     const tree = renderReview(review);
     const headers = reviewWalk(tree).filter((n) => n.type === 'th');
-    const modelHeader = headers.find((h) => reviewTexts(h).includes('Model override'));
-    assert.ok(modelHeader, 'model override row must exist');
+    // Issue #74: the row stays — a review that quietly drops a value the
+    // backend applies is not a review — but it is no longer a "Model
+    // override" field, only a reported value an apply cannot touch.
+    const modelHeader = headers.find((h) => reviewTexts(h).includes('Model'));
+    assert.ok(modelHeader, 'model row must exist');
     assert.match(reviewTexts(modelHeader), /not editable/);
+    assert.doesNotMatch(reviewTexts(modelHeader), /Model override/);
     const nameHeader = headers.find((h) => reviewTexts(h).includes('Name'));
     assert.ok(nameHeader, 'name row must exist');
     assert.match(reviewTexts(nameHeader), /editable/);
