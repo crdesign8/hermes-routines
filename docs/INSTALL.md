@@ -226,6 +226,23 @@ delete and error retry, `:focus-visible` ring, text badges instead of
 icons (ink 18.1, muted 7.0, primary 5.1, danger 6.6, active badge 7.1,
 paused badge 14.7 — all above 4.5).
 
+Affordance (issue #79): the primary creation action paints the words
+*New routine* beside its glyph instead of being a bare `+`, and its
+accessible name is derived from that visible text (no competing
+`aria-label`). Icon-only row controls keep per-row accessible names
+(*Pause <routine>*, *Show details for <routine>*) plus a tooltip, and
+their targets are 28x28 CSS px around a 13px glyph — over the WCAG 2.2
+minimum of 24x24 — while the row stays exactly as compact as issue #77
+made it. The filter chips are 28px tall with 6px side padding, the search
+box and its clear control are 28px and 24px, and the labeled primary
+action keeps a 32px minimum height. Every filter chip carries its own
+count (`All 15 / Active 10 / Paused 5`), computed over the SEARCH matches
+with no status filter applied, so each chip reports what it would really
+open; the count is announced once through the chip's accessible name and
+the settled count is still announced by the polite live region, so no
+number is both painted twice and read twice. The redundant *Showing all
+N routines.* toolbar line is removed entirely.
+
 Mount note: the route surface is the single `ROUTES_AREA`
 contribution (`id: routines`, `path: /routines`, `render` through the
 contribution). The default-export descriptor carries `id` / `name` /

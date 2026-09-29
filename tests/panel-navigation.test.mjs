@@ -401,9 +401,12 @@ describe('closing returns focus where the user would continue (issue #78)', () =
   });
 
   it('the New routine control is addressable by the composer focus target', () => {
-    const newBtn = collect(paint()).find((n) => n.type === 'button' && n.props['aria-label'] === 'New routine');
+    // The control is labeled with visible text now (issue #79), so its
+    // accessible name comes from that content rather than an aria-label.
+    const newBtn = byClass(paint(), 'hr-btn-new')[0];
     assert.ok(newBtn, 'the opener exists');
     assert.equal(newBtn.props.id, routines.NEW_ROUTINE_CONTROL_ID);
+    assert.match(texts(newBtn).join(' '), /New routine/, 'and it still says what it opens');
   });
 
   it('focusById never claims a success it cannot have', () => {

@@ -8,7 +8,7 @@ import {
   type RoutinesState,
 } from '../state/routinesState';
 import { findRouteByKey } from '../domain/routing';
-import { jobIdFromResponse, jobIdOf, visibleJobs } from '../domain/jobs';
+import { filterCounts, jobIdFromResponse, jobIdOf, visibleJobs } from '../domain/jobs';
 import { humanScheduleOf, routineKey, routinePromptOf, routineTitle } from '../domain/present';
 import { wrapHostError } from '../lib/errors';
 import {
@@ -161,6 +161,23 @@ export function RoutinesPage() {
       return name.includes(q) || schedule.includes(q);
     });
   }, [shown, searchQuery]);
+
+  // Rows matching the SEARCH alone, with no status filter applied. The chip
+  // counts are computed over this set, not over `filteredJobs`: a count
+  // taken from the already-filtered rows would read "Paused 0" while paused
+  // routines exist, because the active filter had removed them before the
+  // count was taken. Each chip answers "how many rows would I open?", so
+  // each must be counted against every search match, not against the one
+  // slice that happens to be showing (issue #79).
+  const searchMatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return state.jobs;
+    return state.jobs.filter((job) => {
+      const name = (routineTitle(job, '') || jobIdOf(job)).toLowerCase();
+      const schedule = (humanScheduleOf(job) || '').toLowerCase();
+      return name.includes(q) || schedule.includes(q);
+    });
+  }, [state.jobs, searchQuery]);
 
   const selectedJob = useMemo(() => {
     if (!selectedJobKey) return null;
@@ -588,12 +605,12 @@ export function RoutinesPage() {
   }
 
   function renderList(): ReactNode {
-    const totalCount = state.jobs.length;
-    const shownCount = filteredJobs.length;
-    const isReduced = shownCount < totalCount;
-    const countText = isReduced
-      ? `Showing ${shownCount} of ${totalCount} routines.`
-      : `Showing all ${totalCount} routines.`;
+    // The toolbar no longer paints "Showing all N routines.": it restated
+    // what the active filter chip already said, and the chips now carry a
+    // count each (issue #79). Those counts are computed over the search
+    // matches alone, so every chip reports what it would really open and
+    // the current chip's number always equals the rows on screen.
+    const counts = state.status === S.READY ? filterCounts(searchMatches) : null;
 
     return (
       <>
@@ -624,13 +641,9 @@ export function RoutinesPage() {
             <FilterNav
               filter={state.filter}
               disabled={locked}
+              counts={counts ?? undefined}
               onSelect={(value) => dispatch({ type: 'filter-changed', filter: value })}
             />
-            {state.status === S.READY && totalCount > 0 ? (
-              <span className="hr-count-right">
-                {countText}
-              </span>
-            ) : null}
           </div>
         </div>
         {filteredJobs.length === 0 ? (
@@ -665,9 +678,9 @@ export function RoutinesPage() {
   // Live-region copy. Transient feedback wins: an error, a pause/resume or
   // create result, and a loading/unavailable state are the page's visible
   // operational signal. Only the settled READY count restates text the
-  // page already shows on screen (the toolbar count, the empty state), so
-  // it is announced but not painted a second time. The count must be built
-  // from the SAME rows the toolbar paints (filteredJobs), never from the
+  // page already exposes (the filter chips' own counts), so it is
+  // announced but not painted a second time. The count must be built
+  // from the SAME rows the list paints (filteredJobs), never from the
   // status-filter-only list: with a search active those two disagree and a
   // screen reader would hear a count that does not match the screen.
   let liveText = '';
@@ -769,12 +782,10 @@ export function RoutinesPage() {
                   setGuidedRecent(null);
                   setIsCreating(true);
                 }}
-                aria-label="New routine"
-                title="New routine"
               >
                 <svg
-                  width="18"
-                  height="18"
+                  width="16"
+                  height="16"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -786,6 +797,13 @@ export function RoutinesPage() {
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
+                {/* The page's primary action, labeled (issue #79). It used to
+                    be a bare plus carrying only an aria-label, so a sighted
+                    user had to already know what the glyph meant. The visible
+                    text is the accessible name: with a text child present the
+                    browser derives it from the content, so an aria-label here
+                    would only restate what the label already says. */}
+                <span className="hr-btn-new-label">New routine</span>
               </button>
               <span className="hr-sr-only">Profile: {profileLabel}</span>
             </div>

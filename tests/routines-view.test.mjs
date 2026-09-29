@@ -554,7 +554,10 @@ describe('routines-view render branches', () => {
     assert.ok(nav, 'filter nav required');
     const current = nodes.filter((n) => n.type === 'button' && n.props['aria-current'] === 'true');
     assert.equal(current.length, 1);
-    assert.equal(current[0].props.children, 'Paused');
+    // The chip's children are now [label, count]; the count is announced
+    // through aria-label, so the visible label is still what it says.
+    assert.equal(current[0].props.children[0], 'Paused');
+    assert.match(current[0].props['aria-label'], /^Paused — 1 routine$/);
     const items = nodes.filter((n) => n.type === 'li');
     assert.equal(items.length, 1);
     assert.ok(texts(tree).join(' ').includes('Evening digest'));

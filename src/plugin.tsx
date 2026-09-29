@@ -88,3 +88,4 @@ export * from './views/PanelNav';
 export * from './views/GuidedRoutinePanel';
 export * from './views/GuidedProposalReview';
 export * from './views/SelectField';
+export * from './views/FilterNav';

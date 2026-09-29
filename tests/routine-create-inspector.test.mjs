@@ -85,12 +85,24 @@ function paint(state) {
 }
 
 describe('routine-create-inspector', () => {
-  it('renders the minimalist + button in the header top with correct a11y label', () => {
+  it('renders the labeled primary action in the header top', () => {
+    // Issue #79: the primary action carries VISIBLE text, so it never
+    // requires prior familiarity with a glyph. With that text present the
+    // accessible name comes from the content, so no aria-label is needed.
     const tree = paint(readyWith([{ name: 'job-1' }]));
     const nodes = collect(tree);
-    const newBtn = nodes.find((n) => n.type === 'button' && n.props['aria-label'] === 'New routine');
+    const newBtn = nodes.find((n) => n.type === 'button' && n.props.className === 'hr-btn-new');
     assert.ok(newBtn, 'New routine button must exist in header');
-    assert.equal(newBtn.props.className, 'hr-btn-new');
+    assert.match(texts(newBtn).join(' '), /New routine/, 'the primary action is labeled, not a bare plus');
+    assert.equal(
+      newBtn.props['aria-label'],
+      undefined,
+      'no aria-label can contradict or duplicate the visible label',
+    );
+    // The glyph stays decorative now that the text names the action.
+    const glyph = collect(newBtn).find((n) => n.type === 'svg');
+    assert.ok(glyph, 'the plus glyph is still there');
+    assert.equal(glyph.props['aria-hidden'], 'true');
   });
 
   it('renders RoutineComposerPanel via export with full high-abstraction controls', async () => {

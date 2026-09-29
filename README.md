@@ -130,7 +130,9 @@ full installation reference.
 2. Open **Routines** from the sidebar, or navigate to `/routines`.
 3. The page follows the active Desktop profile. It requires the host to expose
    a complete route for that profile; there is no profile picker in this view.
-4. Use the list to inspect routines, then use the New routine control to submit a name,
+4. Use the list to inspect routines. The **All / Active / Paused** tabs each
+   show how many routines that slice holds; the filter tabs and the search box
+   narrow the list together. Then use the **New routine** control to submit a name,
    schedule, and prompt. The prompt is the instruction that the host will
    execute when the routine runs. **Start enabled** decides whether that
    routine can run as soon as it is created.
