@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactElement } from 'react';
+import { useMemo, useRef, useState, type ReactElement } from 'react';
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import {
   DAYS_OF_MONTH,
@@ -49,6 +49,13 @@ export interface RoutineComposerPanelProps {
   onSubmitGuided?: (name: string, schedule: string, prompt: string, delivery?: string) => Promise<boolean>;
 }
 
+/**
+ * How the routine leaves this form. Not a stored preference: the two
+ * creation paths are two DIFFERENT acts, so the choice is made by pressing
+ * the act itself instead of by toggling a property first (issue #72).
+ */
+type CreationPath = 'direct' | 'guided';
+
 export function RoutineComposerPanel({
   disabled,
   onClose,
@@ -57,17 +64,25 @@ export function RoutineComposerPanel({
 }: RoutineComposerPanelProps): ReactElement {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [active, setActive] = useState(true);
+  const [startEnabled, setStartEnabled] = useState(true);
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>(DEFAULT_SCHEDULE_CONFIG);
-  const [submitting, setSubmitting] = useState(false);
+  // Which act is in flight, if any. One slot, not a boolean plus a label:
+  // "which button is busy" and "is the form busy" are the same question, and
+  // keeping them apart would let the buttons disagree with each other.
+  const [pendingPath, setPendingPath] = useState<CreationPath | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<'direct' | 'guided'>(onSubmitGuided ? 'guided' : 'direct');
-  // Advanced section slots, APPENDED after the original seven (name,
-  // prompt, active, scheduleConfig, submitting, error, mode) — never
-  // inserted: tests drive this component with a positional FIFO preset
-  // queue (reactStub.__presetStates), so order is contract.
+  // Advanced section slots, APPENDED after the originals (name, prompt,
+  // startEnabled, scheduleConfig, pendingPath, error) — never inserted:
+  // tests drive this component with a positional FIFO preset queue
+  // (reactStub.__presetStates), so order is contract.
   const [deliveryChoice, setDeliveryChoice] = useState('');
   const [deliveryCustom, setDeliveryCustom] = useState('');
+  // Synchronous in-flight claim. A ref, not state: `setPendingPath` only
+  // paints on the next render, so two clicks in one tick would both read
+  // `pendingPath === null` and create the routine twice — a create is not
+  // idempotent, and the backend mints a second job. It carries no display
+  // information, so it needs no state.
+  const inFlightRef = useRef(false);
 
   const timeOptions: Array<SelectOption<string>> = useMemo(
     () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
@@ -97,9 +112,17 @@ export function RoutineComposerPanel({
   const cronExpr = useMemo(() => buildCronExpression(scheduleConfig), [scheduleConfig]);
   const humanSentence = useMemo(() => describeScheduleConfig(scheduleConfig), [scheduleConfig]);
 
-  async function handleSubmit(): Promise<void> {
+  // The floor the BACKEND imposes on any create, not a completeness rule
+  // this form invented: `cron.manage` `add` has no paused key and the
+  // backend refuses a job with a blank prompt, and the composer always has
+  // a schedule. Everything past this pair is what the guided session asks
+  // about, which is why the assisted path is offered on a partial draft.
+  const draftReady = name.trim() !== '' && prompt.trim() !== '';
+  const busy = pendingPath !== null || disabled;
+
+  async function handleSubmit(path: CreationPath): Promise<void> {
     const trimmedName = name.trim();
-    if (!trimmedName || submitting || disabled) return;
+    if (!trimmedName || busy) return;
 
     // The backend runs the top-level prompt string; an empty instruction
     // is rejected here so the form fails fast instead of round-tripping.
@@ -109,7 +132,7 @@ export function RoutineComposerPanel({
       return;
     }
 
-    // Advanced delivery, manual path: the SAME normalizer the guided
+    // Advanced delivery, both paths: the SAME normalizer the guided
     // proposal path calls (D6), so the two cannot diverge. An invalid
     // typed value is refused with a visible error — never submitted,
     // never silently dropped.
@@ -121,16 +144,28 @@ export function RoutineComposerPanel({
     }
     const delivery = normalized.present ? normalized.delivery : undefined;
 
-    setSubmitting(true);
+    // Claim the act before the first await, not after the re-render: two
+    // clicks in one tick both read `pendingPath === null`, and a create is
+    // NOT idempotent — the backend mints a second routine. The ref is the
+    // synchronous half of that guard; state is what paints it.
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+
+    setPendingPath(path);
     setError(null);
     try {
-      if (mode === 'guided' && onSubmitGuided) {
-        // The guided path is deliberately not a variation of the Active
-        // toggle: it always creates PAUSED, because a routine whose
-        // configuration is an unfinished conversation must not be runnable.
-        // The trailing `delivery` is undefined for the backend default —
-        // the handler arity (name, schedule, prompt, delivery) is pinned,
-        // and it never receives an active flag.
+      if (path === 'guided') {
+        // No guided handler means the act does not exist — and the only
+        // safe answer is to do nothing. Falling through would run the
+        // DIRECT create for a press on the assisted path.
+        if (!onSubmitGuided) return;
+        // The guided path is deliberately not a variation of the
+        // Start enabled switch: it always creates PAUSED, because a
+        // routine whose configuration is an unfinished conversation must
+        // not be runnable — so the `startEnabled` decision is not even
+        // offered on it, and the handler arity (name, schedule, prompt,
+        // delivery) is pinned with no active flag. The trailing
+        // `delivery` is undefined for the backend default.
         const ok = await onSubmitGuided(trimmedName, cronExpr, promptText, delivery);
         if (!ok) {
           setError('Failed to create routine. Please verify parameters.');
@@ -139,7 +174,7 @@ export function RoutineComposerPanel({
       }
       // The name is submitted as typed (trimmed): it is a human-readable
       // title, not a technical id — Hermes generates the job_id.
-      const ok = await onSubmit(trimmedName, cronExpr, promptText, active, delivery);
+      const ok = await onSubmit(trimmedName, cronExpr, promptText, startEnabled, delivery);
       if (!ok) {
         setError('Failed to create routine. Please verify parameters.');
       }
@@ -147,7 +182,8 @@ export function RoutineComposerPanel({
       const message = err instanceof Error ? err.message : 'Failed to create routine.';
       setError(message);
     } finally {
-      setSubmitting(false);
+      inFlightRef.current = false;
+      setPendingPath(null);
     }
   }
 
@@ -180,54 +216,12 @@ export function RoutineComposerPanel({
       <div className="hr-inspector-body">
         <h3 className="hr-create-title">Create Routine</h3>
 
-        {/* Creation path. The guided one creates the routine paused and
-            opens a Hermes chat to finish configuring it; the direct one is
-            the ordinary form. Both collect the same fields, so the only
-            difference the user sees is what happens next. */}
-        {onSubmitGuided ? (
-          <div className="hr-create-active-card">
-            <div className="hr-create-active-info">
-              <span className="hr-create-active-title">Configure with Hermes</span>
-              <span className="hr-create-active-subtitle">
-                {mode === 'guided'
-                  ? 'Creates the routine paused, then opens a chat to finish configuring it.'
-                  : 'Creates the routine right away with the settings below.'}
-              </span>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={mode === 'guided'}
-              aria-label="Toggle guided configuration"
-              className={`hr-switch-pill ${mode === 'guided' ? 'hr-switch-active' : ''}`}
-              onClick={() => setMode(mode === 'guided' ? 'direct' : 'guided')}
-            >
-              <span className="hr-switch-thumb" />
-            </button>
-          </div>
-        ) : null}
-
-        {/* Active Toggle Card — the direct path only. A guided routine is
-            always created paused, so a toggle here would promise something
-            the guided path does not do. */}
-        {mode === 'direct' ? (
-          <div className="hr-create-active-card">
-            <div className="hr-create-active-info">
-              <span className="hr-create-active-title">Active</span>
-              <span className="hr-create-active-subtitle">This routine will run on the schedule below.</span>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={active}
-              aria-label="Toggle routine active state"
-              className={`hr-switch-pill ${active ? 'hr-switch-active' : ''}`}
-              onClick={() => setActive(!active)}
-            >
-              <span className="hr-switch-thumb" />
-            </button>
-          </div>
-        ) : null}
+        {/* The form starts with the user's intent, in their words: what to
+            automate, then when. The two creation paths are offered at the
+            BOTTOM as two acts, not as a setting above the fields (issue
+            #72) — a toggle would promise a durable property the guided
+            path does not have, and would ask how the mechanism works
+            before asking what should be automated. */}
 
         {/* Name Input */}
         <div className="hr-create-field">
@@ -370,13 +364,74 @@ export function RoutineComposerPanel({
           </div>
         </div>
 
+        {/* Start enabled — a CREATION outcome, not an existing state. The
+            copy states what happens to the routine this act creates, which
+            is the whole difference from the "Active" label an existing
+            routine carries in the inspector. */}
+        <div className="hr-create-active-card">
+          <div className="hr-create-active-info">
+            <span className="hr-create-active-title">Start enabled</span>
+            <span className="hr-create-active-subtitle">
+              {startEnabled
+                ? 'The routine runs on the schedule above as soon as it is created.'
+                : 'The routine is created paused, so it waits until you turn it on yourself.'}
+            </span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={startEnabled}
+            aria-label="Start the routine enabled"
+            className={`hr-switch-pill ${startEnabled ? 'hr-switch-active' : ''}`}
+            onClick={() => setStartEnabled(!startEnabled)}
+          >
+            <span className="hr-switch-thumb" />
+          </button>
+        </div>
+
         {error ? (
           <div className="hr-create-error" role="alert">
             {error}
           </div>
         ) : null}
 
-        {/* Action Buttons */}
+        {/* Finish with Hermes — the secondary COMPLETION path, next to the
+            final actions. It is a button, not a switch, because choosing
+            it is an act (create paused, then open a configuration chat),
+            not a property the routine keeps. The card says what Hermes
+            does and why the user would pick it, and it accepts a partial
+            draft: anything left vague is exactly what the session asks
+            about, and nothing vague can run because the routine is paused
+            until a proposal is reviewed and applied. */}
+        {onSubmitGuided ? (
+          <section className="hr-create-hermes-card" aria-labelledby="hr-create-hermes-title">
+            <div className="hr-create-hermes-info">
+              <span className="hr-create-hermes-title" id="hr-create-hermes-title">
+                Finish with Hermes
+              </span>
+              <span className="hr-create-hermes-subtitle">
+                Hermes reviews this draft in a chat, asks about whatever is still missing, and
+                completes the setup for you. Nothing here has to be finished first.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="hr-btn hr-btn-create-hermes"
+              aria-label="Create this routine and finish the setup with Hermes"
+              disabled={!draftReady || busy}
+              onClick={() => void handleSubmit('guided')}
+            >
+              {pendingPath === 'guided' ? 'Starting…' : 'Finish with Hermes'}
+            </button>
+            <span className="hr-create-hermes-hint">
+              {draftReady
+                ? 'The routine is created paused and stays paused until you review what Hermes proposes.'
+                : 'Add a name and an instruction, and the rest is what the conversation is for.'}
+            </span>
+          </section>
+        ) : null}
+
+        {/* Final actions */}
         <div className="hr-create-actions">
           <button
             type="button"
@@ -389,14 +444,10 @@ export function RoutineComposerPanel({
           <button
             type="button"
             className="hr-btn hr-btn-create-submit"
-            disabled={!name.trim() || !prompt.trim() || submitting || disabled}
-            onClick={handleSubmit}
+            disabled={!draftReady || busy}
+            onClick={() => void handleSubmit('direct')}
           >
-            {submitting
-              ? 'Creating…'
-              : mode === 'guided' && onSubmitGuided
-                ? 'Create & Configure with Hermes'
-                : 'Create Routine'}
+            {pendingPath === 'direct' ? 'Creating…' : 'Create Routine'}
           </button>
         </div>
       </div>

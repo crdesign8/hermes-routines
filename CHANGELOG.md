@@ -53,17 +53,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the provisional job, and closing the panel resumes nothing — the
   component owns no cleanup effect that can mutate.
 
-- A guided configuration handoff: a routine created with **Configure with
+- A guided configuration handoff: a routine created with **Finish with
   Hermes** is created **paused**, and from that state the page can open a
   Hermes Desktop chat already bound to that exact routine. The path is
   `createProvisionalRoutine` → `launchGuidedConfiguration` →
   `openGuidedRoutineChat`, composed by `GuidedRoutinePanel`.
 
-  The composer gained a **Configure with Hermes** toggle (on by default
-  where the path exists, off entirely when it does not, so the ordinary
-  form is unchanged). The guided path is not a variation of the Active
-  toggle: it always creates paused, and the Active switch is hidden rather
-  than shown-but-ignored.
+  The composer offers the assisted path as a **Finish with Hermes** card
+  next to the final actions, not as a switch above the fields (issue #72).
+  It is a button because choosing it is an act — create paused, then open a
+  configuration chat — and a switch would promise a durable property of the
+  routine that the guided path does not have. The card explains what Hermes
+  does, and a partial draft is a valid input: a name and an instruction are
+  the only floor, because those are what the backend's create requires, and
+  anything still vague is exactly what the session asks about. The direct
+  create is unchanged, and the assisted path is absent entirely where the
+  page has no guided handler.
 
   The opening prompt is a versioned configuration envelope
   (`HERMES_ROUTINE_CONFIG_V1`) carrying the authoritative `job_id`, the
@@ -173,6 +178,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/proposal-handoff.md`).
 
 ### Changed
+
+- The create form no longer asks how the configuration mechanism works
+  before asking what the routine should do. **Configure with Hermes** is
+  gone as a first control and as an on/off property: it is now a **Finish
+  with Hermes** card beside the final actions, a distinct act with a plain
+  description of what Hermes does and of the fact that the routine is
+  created paused. A partial draft is accepted — a name and an instruction
+  are the only floor, matching what the backend's create actually requires,
+  and the rest is the conversation's job. Creation-time state is worded as
+  **Start enabled**, describing the outcome of this creation instead of
+  reusing the state label an existing routine carries. The guided safety
+  invariants are unchanged: the assisted create still never receives an
+  active flag, and nothing on that path resumes or activates a routine.
 
 - Declared Linux as the only verified supported platform for building,
   testing, and installing; other operating systems are not yet verified

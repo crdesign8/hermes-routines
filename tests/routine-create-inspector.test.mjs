@@ -115,13 +115,16 @@ describe('routine-create-inspector', () => {
     const allTexts = texts(element).join(' ');
     assert.match(allTexts, /Create Routine/);
     assert.match(allTexts, /WHEN TO RUN/);
-    assert.match(allTexts, /Active/);
-    assert.match(allTexts, /This routine will run on the schedule below/);
+    // Issue #72: create-time wording describes the OUTCOME of this creation
+    // ("Start enabled"), not the existing state label an inspector row uses.
+    assert.match(allTexts, /Start enabled/);
+    assert.doesNotMatch(allTexts, /^Active$/, 'the create form must not reuse the state label');
 
-    // Active switch
+    // Start enabled switch
     const switchBtn = nodes.find((n) => n.type === 'button' && n.props.role === 'switch');
-    assert.ok(switchBtn, 'Active toggle switch must exist');
+    assert.ok(switchBtn, 'Start enabled toggle switch must exist');
     assert.equal(switchBtn.props['aria-checked'], true);
+    assert.equal(switchBtn.props['aria-label'], 'Start the routine enabled');
 
     // Name input & Action prompt textarea
     const inputs = nodes.filter((n) => n.type === 'input');
@@ -147,14 +150,17 @@ describe('routine-create-inspector', () => {
     const name = 'Resumo diário do Political Manager';
     const noop = () => {};
     const config = routines.DEFAULT_SCHEDULE_CONFIG;
-    // Composer hooks: [name, prompt, active, scheduleConfig, submitting, error]
+    // Composer hooks (issue #72): [name, prompt, startEnabled, scheduleConfig,
+    // pendingPath, error, deliveryChoice, deliveryCustom]
     reactStub.__presetStates([
       [name, noop],
       ['Summarize yesterday.', noop],
       [true, noop],
       [config, noop],
-      [false, noop],
       [null, noop],
+      [null, noop],
+      ['', noop],
+      ['', noop],
     ]);
     let submitted = null;
     const element = routines.RoutineComposerPanel({

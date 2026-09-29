@@ -66,9 +66,9 @@ The images below are captures of the plugin running inside Hermes Desktop. Routi
 
 *Routines list — browse, search, and filter routines for the active profile.*
 
-![Create Routine panel: an Active toggle, a Name field, a prompt field, and a Trigger set to Weekdays at 07:45](docs/assets/hermes-routines-02.png)
+![Create Routine panel: a toggle, a Name field, a prompt field, and a Trigger set to Weekdays at 07:45](docs/assets/hermes-routines-02.png)
 
-*Composer — create a routine from a name, schedule, and prompt.*
+*Composer — create a routine from a name, schedule, and prompt, or hand the draft to Hermes to finish. This capture predates the composer reframe in issue #72, where **Finish with Hermes** became a card beside the final actions and creation-time state was worded **Start enabled**.*
 
 ![Routines page with the routine inspector open beside the list, showing the selected routine's schedule and stored instruction](docs/assets/hermes-routines-03.png)
 
@@ -121,8 +121,13 @@ full installation reference.
    a complete route for that profile; there is no profile picker in this view.
 4. Use the list to inspect routines, then use the New routine control to submit a name,
    schedule, and prompt. The prompt is the instruction that the host will
-   execute when the routine runs.
-5. Use the pause/resume controls to change a routine's active state.
+   execute when the routine runs. **Start enabled** decides whether that
+   routine can run as soon as it is created.
+5. Or, with a name and an instruction already in the form, use **Finish
+   with Hermes**: the routine is created paused, and Hermes reviews the
+   draft in a chat to clarify whatever is still missing. It stays paused
+   until you review and apply what Hermes proposes.
+6. Use the pause/resume controls to change a routine's active state.
 
 All list and mutation requests are scoped to the active profile. The plugin
 requires a resolved route with a backend profile and fails closed when that

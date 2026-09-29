@@ -62,18 +62,36 @@ function texts(tree) {
   return out;
 }
 
-/** Composer useState order: name, prompt, active, scheduleConfig, submitting, error, mode, deliveryChoice, deliveryCustom. */
+/**
+ * Composer useState order (issue #72): name, prompt, startEnabled,
+ * scheduleConfig, pendingPath, error, deliveryChoice, deliveryCustom.
+ * The creation path is no longer a slot: it is the act each button performs.
+ */
 function presetComposer({ name, prompt, deliveryChoice, deliveryCustom, errorSlot } = {}) {
   reactStub.__presetStates([
     [name ?? 'Ops Digest', noop],
     [prompt ?? 'Summarize yesterday.', noop],
     [true, noop],
     [CONFIG, noop],
-    [false, noop],
+    [null, noop],
     [null, errorSlot ?? noop],
-    ['direct', noop],
     [deliveryChoice ?? '', noop],
     [deliveryCustom ?? '', noop],
+  ]);
+}
+
+/** The same slots, with one creation act in flight (or none at null). */
+function presetComposerPending(pendingPath, overrides = {}) {
+  const { name = 'Ops Digest', prompt = 'Summarize yesterday.', deliveryChoice = '', deliveryCustom = '' } = overrides;
+  reactStub.__presetStates([
+    [name, noop],
+    [prompt, noop],
+    [true, noop],
+    [CONFIG, noop],
+    [pendingPath, noop],
+    [null, noop],
+    [deliveryChoice, noop],
+    [deliveryCustom, noop],
   ]);
 }
 
@@ -214,19 +232,8 @@ describe('advanced-ui composer', () => {
   });
 
   it('passes a custom explicit target to the guided submit', async () => {
-    presetComposer({ deliveryChoice: 'custom', deliveryCustom: 'telegram:-1001234567890' });
+    presetComposerPending(null, { deliveryChoice: 'custom', deliveryCustom: 'telegram:-1001234567890' });
     let submitted = null;
-    reactStub.__presetStates([
-      ['Ops Digest', noop],
-      ['Summarize yesterday.', noop],
-      [true, noop],
-      [CONFIG, noop],
-      [false, noop],
-      [null, noop],
-      ['guided', noop],
-      ['custom', noop],
-      ['telegram:-1001234567890', noop],
-    ]);
     const element = renderComposer({
       onSubmit: async () => true,
       onSubmitGuided: async (name, schedule, prompt, delivery) => {
@@ -235,7 +242,7 @@ describe('advanced-ui composer', () => {
       },
     });
     const guided = collect(element).find(
-      (n) => n.type === 'button' && texts(n).join('').includes('Create & Configure'),
+      (n) => n.type === 'button' && texts(n).join('').includes('Finish with Hermes'),
     );
     assert.ok(guided, 'guided submit button must exist');
     await guided.props.onClick();
