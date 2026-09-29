@@ -33,10 +33,9 @@ export interface GuidedRoutineChatRequest {
   /** Opening prompt seated in the fresh composer. Required, non-blank. */
   initialPrompt: string;
   /**
-   * false (default) = seat the prompt and let the USER send it, so an
-   * assistant's first turn is always a human's decision. true = the button
-   * press itself starts the conversation. Explicit here, not buried in a
-   * component, so the behavior is reviewable as a contract.
+   * false (default) seats the prompt without sending; true makes the
+   * explicit button press submit the kickoff. A refused submission is a
+   * failure, not a successful launch with autoSubmitted=false.
    */
   autoSubmit?: boolean;
 }
@@ -51,7 +50,9 @@ export type GuidedRoutineChatFailure =
   | 'blank_prompt'
   | 'no_new_chat'
   | 'no_composer'
-  | 'draft_not_claimed';
+  | 'session_open_failed'
+  | 'draft_not_claimed'
+  | 'submit_not_accepted';
 
 function failure(reason: GuidedRoutineChatFailure, message: string): GuidedRoutineChatResult {
   return { ok: false, reason, message };
@@ -92,25 +93,33 @@ export async function openGuidedRoutineChat(
     return failure('no_composer', 'Update Hermes Desktop to start a configuration chat');
   }
 
+  if (request.autoSubmit === true && typeof host.composer.submit !== 'function') {
+    return failure('no_composer', 'Update Hermes Desktop to submit a configuration chat');
+  }
+
   // The route — not a profile name — is the argument, so a cross-connection
   // chat is created on the connection that owns the job.
-  host.newChat(request.route);
-
-  // Fail-closed write: false means no mounted surface claimed the fresh
-  // draft (the app navigated elsewhere mid-call). The chat stays open and
-  // empty; we report instead of leaving a half-configured conversation.
-  const seated = await host.composer.setDraft(GUIDED_CHAT_DRAFT, prompt);
-  if (!seated) {
-    return failure('draft_not_claimed', 'The new chat did not accept the prompt');
+  try {
+    host.newChat(request.route);
+  } catch {
+    return failure('session_open_failed', 'The configuration chat could not be opened. Retry from this routine.');
   }
 
-  if (request.autoSubmit !== true) {
-    return { ok: true, routeKey: key, autoSubmitted: false };
+  // A rejected draft or submission never counts as a successful kickoff.
+  // Retry opens a fresh chat for the SAME job, without recreating it.
+  try {
+    const seated = await host.composer.setDraft(GUIDED_CHAT_DRAFT, prompt);
+    if (!seated) {
+      return failure('draft_not_claimed', 'The new chat did not accept the prompt');
+    }
+    if (request.autoSubmit !== true) {
+      return { ok: true, routeKey: key, autoSubmitted: false };
+    }
+    const sent = host.composer.submit(GUIDED_CHAT_DRAFT, prompt);
+    return sent
+      ? { ok: true, routeKey: key, autoSubmitted: true }
+      : failure('submit_not_accepted', 'The new chat did not submit the prompt. Retry to start configuration.');
+  } catch {
+    return failure('submit_not_accepted', 'The configuration prompt could not be submitted. Retry from this routine.');
   }
-
-  // submit is synchronous and fail-closed (no visible surface → false). The
-  // prompt is already seated either way, so a false here leaves the user a
-  // drafted chat to send rather than losing the text.
-  const sent = host.composer.submit(GUIDED_CHAT_DRAFT, prompt);
-  return { ok: true, routeKey: key, autoSubmitted: sent };
 }

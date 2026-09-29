@@ -139,12 +139,12 @@ describe('guided-chat', () => {
     sdk.__reset();
   });
 
-  it('a refused submit keeps the seated draft (user can still send it)', async () => {
+  it('a refused submit keeps the seated draft and reports a retryable failure', async () => {
     sdk.__reset();
     sdk.__setComposerResult({ submit: false });
     const result = await call({ autoSubmit: true });
-    assert.equal(result.ok, true);
-    assert.equal(result.autoSubmitted, false, 'the prompt is drafted, not lost');
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'submit_not_accepted');
     assert.deepEqual(sdk.__calls().map((c) => c.door), ['newChat', 'composer.setDraft', 'composer.submit']);
     sdk.__reset();
   });

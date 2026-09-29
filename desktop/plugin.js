@@ -2067,16 +2067,27 @@ async function openGuidedRoutineChat(request) {
   if (typeof host2.composer?.setDraft !== "function") {
     return failure("no_composer", "Update Hermes Desktop to start a configuration chat");
   }
-  host2.newChat(request.route);
-  const seated = await host2.composer.setDraft(GUIDED_CHAT_DRAFT, prompt);
-  if (!seated) {
-    return failure("draft_not_claimed", "The new chat did not accept the prompt");
+  if (request.autoSubmit === true && typeof host2.composer.submit !== "function") {
+    return failure("no_composer", "Update Hermes Desktop to submit a configuration chat");
   }
-  if (request.autoSubmit !== true) {
-    return { ok: true, routeKey: key, autoSubmitted: false };
+  try {
+    host2.newChat(request.route);
+  } catch {
+    return failure("session_open_failed", "The configuration chat could not be opened. Retry from this routine.");
   }
-  const sent = host2.composer.submit(GUIDED_CHAT_DRAFT, prompt);
-  return { ok: true, routeKey: key, autoSubmitted: sent };
+  try {
+    const seated = await host2.composer.setDraft(GUIDED_CHAT_DRAFT, prompt);
+    if (!seated) {
+      return failure("draft_not_claimed", "The new chat did not accept the prompt");
+    }
+    if (request.autoSubmit !== true) {
+      return { ok: true, routeKey: key, autoSubmitted: false };
+    }
+    const sent = host2.composer.submit(GUIDED_CHAT_DRAFT, prompt);
+    return sent ? { ok: true, routeKey: key, autoSubmitted: true } : failure("submit_not_accepted", "The new chat did not submit the prompt. Retry to start configuration.");
+  } catch {
+    return failure("submit_not_accepted", "The configuration prompt could not be submitted. Retry from this routine.");
+  }
 }
 
 // src/domain/routineProposal.ts
@@ -5541,14 +5552,15 @@ function GuidedRoutinePanel({
   submittedSchedule,
   submittedPrompt,
   submittedDelivery,
+  initialLaunch,
   autoSubmitOnFirstLaunch,
   activeRoute,
   onLaunch,
   onClose
 }) {
   const [launching, setLaunching] = useState3(false);
-  const [launch, setLaunch] = useState3(null);
-  const [autoSubmit] = useState3(autoSubmitOnFirstLaunch === true);
+  const [launch, setLaunch] = useState3(initialLaunch ?? null);
+  const [autoSubmit] = useState3(autoSubmitOnFirstLaunch !== false);
   const [handoff, setHandoff] = useState3("");
   const [wf, setWf] = useState3(() => initialGuidedWorkflow(routine.jobId));
   const [busy, setBusy] = useState3(false);
@@ -5568,11 +5580,9 @@ function GuidedRoutinePanel({
       const result = await onLaunch(
         routine,
         { name: submittedName, schedule: submittedSchedule, prompt: submittedPrompt },
-        // Auto-send is a property of the FIRST launch only. A retry means
-        // the user is present and re-deciding, so it drafts and lets them
-        // send — a hidden second auto-send would start a conversation the
-        // user never asked for.
-        autoSubmit && firstLaunch
+        // The initial Finish action already authorized a submit. A retry is
+        // another explicit click on that same paused job, not another create.
+        autoSubmit || !firstLaunch
       );
       setLaunch(result);
       if (result.ok) setWf(guidedWorkflowReducer(wf, { type: "chat-launched" }));
@@ -5784,7 +5794,7 @@ function GuidedRoutinePanel({
     if (wf.state === S.PROVISIONAL_PAUSED || wf.state === S.CONFIGURING) {
       return /* @__PURE__ */ jsxs10("div", { className: "hr-create-actions", children: [
         close,
-        /* @__PURE__ */ jsx11(
+        !opened ? /* @__PURE__ */ jsx11(
           "button",
           {
             type: "button",
@@ -5793,7 +5803,7 @@ function GuidedRoutinePanel({
             onClick: () => void handleLaunch(),
             children: launching ? "Opening\u2026" : failed2 ? "Retry chat" : "Configure with Hermes"
           }
-        )
+        ) : null
       ] });
     }
     return /* @__PURE__ */ jsx11("div", { className: "hr-create-actions", children: close });
@@ -6280,7 +6290,12 @@ function RoutinesPage() {
         dispatch({ type: "mutation-error", error: "failed to create routine: " + result.message });
         return false;
       }
-      setGuided({ routine: result.routine, name, schedule, prompt, delivery });
+      const initialLaunch = await launchGuidedConfiguration({
+        routine: result.routine,
+        submitted: { name, schedule, prompt },
+        autoSubmit: true
+      });
+      setGuided({ routine: result.routine, name, schedule, prompt, delivery, initialLaunch });
       setGuidedRecent(null);
       setIsCreating(false);
       setSelectedJobKey(null);
@@ -6630,6 +6645,7 @@ function RoutinesPage() {
           submittedSchedule: guided.schedule,
           submittedPrompt: guided.prompt,
           submittedDelivery: guided.delivery,
+          initialLaunch: guided.initialLaunch,
           activeRoute,
           onLaunch: handleGuidedLaunch,
           onClose: () => closeSurface("guided")
