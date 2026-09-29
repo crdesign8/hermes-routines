@@ -1,8 +1,8 @@
 import type { ReactElement } from 'react';
 import type { RoutineJob } from '../domain/jobs';
 import {
-  formatWhen,
   humanScheduleOf,
+  nextRunCopyOf,
   nextRunIso,
   routineActive,
   routinePausedOf,
@@ -32,8 +32,11 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
   const terminal = routineTerminal(job);
   const { tone } = statusOf(job);
   const schedule = humanScheduleOf(job) || '—';
-  const nextIso = nextRunIso(job);
-  const nextDistance = nextIso ? formatWhen(nextIso) : null;
+  // State-aware copy from the domain: a past next_run_at reads "Overdue by
+  // 2 hours", never a past distance behind a "Next" label. A terminal
+  // routine has no future, so its stale field is dropped the same way the
+  // expanded card and the inspector drop it.
+  const nextCopy = routineActive(job) ? nextRunCopyOf(nextRunIso(job)) : null;
   const controlsId = `hr-details-${fallback.replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
 
   return (
@@ -126,10 +129,10 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
             ) : (
               <>
                 <span className="hr-sub-schedule">{schedule}</span>
-                {nextDistance ? (
+                {nextCopy ? (
                   <>
                     <span className="hr-sub-sep">|</span>
-                    <span className="hr-sub-next">Next in {nextDistance}</span>
+                    <span className="hr-sub-next">{nextCopy.sentence}</span>
                   </>
                 ) : null}
               </>

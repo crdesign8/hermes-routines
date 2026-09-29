@@ -237,21 +237,98 @@ export function lastResultOf(job: RoutineJob | null | undefined): LastResult {
 }
 
 /**
- * How far a timestamp sits from now, plus its absolute date. Null when the
- * input is missing or unparseable, so a caller can state the empty case
- * instead of rendering a placeholder as if it were data. Both the expanded
- * card and the inspector read their run distances through this, so the two
- * can never disagree on what a timestamp means.
+ * Canonical "now" window. A timestamp inside ±1 minute of the reference
+ * clock is neither future nor past for a scheduler — the run it points at
+ * may already be picked up — so copy for that band states one canonical
+ * condition ("Due now" for a next run, "just now" for run history) instead
+ * of a signed distance that would contradict the verb in front of it.
+ *
+ * The window is symmetric and inclusive: exactly ±60s reads as "now", and
+ * every decision below reads this single threshold.
+ */
+export const NOW_WINDOW_MS = 60_000;
+
+/** Where a signed gap (timestamp − reference) sits relative to the window. */
+type RunRelation = 'future' | 'now' | 'past';
+
+function relationOfDiff(diffMs: number): RunRelation {
+  if (diffMs > NOW_WINDOW_MS) return 'future';
+  if (diffMs < -NOW_WINDOW_MS) return 'past';
+  return 'now';
+}
+
+/**
+ * Unsigned distance copy ("2 minutes", "3 hours", "5 days") for a gap the
+ * caller has already proven sits outside the now window, so the smallest
+ * value a user can see is "1 minute" — a leading "0" never reaches copy.
+ */
+function distanceText(absMs: number): string {
+  const minutes = Math.floor(absMs / 60_000);
+  if (minutes < 60) return `${minutes} ${plural(minutes, 'minute')}`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} ${plural(hours, 'hour')}`;
+  const days = Math.round(hours / 24);
+  return `${days} ${plural(days, 'day')}`;
+}
+
+/**
+ * Run-history distance, always past-oriented: "just now" inside the now
+ * window, "2 minutes ago" beyond it. A timestamp ahead of the clock is
+ * skew, not a future execution — a last-run row saying "in 2 minutes"
+ * would claim a run that has not happened — so it clamps to the same
+ * canonical "just now".
  */
 export interface RunDistance {
   text: string;
   date: string | null;
 }
 
-export function runDistanceOf(iso: string | null | undefined): RunDistance | null {
-  const text = formatWhen(iso ?? null);
-  if (text === null) return null;
-  return { text, date: formatDate(iso ?? null) };
+export function runDistanceOf(iso: string | null | undefined, now?: Date): RunDistance | null {
+  const timestamp = parseTimestamp(iso ?? null);
+  if (timestamp === null) return null;
+  const elapsedMs = (now ?? new Date()).getTime() - timestamp.getTime();
+  return {
+    text: relationOfDiff(-elapsedMs) === 'past' ? `${distanceText(elapsedMs)} ago` : 'just now',
+    date: formatDate(iso ?? null),
+  };
+}
+
+/** Next-run condition for copy: ahead of the clock, due, or stale. */
+export type NextRunState = 'future' | 'now' | 'overdue';
+
+/**
+ * Next-run copy, decided from the timestamp's relation to the clock rather
+ * than from the field it came from (issue #75): a past `next_run_at` is an
+ * overdue schedule, never a "Next" label glued to an "ago" distance.
+ *
+ * `sentence` is complete for a surface with no label of its own ("Next run
+ * in 2 minutes", "Due now", "Overdue by 2 minutes"); `text` is the
+ * predicate a labelled row needs beside its own "Next run" label ("in 2
+ * minutes", "due now", "overdue by 2 minutes"). Both come from this one
+ * state machine, so no surface composes wording of its own.
+ */
+export interface NextRunCopy {
+  state: NextRunState;
+  text: string;
+  sentence: string;
+  date: string | null;
+}
+
+export function nextRunCopyOf(iso: string | null | undefined, now?: Date): NextRunCopy | null {
+  const timestamp = parseTimestamp(iso ?? null);
+  if (timestamp === null) return null;
+  const diffMs = timestamp.getTime() - (now ?? new Date()).getTime();
+  const date = formatDate(iso ?? null);
+  const relation = relationOfDiff(diffMs);
+  if (relation === 'future') {
+    const distance = distanceText(diffMs);
+    return { state: 'future', text: `in ${distance}`, sentence: `Next run in ${distance}`, date };
+  }
+  if (relation === 'past') {
+    const distance = distanceText(-diffMs);
+    return { state: 'overdue', text: `overdue by ${distance}`, sentence: `Overdue by ${distance}`, date };
+  }
+  return { state: 'now', text: 'due now', sentence: 'Due now', date };
 }
 
 /**
@@ -270,6 +347,10 @@ export function runDistanceOf(iso: string | null | undefined): RunDistance | nul
  * recorded run stays empty here on purpose: the inspector reports executions,
  * and the job's error state is already spoken for by the row's status
  * indicator, which has its own vocabulary.
+ *
+ * `nextRun` is the state-aware copy from `nextRunCopyOf`, so the inspector
+ * reads "in 2 hours" for a future schedule and "overdue by 2 hours" for a
+ * stale one — never a past distance behind a "Next run" label.
  */
 export interface LastExecution {
   known: boolean;
@@ -277,7 +358,7 @@ export interface LastExecution {
   resultKind: LastResult['kind'];
   resultText: string;
   issue: string | null;
-  nextRun: RunDistance | null;
+  nextRun: NextRunCopy | null;
 }
 
 export function lastExecutionOf(job: RoutineJob | null | undefined): LastExecution {
@@ -295,7 +376,7 @@ export function lastExecutionOf(job: RoutineJob | null | undefined): LastExecuti
     // execution shows the empty state and no issue row, even when the backend
     // parked a benign reason there (issueOf also reads paused_reason).
     issue: known && failed ? issueOf(job) : null,
-    nextRun: routineActive(job) ? runDistanceOf(nextRunIso(job)) : null,
+    nextRun: routineActive(job) ? nextRunCopyOf(nextRunIso(job)) : null,
   };
 }
 
@@ -320,24 +401,21 @@ export function routineHealthOf(job: RoutineJob | null | undefined): RoutineHeal
 }
 
 /**
- * Collapsed subtitle: the humanized schedule followed by the next-run
- * distance, e.g. "Every Friday at 08:00  |  Next in 06 days". Terminal jobs
- * keep their status copy even when disabled; paused jobs show "Paused".
+ * Collapsed subtitle: the humanized schedule followed by the canonical
+ * next-run copy, e.g. "Every Friday at 08:00  |  Next run in 6 days".
+ * Terminal jobs keep their status copy even when disabled; paused jobs
+ * show "Paused". The next-run half comes from nextRunCopyOf, so an overdue
+ * schedule reads "Overdue by 2 hours" instead of a past distance hiding
+ * behind a "Next" label.
  */
 export function collapsedSubtitleOf(job: RoutineJob | null | undefined): string {
   if (routineCompleted(job)) return 'Completed';
   if (routineErrored(job)) return 'Error';
   if (routinePausedOf(job)) return 'Paused';
   const base = humanScheduleOf(job) || '—';
-  const next = nextRunIso(job);
-  const when = next === null ? null : formatWhen(next);
-  if (when === null) return base;
-  const daysMatch = /^in (\d+) days?$/.exec(when);
-  const nextText =
-    daysMatch?.[1] !== undefined
-      ? `Next in ${daysMatch[1].padStart(2, '0')} days`
-      : `Next ${when.charAt(0).toUpperCase()}${when.slice(1)}`;
-  return `${base}  |  ${nextText}`;
+  const next = nextRunCopyOf(nextRunIso(job));
+  if (next === null) return base;
+  return `${base}  |  ${next.sentence}`;
 }
 
 /** Parse an ISO-8601 timestamp without letting malformed values escape. */
@@ -348,34 +426,6 @@ export function parseTimestamp(value: string | null | undefined): Date | null {
   const time = Date.parse(trimmed);
   if (Number.isNaN(time)) return null;
   return new Date(time);
-}
-
-/**
- * Relative human distance ("in 2 days", "4 days ago", "in 30 minutes").
- * Returns null for malformed input. Mirrors formatCronWhen.
- */
-export function formatWhen(iso: string | null | undefined, now?: Date): string | null {
-  const timestamp = parseTimestamp(iso ?? null);
-  if (timestamp === null) return null;
-  const reference = now ?? new Date();
-  const diffMs = timestamp.getTime() - reference.getTime();
-  if (diffMs > 0) {
-    if (diffMs < 60_000) return 'soon';
-    const minutes = Math.floor(diffMs / 60_000);
-    if (minutes < 60) return `in ${minutes} ${plural(minutes, 'minute')}`;
-    const hours = Math.round(minutes / 60);
-    if (hours < 24) return `in ${hours} ${plural(hours, 'hour')}`;
-    const days = Math.round(hours / 24);
-    return `in ${days} ${plural(days, 'day')}`;
-  }
-  const elapsedMs = -diffMs;
-  if (elapsedMs < 60_000) return 'just now';
-  const minutes = Math.floor(elapsedMs / 60_000);
-  if (minutes < 60) return `${minutes} ${plural(minutes, 'minute')} ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} ${plural(hours, 'hour')} ago`;
-  const days = Math.round(hours / 24);
-  return `${days} ${plural(days, 'day')} ago`;
 }
 
 /** Absolute local date ("09/01/2026 07:00"). Null for malformed input. */

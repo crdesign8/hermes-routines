@@ -4,6 +4,7 @@ import {
   humanScheduleOf,
   lastResultOf,
   lastRunIso,
+  nextRunCopyOf,
   nextRunIso,
   routineActive,
   runDistanceOf,
@@ -25,7 +26,11 @@ export function RoutineDetails({
   fallback?: string;
 }): ReactElement {
   const schedule = humanScheduleOf(job) || '—';
-  const nextRun = routineActive(job) ? runDistanceOf(nextRunIso(job)) : null;
+  // The next-run value is state-aware (issue #75): the labelled row reads
+  // "in 2 days" while the schedule is ahead of the clock, "due now" inside
+  // the now window, and "overdue by 2 days" once the scheduled time has
+  // passed — a past distance can never sit behind the "Next run" label.
+  const nextRun = routineActive(job) ? nextRunCopyOf(nextRunIso(job)) : null;
   const lastRun = runDistanceOf(lastRunIso(job));
   const result = lastResultOf(job);
 
