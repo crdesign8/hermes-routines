@@ -420,6 +420,39 @@ export const ROUTINES_CSS = [
   '}',
   '.hr-btn-back svg { display: inline-block; flex-shrink: 0; margin: 0; }',
   '.hr-btn-back:hover { color: var(--ui-text-primary, #fff); background: var(--chrome-action-hover, rgba(255,255,255,0.06)); }',
+  /* Panel navigation (issue #78). The header keeps both controls and the
+     stylesheet decides which one the layout can honestly offer: the
+     dismiss icon beside a visible list, the Back affordance where the
+     panel covers the list. The hidden one is display:none, not
+     visibility:hidden, so it is out of the accessibility tree and out of
+     the tab order instead of lingering as a focusable ghost. */
+  '.hr-nav {',
+  '  display: flex;',
+  '  align-items: center;',
+  '  gap: 4px;',
+  '  margin-left: auto;',
+  '}',
+  '.hr-btn-nav {',
+  '  display: inline-flex;',
+  '  align-items: center;',
+  '  justify-content: center;',
+  '  gap: 6px;',
+  '  white-space: nowrap;',
+  '  border: none;',
+  '  background: transparent;',
+  '  color: var(--ui-text-tertiary, #888);',
+  '  font-size: 12px;',
+  '  cursor: pointer;',
+  '  padding: 4px 6px;',
+  '  border-radius: 4px;',
+  '  line-height: 1;',
+  '}',
+  '.hr-btn-nav svg { display: inline-block; flex-shrink: 0; margin: 0; }',
+  '.hr-btn-nav:hover { color: var(--ui-text-primary, #fff); background: var(--chrome-action-hover, rgba(255,255,255,0.06)); }',
+  /* Split view (default): the list is on screen, so the honest control is
+     the dismiss icon. Back would promise a navigation that never happened. */
+  '.hr-nav-back { display: none; }',
+  '.hr-nav-close { padding: 4px; }',
   '.hr-inspector-header-badges { display: flex; align-items: center; gap: 8px; }',
   '.hr-badge-subtle {',
   '  font-size: 10px;',
@@ -961,6 +994,12 @@ export const ROUTINES_CSS = [
   '  /* The inspector is the primary detail surface on a narrow viewport: it takes the full width and its own scroll instead of sharing a cramped column with the list (issue #77). */',
   '  .hr-inspector { width: 100%; flex: 1 1 auto; border-left: none; border-top: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.08)); }',
   '  .hr-feed-column { padding: 12px; }',
+  /* The panel now covers the list, so leaving it IS a back navigation: the
+     wording that would have been a lie in the split view is the honest one
+     here, and the dismiss icon would understate that the list is behind
+     the panel (issue #78). */
+  '  .hr-nav-back { display: inline-flex; }',
+  '  .hr-nav-close { display: none; }',
   '  /* A narrow viewport must not turn the list back into a stack of wrapping blocks: the row stays compact and the summary keeps its single line. */',
   '  .hr-row { padding: 12px 4px; }',
   '  .hr-row-sub { margin-left: 26px; }',

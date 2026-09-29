@@ -3461,6 +3461,39 @@ var ROUTINES_CSS = [
   "}",
   ".hr-btn-back svg { display: inline-block; flex-shrink: 0; margin: 0; }",
   ".hr-btn-back:hover { color: var(--ui-text-primary, #fff); background: var(--chrome-action-hover, rgba(255,255,255,0.06)); }",
+  /* Panel navigation (issue #78). The header keeps both controls and the
+     stylesheet decides which one the layout can honestly offer: the
+     dismiss icon beside a visible list, the Back affordance where the
+     panel covers the list. The hidden one is display:none, not
+     visibility:hidden, so it is out of the accessibility tree and out of
+     the tab order instead of lingering as a focusable ghost. */
+  ".hr-nav {",
+  "  display: flex;",
+  "  align-items: center;",
+  "  gap: 4px;",
+  "  margin-left: auto;",
+  "}",
+  ".hr-btn-nav {",
+  "  display: inline-flex;",
+  "  align-items: center;",
+  "  justify-content: center;",
+  "  gap: 6px;",
+  "  white-space: nowrap;",
+  "  border: none;",
+  "  background: transparent;",
+  "  color: var(--ui-text-tertiary, #888);",
+  "  font-size: 12px;",
+  "  cursor: pointer;",
+  "  padding: 4px 6px;",
+  "  border-radius: 4px;",
+  "  line-height: 1;",
+  "}",
+  ".hr-btn-nav svg { display: inline-block; flex-shrink: 0; margin: 0; }",
+  ".hr-btn-nav:hover { color: var(--ui-text-primary, #fff); background: var(--chrome-action-hover, rgba(255,255,255,0.06)); }",
+  /* Split view (default): the list is on screen, so the honest control is
+     the dismiss icon. Back would promise a navigation that never happened. */
+  ".hr-nav-back { display: none; }",
+  ".hr-nav-close { padding: 4px; }",
   ".hr-inspector-header-badges { display: flex; align-items: center; gap: 8px; }",
   ".hr-badge-subtle {",
   "  font-size: 10px;",
@@ -4002,6 +4035,12 @@ var ROUTINES_CSS = [
   "  /* The inspector is the primary detail surface on a narrow viewport: it takes the full width and its own scroll instead of sharing a cramped column with the list (issue #77). */",
   "  .hr-inspector { width: 100%; flex: 1 1 auto; border-left: none; border-top: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.08)); }",
   "  .hr-feed-column { padding: 12px; }",
+  /* The panel now covers the list, so leaving it IS a back navigation: the
+     wording that would have been a lie in the split view is the honest one
+     here, and the dismiss icon would understate that the list is behind
+     the panel (issue #78). */
+  "  .hr-nav-back { display: inline-flex; }",
+  "  .hr-nav-close { display: none; }",
   "  /* A narrow viewport must not turn the list back into a stack of wrapping blocks: the row stays compact and the summary keeps its single line. */",
   "  .hr-row { padding: 12px 4px; }",
   "  .hr-row-sub { margin-left: 26px; }",
@@ -4079,7 +4118,7 @@ function RoutineStatus({ job }) {
 // src/views/RoutineCard.tsx
 import { Fragment, jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
 function RoutineCard(props) {
-  const { job, fallback, inspected = false, busy, disabled, inspectorId } = props;
+  const { job, fallback, inspected = false, busy, disabled, inspectorId, controlId } = props;
   const title = routineTitle(job, fallback);
   const paused = routinePausedOf(job);
   const terminal = routineTerminal(job);
@@ -4155,6 +4194,7 @@ function RoutineCard(props) {
               "button",
               {
                 type: "button",
+                id: controlId,
                 className: `hr-icon-btn hr-icon-btn-edit${inspected ? " hr-icon-btn-active" : ""}`,
                 "aria-expanded": inspected,
                 "aria-controls": inspected ? inspectorId : void 0,
@@ -4452,8 +4492,70 @@ function ResultTone({
   ] });
 }
 
-// src/views/RoutineInspectorPanel.tsx
+// src/views/PanelNav.tsx
 import { jsx as jsx5, jsxs as jsxs4 } from "react/jsx-runtime";
+var NEW_ROUTINE_CONTROL_ID = "hermes-routines-new";
+function routineRowFocusId(key) {
+  return `hermes-routines-row--${key}`;
+}
+function dismissFocusId(surface, key) {
+  if (surface === "inspector") {
+    if (typeof key !== "string" || key === "") return null;
+    return routineRowFocusId(key);
+  }
+  if (surface === "composer") return NEW_ROUTINE_CONTROL_ID;
+  return null;
+}
+function escapeLeavesPanel(target) {
+  const node = target;
+  if (node === null || typeof node !== "object") return true;
+  const element = node;
+  if (typeof element.tagName !== "string") return true;
+  const tag = element.tagName.toUpperCase();
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+  const role = typeof element.getAttribute === "function" ? element.getAttribute("role") : null;
+  if (role === "combobox" || role === "listbox" || role === "option") return false;
+  return true;
+}
+function focusById(id) {
+  if (id === null) return false;
+  if (typeof document === "undefined") return false;
+  const node = document.getElementById(id);
+  if (node === null || typeof node.focus !== "function") return false;
+  node.focus({ preventScroll: true });
+  return true;
+}
+function PanelNav({ closeLabel, onClose }) {
+  return /* @__PURE__ */ jsxs4("div", { className: "hr-nav", children: [
+    /* @__PURE__ */ jsxs4(
+      "button",
+      {
+        type: "button",
+        className: "hr-btn-nav hr-nav-back",
+        onClick: onClose,
+        "aria-label": "Back to routines",
+        children: [
+          /* @__PURE__ */ jsx5("svg", { width: "12", height: "12", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { flexShrink: 0 }, children: /* @__PURE__ */ jsx5("path", { fillRule: "evenodd", d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" }) }),
+          /* @__PURE__ */ jsx5("span", { children: "Back to routines" })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsx5(
+      "button",
+      {
+        type: "button",
+        className: "hr-btn-nav hr-nav-close",
+        onClick: onClose,
+        "aria-label": closeLabel,
+        title: closeLabel,
+        children: /* @__PURE__ */ jsx5("svg", { width: "12", height: "12", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { flexShrink: 0 }, children: /* @__PURE__ */ jsx5("path", { fillRule: "evenodd", d: "M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" }) })
+      }
+    )
+  ] });
+}
+
+// src/views/RoutineInspectorPanel.tsx
+import { jsx as jsx6, jsxs as jsxs5 } from "react/jsx-runtime";
 var INSPECTOR_PANEL_ID = "hermes-routines-inspector";
 function RoutineInspectorPanel({
   job,
@@ -4470,32 +4572,20 @@ function RoutineInspectorPanel({
   const describedDelivery = describeDestination(storedDelivery);
   const needsConfiguration = guidedConfigCandidateOf(job) !== null;
   const failure3 = explainFailureOf(job);
-  return /* @__PURE__ */ jsxs4("aside", { className: "hr-inspector", id, "aria-label": `Details for ${title}`, children: [
-    /* @__PURE__ */ jsx5("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs4(
-      "button",
-      {
-        type: "button",
-        className: "hr-btn-action hr-btn-back",
-        onClick: onClose,
-        "aria-label": "Back to routines",
-        children: [
-          /* @__PURE__ */ jsx5("svg", { width: "12", height: "12", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", style: { flexShrink: 0 }, children: /* @__PURE__ */ jsx5("path", { fillRule: "evenodd", d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" }) }),
-          /* @__PURE__ */ jsx5("span", { children: "Back to routines" })
-        ]
-      }
-    ) }),
-    /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-body", children: [
-      /* @__PURE__ */ jsx5("h3", { className: "hr-create-title", children: title }),
-      needsConfiguration ? /* @__PURE__ */ jsx5("div", { className: "hr-create-active-card", children: /* @__PURE__ */ jsxs4("div", { className: "hr-create-active-info", children: [
-        /* @__PURE__ */ jsx5("span", { className: "hr-create-active-title", children: "Paused \xB7 needs configuration" }),
-        /* @__PURE__ */ jsx5("span", { className: "hr-create-active-subtitle", children: "This routine is paused and has never run \u2014 its configuration is incomplete." })
+  return /* @__PURE__ */ jsxs5("aside", { className: "hr-inspector", id, "aria-label": `Details for ${title}`, children: [
+    /* @__PURE__ */ jsx6("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsx6(PanelNav, { closeLabel: `Close details for ${title}`, onClose }) }),
+    /* @__PURE__ */ jsxs5("div", { className: "hr-inspector-body", children: [
+      /* @__PURE__ */ jsx6("h3", { className: "hr-create-title", children: title }),
+      needsConfiguration ? /* @__PURE__ */ jsx6("div", { className: "hr-create-active-card", children: /* @__PURE__ */ jsxs5("div", { className: "hr-create-active-info", children: [
+        /* @__PURE__ */ jsx6("span", { className: "hr-create-active-title", children: "Paused \xB7 needs configuration" }),
+        /* @__PURE__ */ jsx6("span", { className: "hr-create-active-subtitle", children: "This routine is paused and has never run \u2014 its configuration is incomplete." })
       ] }) }) : null,
-      /* @__PURE__ */ jsxs4("div", { className: "hr-create-active-card", children: [
-        /* @__PURE__ */ jsxs4("div", { className: "hr-create-active-info", children: [
-          /* @__PURE__ */ jsx5("span", { className: "hr-create-active-title", children: "Active" }),
-          /* @__PURE__ */ jsx5("span", { className: "hr-create-active-subtitle", children: "This routine will run on the schedule below." })
+      /* @__PURE__ */ jsxs5("div", { className: "hr-create-active-card", children: [
+        /* @__PURE__ */ jsxs5("div", { className: "hr-create-active-info", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-create-active-title", children: "Active" }),
+          /* @__PURE__ */ jsx6("span", { className: "hr-create-active-subtitle", children: "This routine will run on the schedule below." })
         ] }),
-        /* @__PURE__ */ jsx5(
+        /* @__PURE__ */ jsx6(
           "button",
           {
             type: "button",
@@ -4504,13 +4594,13 @@ function RoutineInspectorPanel({
             "aria-label": "Routine active state",
             disabled: true,
             className: `hr-switch-pill ${routineActive(job) ? "hr-switch-active" : ""}`,
-            children: /* @__PURE__ */ jsx5("span", { className: "hr-switch-thumb" })
+            children: /* @__PURE__ */ jsx6("span", { className: "hr-switch-thumb" })
           }
         )
       ] }),
-      /* @__PURE__ */ jsxs4("div", { className: "hr-create-field", children: [
-        /* @__PURE__ */ jsx5("label", { className: "hr-field-label", children: "Name" }),
-        /* @__PURE__ */ jsx5(
+      /* @__PURE__ */ jsxs5("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "Name" }),
+        /* @__PURE__ */ jsx6(
           "input",
           {
             type: "text",
@@ -4522,9 +4612,9 @@ function RoutineInspectorPanel({
           }
         )
       ] }),
-      /* @__PURE__ */ jsxs4("div", { className: "hr-create-field", children: [
-        /* @__PURE__ */ jsx5("label", { className: "hr-field-label", children: "What should this routine do?" }),
-        /* @__PURE__ */ jsx5(
+      /* @__PURE__ */ jsxs5("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "What should this routine do?" }),
+        /* @__PURE__ */ jsx6(
           "textarea",
           {
             className: "hr-create-textarea",
@@ -4537,17 +4627,17 @@ function RoutineInspectorPanel({
           }
         )
       ] }),
-      /* @__PURE__ */ jsxs4("div", { className: "hr-create-when-section", children: [
-        /* @__PURE__ */ jsx5("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
-        /* @__PURE__ */ jsx5("div", { className: "hr-create-preview-sentence", children: schedule })
+      /* @__PURE__ */ jsxs5("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
+        /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: schedule })
       ] }),
-      describedDelivery !== null || storedModelOverride !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-create-when-section", children: [
-        /* @__PURE__ */ jsx5("div", { className: "hr-create-section-label", children: "ADVANCED" }),
-        describedDelivery !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-create-field", children: [
-          /* @__PURE__ */ jsx5("label", { className: "hr-field-label", children: "Results go to" }),
-          /* @__PURE__ */ jsx5("div", { className: "hr-create-preview-sentence", children: describedDelivery.resolved ? describedDelivery.label : storedDelivery }),
-          describedDelivery.detail ? /* @__PURE__ */ jsx5("div", { className: "hr-create-preview-sentence", children: describedDelivery.detail }) : null,
-          /* @__PURE__ */ jsx5(
+      describedDelivery !== null || storedModelOverride !== null ? /* @__PURE__ */ jsxs5("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "ADVANCED" }),
+        describedDelivery !== null ? /* @__PURE__ */ jsxs5("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "Results go to" }),
+          /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: describedDelivery.resolved ? describedDelivery.label : storedDelivery }),
+          describedDelivery.detail ? /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: describedDelivery.detail }) : null,
+          /* @__PURE__ */ jsx6(
             "input",
             {
               type: "text",
@@ -4563,39 +4653,39 @@ function RoutineInspectorPanel({
           // A report of stored truth, not a setting: a plain read-only
           // line, never an input. A disabled input still reads as a
           // form field the user failed to fill in (issue #74).
-          /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
-            /* @__PURE__ */ jsx5("span", { className: "hr-detail-label", children: "Model" }),
-            /* @__PURE__ */ jsx5("span", { className: "hr-detail-value", children: storedModelOverride })
+          /* @__PURE__ */ jsxs5("div", { className: "hr-detail", children: [
+            /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Model" }),
+            /* @__PURE__ */ jsx6("span", { className: "hr-detail-value", children: storedModelOverride })
           ] })
         ) : null
       ] }) : null,
-      /* @__PURE__ */ jsxs4("div", { className: "hr-inspector-last-run", children: [
-        /* @__PURE__ */ jsx5("div", { className: "hr-create-section-label", children: "LAST EXECUTION" }),
-        execution.lastRun !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
-          /* @__PURE__ */ jsx5("span", { className: "hr-detail-label", children: "Last run" }),
-          /* @__PURE__ */ jsx5(RunWhen, { distance: execution.lastRun })
+      /* @__PURE__ */ jsxs5("div", { className: "hr-inspector-last-run", children: [
+        /* @__PURE__ */ jsx6("div", { className: "hr-create-section-label", children: "LAST EXECUTION" }),
+        execution.lastRun !== null ? /* @__PURE__ */ jsxs5("div", { className: "hr-detail", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Last run" }),
+          /* @__PURE__ */ jsx6(RunWhen, { distance: execution.lastRun })
         ] }) : null,
-        /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
-          /* @__PURE__ */ jsx5("span", { className: "hr-detail-label", children: "Last result" }),
-          execution.known ? /* @__PURE__ */ jsx5(ResultTone, { kind: execution.resultKind, text: execution.resultText }) : (
+        /* @__PURE__ */ jsxs5("div", { className: "hr-detail", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Last result" }),
+          execution.known ? /* @__PURE__ */ jsx6(ResultTone, { kind: execution.resultKind, text: execution.resultText }) : (
             // Stated in words, never as a placeholder that reads as data.
-            /* @__PURE__ */ jsx5("span", { className: "hr-muted", children: "No runs yet." })
+            /* @__PURE__ */ jsx6("span", { className: "hr-muted", children: "No runs yet." })
           )
         ] }),
-        failure3 !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-failure-summary", children: [
-          /* @__PURE__ */ jsx5("span", { className: "hr-failure-summary-head", children: failure3.summary }),
-          failure3.reason !== null ? /* @__PURE__ */ jsx5("span", { className: "hr-failure-summary-reason", children: failure3.reason }) : null
+        failure3 !== null ? /* @__PURE__ */ jsxs5("div", { className: "hr-failure-summary", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-failure-summary-head", children: failure3.summary }),
+          failure3.reason !== null ? /* @__PURE__ */ jsx6("span", { className: "hr-failure-summary-reason", children: failure3.reason }) : null
         ] }) : null,
-        failure3 !== null && failure3.evidence.length > 0 ? /* @__PURE__ */ jsxs4("details", { className: "hr-tech-details", children: [
-          /* @__PURE__ */ jsx5("summary", { className: "hr-tech-summary", children: "Technical details" }),
-          /* @__PURE__ */ jsx5("div", { className: "hr-tech-body", children: failure3.evidence.map((item) => /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
-            /* @__PURE__ */ jsx5("span", { className: "hr-detail-label", children: item.label }),
-            /* @__PURE__ */ jsx5("span", { className: "hr-detail-value hr-tech-value", children: item.value })
+        failure3 !== null && failure3.evidence.length > 0 ? /* @__PURE__ */ jsxs5("details", { className: "hr-tech-details", children: [
+          /* @__PURE__ */ jsx6("summary", { className: "hr-tech-summary", children: "Technical details" }),
+          /* @__PURE__ */ jsx6("div", { className: "hr-tech-body", children: failure3.evidence.map((item) => /* @__PURE__ */ jsxs5("div", { className: "hr-detail", children: [
+            /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: item.label }),
+            /* @__PURE__ */ jsx6("span", { className: "hr-detail-value hr-tech-value", children: item.value })
           ] }, item.label)) })
         ] }) : null,
-        execution.nextRun !== null ? /* @__PURE__ */ jsxs4("div", { className: "hr-detail", children: [
-          /* @__PURE__ */ jsx5("span", { className: "hr-detail-label", children: "Next run" }),
-          /* @__PURE__ */ jsx5(RunWhen, { distance: execution.nextRun, strong: true })
+        execution.nextRun !== null ? /* @__PURE__ */ jsxs5("div", { className: "hr-detail", children: [
+          /* @__PURE__ */ jsx6("span", { className: "hr-detail-label", children: "Next run" }),
+          /* @__PURE__ */ jsx6(RunWhen, { distance: execution.nextRun, strong: true })
         ] }) : null
       ] })
     ] })
@@ -4603,7 +4693,7 @@ function RoutineInspectorPanel({
 }
 
 // src/views/RoutineList.tsx
-import { jsx as jsx6 } from "react/jsx-runtime";
+import { jsx as jsx7 } from "react/jsx-runtime";
 function RoutineList({
   jobs,
   pending,
@@ -4613,6 +4703,7 @@ function RoutineList({
   inspectedId,
   onInspect,
   inspectorId = INSPECTOR_PANEL_ID,
+  rowControlId,
   onPause,
   onResume
 }) {
@@ -4630,12 +4721,12 @@ function RoutineList({
   function handleSelect(key) {
     if (handleInspect) handleInspect(activeInspectorId === key ? null : key);
   }
-  return /* @__PURE__ */ jsx6("ul", { className: "hr-list", "aria-label": "Routines", children: jobs.map((job, index) => {
+  return /* @__PURE__ */ jsx7("ul", { className: "hr-list", "aria-label": "Routines", children: jobs.map((job, index) => {
     const fallback = `routine ${index + 1}`;
     const jobId = jobIdOf(job);
     const viewKey = routineKey(job, fallback);
     const busier = jobId !== "" && pending.indexOf(jobId) !== -1;
-    return /* @__PURE__ */ jsx6(
+    return /* @__PURE__ */ jsx7(
       RoutineCard,
       {
         job,
@@ -4644,6 +4735,7 @@ function RoutineList({
         busy: busier,
         disabled: locked || jobId === "",
         inspectorId,
+        controlId: rowControlId ? rowControlId(viewKey) : void 0,
         onSelect: () => handleSelect(viewKey),
         onPause: () => onPause(jobId, routineTitle(job, fallback)),
         onResume: () => onResume(jobId, routineTitle(job, fallback))
@@ -4658,7 +4750,7 @@ import { useMemo, useRef as useRef2, useState as useState2 } from "react";
 
 // src/views/SelectField.tsx
 import { useEffect as useEffect2, useRef, useState } from "react";
-import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
+import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
 function SelectField({
   label,
   value,
@@ -4724,14 +4816,14 @@ function SelectField({
       }
     }
   }
-  return /* @__PURE__ */ jsxs5(
+  return /* @__PURE__ */ jsxs6(
     "div",
     {
       ref: containerRef,
       className: `hr-select-container ${className}${isOpen ? " hr-select-is-open" : ""}`,
       children: [
-        label ? /* @__PURE__ */ jsx7("label", { className: "hr-select-label", children: label }) : null,
-        /* @__PURE__ */ jsxs5(
+        label ? /* @__PURE__ */ jsx8("label", { className: "hr-select-label", children: label }) : null,
+        /* @__PURE__ */ jsxs6(
           "div",
           {
             className: "hr-select-trigger",
@@ -4743,14 +4835,14 @@ function SelectField({
             onClick: () => setIsOpen((prev) => !prev),
             onKeyDown: handleKeyDown,
             children: [
-              /* @__PURE__ */ jsx7("span", { className: "hr-select-value", children: displayLabel }),
-              /* @__PURE__ */ jsx7("span", { className: "hr-select-arrow", "aria-hidden": "true", children: /* @__PURE__ */ jsx7("svg", { width: "10", height: "6", viewBox: "0 0 10 6", fill: "currentColor", children: /* @__PURE__ */ jsx7("path", { d: "M0 0l5 5 5-5z" }) }) })
+              /* @__PURE__ */ jsx8("span", { className: "hr-select-value", children: displayLabel }),
+              /* @__PURE__ */ jsx8("span", { className: "hr-select-arrow", "aria-hidden": "true", children: /* @__PURE__ */ jsx8("svg", { width: "10", height: "6", viewBox: "0 0 10 6", fill: "currentColor", children: /* @__PURE__ */ jsx8("path", { d: "M0 0l5 5 5-5z" }) }) })
             ]
           }
         ),
-        isOpen ? /* @__PURE__ */ jsx7("div", { ref: listRef, className: "hr-select-menu", role: "listbox", "aria-label": label, children: options.map((opt) => {
+        isOpen ? /* @__PURE__ */ jsx8("div", { ref: listRef, className: "hr-select-menu", role: "listbox", "aria-label": label, children: options.map((opt) => {
           const isSelected = opt.value === value;
-          return /* @__PURE__ */ jsx7(
+          return /* @__PURE__ */ jsx8(
             "div",
             {
               role: "option",
@@ -4772,7 +4864,7 @@ function SelectField({
 }
 
 // src/views/RoutineComposerPanel.tsx
-import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
+import { jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
 function RoutineComposerPanel({
   disabled,
   onClose,
@@ -4881,42 +4973,13 @@ function RoutineComposerPanel({
       setPendingPath(null);
     }
   }
-  return /* @__PURE__ */ jsxs6("aside", { className: "hr-inspector hr-create-inspector", "aria-label": "Create Routine", children: [
-    /* @__PURE__ */ jsx8("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs6(
-      "button",
-      {
-        type: "button",
-        className: "hr-btn-action hr-btn-back",
-        onClick: onClose,
-        "aria-label": "Back to routines",
-        children: [
-          /* @__PURE__ */ jsx8(
-            "svg",
-            {
-              width: "12",
-              height: "12",
-              viewBox: "0 0 16 16",
-              fill: "currentColor",
-              "aria-hidden": "true",
-              style: { flexShrink: 0 },
-              children: /* @__PURE__ */ jsx8(
-                "path",
-                {
-                  fillRule: "evenodd",
-                  d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"
-                }
-              )
-            }
-          ),
-          /* @__PURE__ */ jsx8("span", { children: "Back to routines" })
-        ]
-      }
-    ) }),
-    /* @__PURE__ */ jsxs6("div", { className: "hr-inspector-body", children: [
-      /* @__PURE__ */ jsx8("h3", { className: "hr-create-title", children: "Create Routine" }),
-      /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
-        /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "Name" }),
-        /* @__PURE__ */ jsx8(
+  return /* @__PURE__ */ jsxs7("aside", { className: "hr-inspector hr-create-inspector", "aria-label": "Create Routine", children: [
+    /* @__PURE__ */ jsx9("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsx9(PanelNav, { closeLabel: "Cancel and close the create form", onClose }) }),
+    /* @__PURE__ */ jsxs7("div", { className: "hr-inspector-body", children: [
+      /* @__PURE__ */ jsx9("h3", { className: "hr-create-title", children: "Create Routine" }),
+      /* @__PURE__ */ jsxs7("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx9("label", { className: "hr-field-label", children: "Name" }),
+        /* @__PURE__ */ jsx9(
           "input",
           {
             type: "text",
@@ -4928,9 +4991,9 @@ function RoutineComposerPanel({
           }
         )
       ] }),
-      /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
-        /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "What should this routine do?" }),
-        /* @__PURE__ */ jsx8(
+      /* @__PURE__ */ jsxs7("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx9("label", { className: "hr-field-label", children: "What should this routine do?" }),
+        /* @__PURE__ */ jsx9(
           "textarea",
           {
             className: "hr-create-textarea",
@@ -4942,9 +5005,9 @@ function RoutineComposerPanel({
           }
         )
       ] }),
-      /* @__PURE__ */ jsxs6("div", { className: "hr-create-when-section", children: [
-        /* @__PURE__ */ jsx8("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
-        /* @__PURE__ */ jsx8(
+      /* @__PURE__ */ jsxs7("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx9("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
+        /* @__PURE__ */ jsx9(
           SelectField,
           {
             label: "Trigger",
@@ -4953,7 +5016,7 @@ function RoutineComposerPanel({
             onChange: (val) => setScheduleConfig((prev) => ({ ...prev, trigger: val }))
           }
         ),
-        scheduleConfig.trigger === "every_day" || scheduleConfig.trigger === "weekdays" ? /* @__PURE__ */ jsx8("div", { className: "hr-create-sub-row", children: /* @__PURE__ */ jsx8(
+        scheduleConfig.trigger === "every_day" || scheduleConfig.trigger === "weekdays" ? /* @__PURE__ */ jsx9("div", { className: "hr-create-sub-row", children: /* @__PURE__ */ jsx9(
           SelectField,
           {
             label: "at",
@@ -4962,8 +5025,8 @@ function RoutineComposerPanel({
             onChange: (val) => setScheduleConfig((prev) => ({ ...prev, time: val }))
           }
         ) }) : null,
-        scheduleConfig.trigger === "every_week" ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-sub-split", children: [
-          /* @__PURE__ */ jsx8(
+        scheduleConfig.trigger === "every_week" ? /* @__PURE__ */ jsxs7("div", { className: "hr-create-sub-split", children: [
+          /* @__PURE__ */ jsx9(
             SelectField,
             {
               label: "on",
@@ -4972,7 +5035,7 @@ function RoutineComposerPanel({
               onChange: (val) => setScheduleConfig((prev) => ({ ...prev, dayOfWeek: val }))
             }
           ),
-          /* @__PURE__ */ jsx8(
+          /* @__PURE__ */ jsx9(
             SelectField,
             {
               label: "at",
@@ -4982,8 +5045,8 @@ function RoutineComposerPanel({
             }
           )
         ] }) : null,
-        scheduleConfig.trigger === "every_month" ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-sub-split", children: [
-          /* @__PURE__ */ jsx8(
+        scheduleConfig.trigger === "every_month" ? /* @__PURE__ */ jsxs7("div", { className: "hr-create-sub-split", children: [
+          /* @__PURE__ */ jsx9(
             SelectField,
             {
               label: "on the",
@@ -4992,7 +5055,7 @@ function RoutineComposerPanel({
               onChange: (val) => setScheduleConfig((prev) => ({ ...prev, dayOfMonth: val }))
             }
           ),
-          /* @__PURE__ */ jsx8(
+          /* @__PURE__ */ jsx9(
             SelectField,
             {
               label: "at",
@@ -5002,8 +5065,8 @@ function RoutineComposerPanel({
             }
           )
         ] }) : null,
-        scheduleConfig.trigger === "interval" ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-sub-split", children: [
-          /* @__PURE__ */ jsx8(
+        scheduleConfig.trigger === "interval" ? /* @__PURE__ */ jsxs7("div", { className: "hr-create-sub-split", children: [
+          /* @__PURE__ */ jsx9(
             SelectField,
             {
               label: "every",
@@ -5012,7 +5075,7 @@ function RoutineComposerPanel({
               onChange: (val) => setScheduleConfig((prev) => ({ ...prev, intervalValue: val }))
             }
           ),
-          /* @__PURE__ */ jsx8(
+          /* @__PURE__ */ jsx9(
             SelectField,
             {
               label: "unit",
@@ -5022,11 +5085,11 @@ function RoutineComposerPanel({
             }
           )
         ] }) : null,
-        /* @__PURE__ */ jsx8("div", { className: "hr-create-preview-sentence", children: humanSentence })
+        /* @__PURE__ */ jsx9("div", { className: "hr-create-preview-sentence", children: humanSentence })
       ] }),
-      /* @__PURE__ */ jsxs6("div", { className: "hr-create-when-section", children: [
-        /* @__PURE__ */ jsx8("div", { className: "hr-create-section-label", children: "RESULTS" }),
-        /* @__PURE__ */ jsx8(
+      /* @__PURE__ */ jsxs7("div", { className: "hr-create-when-section", children: [
+        /* @__PURE__ */ jsx9("div", { className: "hr-create-section-label", children: "RESULTS" }),
+        /* @__PURE__ */ jsx9(
           SelectField,
           {
             label: "Where should results go?",
@@ -5035,11 +5098,11 @@ function RoutineComposerPanel({
             onChange: (val) => setDestinationChoice(val)
           }
         ),
-        selectedDestination !== null ? /* @__PURE__ */ jsx8("div", { className: "hr-create-preview-sentence", children: selectedDestination.detail }) : null,
-        destinationChoice === DESTINATION_ADVANCED ? /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
-          /* @__PURE__ */ jsx8("label", { className: "hr-field-label", children: "Advanced destination override" }),
-          /* @__PURE__ */ jsxs6("div", { className: "hr-create-sub-split", children: [
-            /* @__PURE__ */ jsx8(
+        selectedDestination !== null ? /* @__PURE__ */ jsx9("div", { className: "hr-create-preview-sentence", children: selectedDestination.detail }) : null,
+        destinationChoice === DESTINATION_ADVANCED ? /* @__PURE__ */ jsxs7("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx9("label", { className: "hr-field-label", children: "Advanced destination override" }),
+          /* @__PURE__ */ jsxs7("div", { className: "hr-create-sub-split", children: [
+            /* @__PURE__ */ jsx9(
               "input",
               {
                 type: "text",
@@ -5050,7 +5113,7 @@ function RoutineComposerPanel({
                 "aria-label": "Advanced destination platform"
               }
             ),
-            /* @__PURE__ */ jsx8(
+            /* @__PURE__ */ jsx9(
               "input",
               {
                 type: "text",
@@ -5062,7 +5125,7 @@ function RoutineComposerPanel({
               }
             )
           ] }),
-          /* @__PURE__ */ jsx8(
+          /* @__PURE__ */ jsx9(
             "input",
             {
               type: "text",
@@ -5073,10 +5136,10 @@ function RoutineComposerPanel({
               "aria-label": "Advanced destination thread id"
             }
           ),
-          /* @__PURE__ */ jsx8("div", { className: "hr-create-preview-sentence", children: selectedDestination?.detail ?? "" })
+          /* @__PURE__ */ jsx9("div", { className: "hr-create-preview-sentence", children: selectedDestination?.detail ?? "" })
         ] }) : null,
-        broadcastPending ? /* @__PURE__ */ jsx8("div", { className: "hr-create-broadcast-card", children: /* @__PURE__ */ jsxs6("label", { className: "hr-create-broadcast-check", children: [
-          /* @__PURE__ */ jsx8(
+        broadcastPending ? /* @__PURE__ */ jsx9("div", { className: "hr-create-broadcast-card", children: /* @__PURE__ */ jsxs7("label", { className: "hr-create-broadcast-check", children: [
+          /* @__PURE__ */ jsx9(
             "input",
             {
               type: "checkbox",
@@ -5085,15 +5148,15 @@ function RoutineComposerPanel({
               "aria-label": BROADCAST_ACKNOWLEDGEMENT
             }
           ),
-          /* @__PURE__ */ jsx8("span", { children: BROADCAST_ACKNOWLEDGEMENT })
+          /* @__PURE__ */ jsx9("span", { children: BROADCAST_ACKNOWLEDGEMENT })
         ] }) }) : null
       ] }),
-      /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
-        /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
-          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-title", children: "Start enabled" }),
-          /* @__PURE__ */ jsx8("span", { className: "hr-create-active-subtitle", children: startEnabled ? "The routine runs on the schedule above as soon as it is created." : "The routine is created paused, so it waits until you turn it on yourself." })
+      /* @__PURE__ */ jsxs7("div", { className: "hr-create-active-card", children: [
+        /* @__PURE__ */ jsxs7("div", { className: "hr-create-active-info", children: [
+          /* @__PURE__ */ jsx9("span", { className: "hr-create-active-title", children: "Start enabled" }),
+          /* @__PURE__ */ jsx9("span", { className: "hr-create-active-subtitle", children: startEnabled ? "The routine runs on the schedule above as soon as it is created." : "The routine is created paused, so it waits until you turn it on yourself." })
         ] }),
-        /* @__PURE__ */ jsx8(
+        /* @__PURE__ */ jsx9(
           "button",
           {
             type: "button",
@@ -5102,17 +5165,17 @@ function RoutineComposerPanel({
             "aria-label": "Start the routine enabled",
             className: `hr-switch-pill ${startEnabled ? "hr-switch-active" : ""}`,
             onClick: () => setStartEnabled(!startEnabled),
-            children: /* @__PURE__ */ jsx8("span", { className: "hr-switch-thumb" })
+            children: /* @__PURE__ */ jsx9("span", { className: "hr-switch-thumb" })
           }
         )
       ] }),
-      error ? /* @__PURE__ */ jsx8("div", { className: "hr-create-error", role: "alert", children: error }) : null,
-      onSubmitGuided ? /* @__PURE__ */ jsxs6("section", { className: "hr-create-hermes-card", "aria-labelledby": "hr-create-hermes-title", children: [
-        /* @__PURE__ */ jsxs6("div", { className: "hr-create-hermes-info", children: [
-          /* @__PURE__ */ jsx8("span", { className: "hr-create-hermes-title", id: "hr-create-hermes-title", children: "Finish with Hermes" }),
-          /* @__PURE__ */ jsx8("span", { className: "hr-create-hermes-subtitle", children: "Hermes reviews this draft in a chat, asks about whatever is still missing, and completes the setup for you. Nothing here has to be finished first." })
+      error ? /* @__PURE__ */ jsx9("div", { className: "hr-create-error", role: "alert", children: error }) : null,
+      onSubmitGuided ? /* @__PURE__ */ jsxs7("section", { className: "hr-create-hermes-card", "aria-labelledby": "hr-create-hermes-title", children: [
+        /* @__PURE__ */ jsxs7("div", { className: "hr-create-hermes-info", children: [
+          /* @__PURE__ */ jsx9("span", { className: "hr-create-hermes-title", id: "hr-create-hermes-title", children: "Finish with Hermes" }),
+          /* @__PURE__ */ jsx9("span", { className: "hr-create-hermes-subtitle", children: "Hermes reviews this draft in a chat, asks about whatever is still missing, and completes the setup for you. Nothing here has to be finished first." })
         ] }),
-        /* @__PURE__ */ jsx8(
+        /* @__PURE__ */ jsx9(
           "button",
           {
             type: "button",
@@ -5123,10 +5186,10 @@ function RoutineComposerPanel({
             children: pendingPath === "guided" ? "Starting\u2026" : "Finish with Hermes"
           }
         ),
-        /* @__PURE__ */ jsx8("span", { className: "hr-create-hermes-hint", children: draftReady ? "The routine is created paused and stays paused until you review what Hermes proposes." : "Add a name and an instruction, and the rest is what the conversation is for." })
+        /* @__PURE__ */ jsx9("span", { className: "hr-create-hermes-hint", children: draftReady ? "The routine is created paused and stays paused until you review what Hermes proposes." : "Add a name and an instruction, and the rest is what the conversation is for." })
       ] }) : null,
-      /* @__PURE__ */ jsxs6("div", { className: "hr-create-actions", children: [
-        /* @__PURE__ */ jsx8(
+      /* @__PURE__ */ jsxs7("div", { className: "hr-create-actions", children: [
+        /* @__PURE__ */ jsx9(
           "button",
           {
             type: "button",
@@ -5135,7 +5198,7 @@ function RoutineComposerPanel({
             children: "Cancel"
           }
         ),
-        /* @__PURE__ */ jsx8(
+        /* @__PURE__ */ jsx9(
           "button",
           {
             type: "button",
@@ -5154,7 +5217,7 @@ function RoutineComposerPanel({
 import { useState as useState3 } from "react";
 
 // src/views/GuidedProposalReview.tsx
-import { jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
+import { jsx as jsx10, jsxs as jsxs8 } from "react/jsx-runtime";
 function cellText(value) {
   return value.trim() ? value : "\u2014";
 }
@@ -5164,42 +5227,42 @@ function GuidedProposalReview({
   onConfirm,
   onContinueConfiguring
 }) {
-  return /* @__PURE__ */ jsxs7("div", { className: "hr-review", children: [
-    /* @__PURE__ */ jsx9("div", { className: "hr-create-section-label", children: "REVIEW THE PROPOSAL" }),
-    /* @__PURE__ */ jsxs7("table", { className: "hr-review-table", children: [
-      /* @__PURE__ */ jsx9("caption", { className: "hr-sr-only", children: "Current configuration compared with the proposed configuration for this routine." }),
-      /* @__PURE__ */ jsx9("thead", { children: /* @__PURE__ */ jsxs7("tr", { children: [
-        /* @__PURE__ */ jsx9("th", { scope: "col", children: "Field" }),
-        /* @__PURE__ */ jsx9("th", { scope: "col", children: "Current" }),
-        /* @__PURE__ */ jsx9("th", { scope: "col", children: "Proposed" })
+  return /* @__PURE__ */ jsxs8("div", { className: "hr-review", children: [
+    /* @__PURE__ */ jsx10("div", { className: "hr-create-section-label", children: "REVIEW THE PROPOSAL" }),
+    /* @__PURE__ */ jsxs8("table", { className: "hr-review-table", children: [
+      /* @__PURE__ */ jsx10("caption", { className: "hr-sr-only", children: "Current configuration compared with the proposed configuration for this routine." }),
+      /* @__PURE__ */ jsx10("thead", { children: /* @__PURE__ */ jsxs8("tr", { children: [
+        /* @__PURE__ */ jsx10("th", { scope: "col", children: "Field" }),
+        /* @__PURE__ */ jsx10("th", { scope: "col", children: "Current" }),
+        /* @__PURE__ */ jsx10("th", { scope: "col", children: "Proposed" })
       ] }) }),
-      /* @__PURE__ */ jsx9("tbody", { children: review.rows.map((row) => /* @__PURE__ */ jsxs7("tr", { className: row.changed ? "hr-review-row-changed" : void 0, children: [
-        /* @__PURE__ */ jsxs7("th", { scope: "row", children: [
+      /* @__PURE__ */ jsx10("tbody", { children: review.rows.map((row) => /* @__PURE__ */ jsxs8("tr", { className: row.changed ? "hr-review-row-changed" : void 0, children: [
+        /* @__PURE__ */ jsxs8("th", { scope: "row", children: [
           row.label,
-          row.changed ? /* @__PURE__ */ jsx9("span", { className: "hr-review-flag", children: "changed" }) : null,
-          row.patchable ? row.changed ? /* @__PURE__ */ jsx9("span", { className: "hr-review-editable", children: "editable" }) : null : /* @__PURE__ */ jsx9("span", { className: "hr-review-readonly", children: "not editable" })
+          row.changed ? /* @__PURE__ */ jsx10("span", { className: "hr-review-flag", children: "changed" }) : null,
+          row.patchable ? row.changed ? /* @__PURE__ */ jsx10("span", { className: "hr-review-editable", children: "editable" }) : null : /* @__PURE__ */ jsx10("span", { className: "hr-review-readonly", children: "not editable" })
         ] }),
-        /* @__PURE__ */ jsx9("td", { className: "hr-review-cell", children: /* @__PURE__ */ jsx9("span", { className: "hr-review-cell-text", children: cellText(row.current) }) }),
-        /* @__PURE__ */ jsx9("td", { className: "hr-review-cell hr-review-proposed", children: /* @__PURE__ */ jsx9("span", { className: "hr-review-cell-text", children: row.changed ? cellText(row.proposed) : cellText(row.current) }) })
+        /* @__PURE__ */ jsx10("td", { className: "hr-review-cell", children: /* @__PURE__ */ jsx10("span", { className: "hr-review-cell-text", children: cellText(row.current) }) }),
+        /* @__PURE__ */ jsx10("td", { className: "hr-review-cell hr-review-proposed", children: /* @__PURE__ */ jsx10("span", { className: "hr-review-cell-text", children: row.changed ? cellText(row.proposed) : cellText(row.current) }) })
       ] }, row.field)) })
     ] }),
-    review.note ? /* @__PURE__ */ jsxs7("div", { className: "hr-review-note", children: [
-      /* @__PURE__ */ jsx9("span", { className: "hr-review-note-label", children: "From Hermes (explanation, not configuration)" }),
-      /* @__PURE__ */ jsx9("p", { className: "hr-review-note-text", children: review.note })
+    review.note ? /* @__PURE__ */ jsxs8("div", { className: "hr-review-note", children: [
+      /* @__PURE__ */ jsx10("span", { className: "hr-review-note-label", children: "From Hermes (explanation, not configuration)" }),
+      /* @__PURE__ */ jsx10("p", { className: "hr-review-note-text", children: review.note })
     ] }) : null,
-    review.stale ? /* @__PURE__ */ jsx9("div", { className: "hr-create-error", role: "alert", children: "The routine changed after this proposal was built. Applying it will be refused \u2014 ask Hermes for a new proposal before confirming." }) : null,
-    /* @__PURE__ */ jsxs7("div", { className: "hr-review-outcomes", children: [
-      /* @__PURE__ */ jsxs7("div", { className: "hr-detail", children: [
-        /* @__PURE__ */ jsx9("span", { className: "hr-detail-label", children: "Apply and activate" }),
-        /* @__PURE__ */ jsx9("span", { className: "hr-detail-value", children: "This routine ends active." })
+    review.stale ? /* @__PURE__ */ jsx10("div", { className: "hr-create-error", role: "alert", children: "The routine changed after this proposal was built. Applying it will be refused \u2014 ask Hermes for a new proposal before confirming." }) : null,
+    /* @__PURE__ */ jsxs8("div", { className: "hr-review-outcomes", children: [
+      /* @__PURE__ */ jsxs8("div", { className: "hr-detail", children: [
+        /* @__PURE__ */ jsx10("span", { className: "hr-detail-label", children: "Apply and activate" }),
+        /* @__PURE__ */ jsx10("span", { className: "hr-detail-value", children: "This routine ends active." })
       ] }),
-      /* @__PURE__ */ jsxs7("div", { className: "hr-detail", children: [
-        /* @__PURE__ */ jsx9("span", { className: "hr-detail-label", children: "Keep paused" }),
-        /* @__PURE__ */ jsx9("span", { className: "hr-detail-value", children: "This routine ends configured and paused." })
+      /* @__PURE__ */ jsxs8("div", { className: "hr-detail", children: [
+        /* @__PURE__ */ jsx10("span", { className: "hr-detail-label", children: "Keep paused" }),
+        /* @__PURE__ */ jsx10("span", { className: "hr-detail-value", children: "This routine ends configured and paused." })
       ] })
     ] }),
-    /* @__PURE__ */ jsxs7("div", { className: "hr-create-actions", children: [
-      /* @__PURE__ */ jsx9(
+    /* @__PURE__ */ jsxs8("div", { className: "hr-create-actions", children: [
+      /* @__PURE__ */ jsx10(
         "button",
         {
           type: "button",
@@ -5209,7 +5272,7 @@ function GuidedProposalReview({
           children: "Continue configuring"
         }
       ),
-      /* @__PURE__ */ jsx9(
+      /* @__PURE__ */ jsx10(
         "button",
         {
           type: "button",
@@ -5219,7 +5282,7 @@ function GuidedProposalReview({
           children: "Keep paused"
         }
       ),
-      /* @__PURE__ */ jsx9(
+      /* @__PURE__ */ jsx10(
         "button",
         {
           type: "button",
@@ -5234,7 +5297,7 @@ function GuidedProposalReview({
 }
 
 // src/views/GuidedRoutinePanel.tsx
-import { Fragment as Fragment2, jsx as jsx10, jsxs as jsxs8 } from "react/jsx-runtime";
+import { Fragment as Fragment2, jsx as jsx11, jsxs as jsxs9 } from "react/jsx-runtime";
 function stateSubtitle(state, failure3, profile) {
   const S = GUIDED_WORKFLOW_STATE;
   switch (state) {
@@ -5459,14 +5522,14 @@ function GuidedRoutinePanel({
   const showHandoff = wf.state === S.PROVISIONAL_PAUSED || wf.state === S.CONFIGURING;
   const showReview = wf.state === S.PROPOSAL_READY && review !== null;
   function actionsFor() {
-    const close = /* @__PURE__ */ jsx10("button", { type: "button", className: "hr-btn hr-btn-back-routines", onClick: onClose, children: "Close" });
+    const close = /* @__PURE__ */ jsx11("button", { type: "button", className: "hr-btn hr-btn-back-routines", onClick: onClose, children: "Close" });
     if (showReview) {
-      return /* @__PURE__ */ jsx10("div", { className: "hr-create-actions", children: close });
+      return /* @__PURE__ */ jsx11("div", { className: "hr-create-actions", children: close });
     }
     if (wf.state === S.CONFIGURED_PAUSED) {
-      return /* @__PURE__ */ jsxs8("div", { className: "hr-create-actions", children: [
+      return /* @__PURE__ */ jsxs9("div", { className: "hr-create-actions", children: [
         close,
-        /* @__PURE__ */ jsx10(
+        /* @__PURE__ */ jsx11(
           "button",
           {
             type: "button",
@@ -5480,9 +5543,9 @@ function GuidedRoutinePanel({
     }
     if (wf.state === S.NEEDS_ATTENTION) {
       const recovery = wf.failure?.recovery;
-      return /* @__PURE__ */ jsxs8("div", { className: "hr-create-actions", children: [
+      return /* @__PURE__ */ jsxs9("div", { className: "hr-create-actions", children: [
         close,
-        recovery === "apply" ? /* @__PURE__ */ jsx10(
+        recovery === "apply" ? /* @__PURE__ */ jsx11(
           "button",
           {
             type: "button",
@@ -5492,7 +5555,7 @@ function GuidedRoutinePanel({
             children: "Try applying again"
           }
         ) : null,
-        recovery === "activation" ? /* @__PURE__ */ jsx10(
+        recovery === "activation" ? /* @__PURE__ */ jsx11(
           "button",
           {
             type: "button",
@@ -5502,7 +5565,7 @@ function GuidedRoutinePanel({
             children: "Retry activation"
           }
         ) : null,
-        recovery === "refresh" ? /* @__PURE__ */ jsx10(
+        recovery === "refresh" ? /* @__PURE__ */ jsx11(
           "button",
           {
             type: "button",
@@ -5515,9 +5578,9 @@ function GuidedRoutinePanel({
       ] });
     }
     if (wf.state === S.PROVISIONAL_PAUSED || wf.state === S.CONFIGURING) {
-      return /* @__PURE__ */ jsxs8("div", { className: "hr-create-actions", children: [
+      return /* @__PURE__ */ jsxs9("div", { className: "hr-create-actions", children: [
         close,
-        /* @__PURE__ */ jsx10(
+        /* @__PURE__ */ jsx11(
           "button",
           {
             type: "button",
@@ -5529,49 +5592,20 @@ function GuidedRoutinePanel({
         )
       ] });
     }
-    return /* @__PURE__ */ jsx10("div", { className: "hr-create-actions", children: close });
+    return /* @__PURE__ */ jsx11("div", { className: "hr-create-actions", children: close });
   }
-  return /* @__PURE__ */ jsxs8("aside", { className: "hr-inspector hr-create-inspector", "aria-label": "Configure routine with Hermes", children: [
-    /* @__PURE__ */ jsx10("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsxs8(
-      "button",
-      {
-        type: "button",
-        className: "hr-btn-action hr-btn-back",
-        onClick: onClose,
-        "aria-label": "Back to routines",
-        children: [
-          /* @__PURE__ */ jsx10(
-            "svg",
-            {
-              width: "12",
-              height: "12",
-              viewBox: "0 0 16 16",
-              fill: "currentColor",
-              "aria-hidden": "true",
-              style: { flexShrink: 0 },
-              children: /* @__PURE__ */ jsx10(
-                "path",
-                {
-                  fillRule: "evenodd",
-                  d: "M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"
-                }
-              )
-            }
-          ),
-          /* @__PURE__ */ jsx10("span", { children: "Back to routines" })
-        ]
-      }
-    ) }),
-    /* @__PURE__ */ jsxs8("div", { className: "hr-inspector-body", children: [
-      /* @__PURE__ */ jsx10("h3", { className: "hr-create-title", children: title }),
-      /* @__PURE__ */ jsx10("div", { className: "hr-create-active-card", children: /* @__PURE__ */ jsxs8("div", { className: "hr-create-active-info", children: [
-        /* @__PURE__ */ jsx10("span", { className: "hr-create-active-title", children: guidedIndicator(wf.state, wf.failure) }),
-        /* @__PURE__ */ jsx10("span", { className: "hr-create-active-subtitle", children: stateSubtitle(wf.state, wf.failure, profile) })
+  return /* @__PURE__ */ jsxs9("aside", { className: "hr-inspector hr-create-inspector", "aria-label": "Configure routine with Hermes", children: [
+    /* @__PURE__ */ jsx11("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsx11(PanelNav, { closeLabel: "Close configuration and return to routines", onClose }) }),
+    /* @__PURE__ */ jsxs9("div", { className: "hr-inspector-body", children: [
+      /* @__PURE__ */ jsx11("h3", { className: "hr-create-title", children: title }),
+      /* @__PURE__ */ jsx11("div", { className: "hr-create-active-card", children: /* @__PURE__ */ jsxs9("div", { className: "hr-create-active-info", children: [
+        /* @__PURE__ */ jsx11("span", { className: "hr-create-active-title", children: guidedIndicator(wf.state, wf.failure) }),
+        /* @__PURE__ */ jsx11("span", { className: "hr-create-active-subtitle", children: stateSubtitle(wf.state, wf.failure, profile) })
       ] }) }),
-      drift.drifted ? /* @__PURE__ */ jsx10("div", { className: "hr-create-error", role: "alert", children: `The active profile changed to ${drift.current}. This session stays bound to ${drift.retained} \u2014 reviewing or applying here still targets the original owner.` }) : null,
-      /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
-        /* @__PURE__ */ jsx10("label", { className: "hr-field-label", children: "Job id" }),
-        /* @__PURE__ */ jsx10(
+      drift.drifted ? /* @__PURE__ */ jsx11("div", { className: "hr-create-error", role: "alert", children: `The active profile changed to ${drift.current}. This session stays bound to ${drift.retained} \u2014 reviewing or applying here still targets the original owner.` }) : null,
+      /* @__PURE__ */ jsxs9("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx11("label", { className: "hr-field-label", children: "Job id" }),
+        /* @__PURE__ */ jsx11(
           "input",
           {
             type: "text",
@@ -5583,7 +5617,7 @@ function GuidedRoutinePanel({
           }
         )
       ] }),
-      showReview && review !== null ? /* @__PURE__ */ jsx10(
+      showReview && review !== null ? /* @__PURE__ */ jsx11(
         GuidedProposalReview,
         {
           review,
@@ -5591,10 +5625,10 @@ function GuidedRoutinePanel({
           onConfirm: (desiredActive) => void handleConfirm(desiredActive),
           onContinueConfiguring: () => setWf(guidedWorkflowReducer(wf, { type: "continue-configuring" }))
         }
-      ) : /* @__PURE__ */ jsxs8(Fragment2, { children: [
-        /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
-          /* @__PURE__ */ jsx10("label", { className: "hr-field-label", children: "What should this routine do?" }),
-          /* @__PURE__ */ jsx10(
+      ) : /* @__PURE__ */ jsxs9(Fragment2, { children: [
+        /* @__PURE__ */ jsxs9("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx11("label", { className: "hr-field-label", children: "What should this routine do?" }),
+          /* @__PURE__ */ jsx11(
             "textarea",
             {
               className: "hr-create-textarea",
@@ -5607,24 +5641,24 @@ function GuidedRoutinePanel({
             }
           )
         ] }),
-        /* @__PURE__ */ jsxs8("div", { className: "hr-create-when-section", children: [
-          /* @__PURE__ */ jsx10("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
-          /* @__PURE__ */ jsx10("div", { className: "hr-create-preview-sentence", children: schedule })
+        /* @__PURE__ */ jsxs9("div", { className: "hr-create-when-section", children: [
+          /* @__PURE__ */ jsx11("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
+          /* @__PURE__ */ jsx11("div", { className: "hr-create-preview-sentence", children: schedule })
         ] }),
-        submittedDelivery ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
-          /* @__PURE__ */ jsx10("label", { className: "hr-field-label", children: "Results go to" }),
-          /* @__PURE__ */ jsx10("div", { className: "hr-create-preview-sentence", children: describeDestination(submittedDelivery)?.label ?? submittedDelivery })
+        submittedDelivery ? /* @__PURE__ */ jsxs9("div", { className: "hr-create-field", children: [
+          /* @__PURE__ */ jsx11("label", { className: "hr-field-label", children: "Results go to" }),
+          /* @__PURE__ */ jsx11("div", { className: "hr-create-preview-sentence", children: describeDestination(submittedDelivery)?.label ?? submittedDelivery })
         ] }) : null
       ] }),
-      wf.failure !== null ? /* @__PURE__ */ jsx10("div", { className: "hr-create-error", role: "alert", children: wf.failure.message }) : null,
-      failed2 ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-error", role: "alert", children: [
+      wf.failure !== null ? /* @__PURE__ */ jsx11("div", { className: "hr-create-error", role: "alert", children: wf.failure.message }) : null,
+      failed2 ? /* @__PURE__ */ jsxs9("div", { className: "hr-create-error", role: "alert", children: [
         launch.message,
         launch.jobId ? " The routine is still paused." : ""
       ] }) : null,
-      opened ? /* @__PURE__ */ jsx10("div", { className: "hr-create-preview-sentence", role: "status", children: launch.autoSubmitted ? "Chat opened on this profile and the configuration envelope was sent." : "Chat opened on this profile with the configuration envelope ready to send." }) : null,
-      showHandoff ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
-        /* @__PURE__ */ jsx10("label", { className: "hr-field-label", htmlFor: "hr-guided-handoff", children: "Proposal returned by Hermes" }),
-        /* @__PURE__ */ jsx10(
+      opened ? /* @__PURE__ */ jsx11("div", { className: "hr-create-preview-sentence", role: "status", children: launch.autoSubmitted ? "Chat opened on this profile and the configuration envelope was sent." : "Chat opened on this profile with the configuration envelope ready to send." }) : null,
+      showHandoff ? /* @__PURE__ */ jsxs9("div", { className: "hr-create-field", children: [
+        /* @__PURE__ */ jsx11("label", { className: "hr-field-label", htmlFor: "hr-guided-handoff", children: "Proposal returned by Hermes" }),
+        /* @__PURE__ */ jsx11(
           "textarea",
           {
             id: "hr-guided-handoff",
@@ -5636,7 +5670,7 @@ function GuidedRoutinePanel({
             placeholder: '{"version":1,"jobId":"\u2026","owner":{\u2026},"base":{\u2026},"patch":{\u2026},"desiredActive":false}'
           }
         ),
-        /* @__PURE__ */ jsx10("div", { className: "hr-create-actions", children: /* @__PURE__ */ jsx10(
+        /* @__PURE__ */ jsx11("div", { className: "hr-create-actions", children: /* @__PURE__ */ jsx11(
           "button",
           {
             type: "button",
@@ -5648,15 +5682,15 @@ function GuidedRoutinePanel({
         ) })
       ] }) : null,
       actionsFor(),
-      /* @__PURE__ */ jsx10("p", { className: "hr-sr-only", role: "status", "aria-live": "polite", children: wf.status })
+      /* @__PURE__ */ jsx11("p", { className: "hr-sr-only", role: "status", "aria-live": "polite", children: wf.status })
     ] })
   ] });
 }
 
 // src/views/panels.tsx
-import { Fragment as Fragment3, jsx as jsx11, jsxs as jsxs9 } from "react/jsx-runtime";
+import { Fragment as Fragment3, jsx as jsx12, jsxs as jsxs10 } from "react/jsx-runtime";
 function StatusLine({ text, statusRef, restatesVisibleState }) {
-  return /* @__PURE__ */ jsx11(
+  return /* @__PURE__ */ jsx12(
     "p",
     {
       ref: statusRef,
@@ -5670,23 +5704,23 @@ function StatusLine({ text, statusRef, restatesVisibleState }) {
 }
 
 // src/views/RoutineStates.tsx
-import { jsx as jsx12, jsxs as jsxs10 } from "react/jsx-runtime";
+import { jsx as jsx13, jsxs as jsxs11 } from "react/jsx-runtime";
 function LoadingState({ text }) {
-  return /* @__PURE__ */ jsxs10("div", { className: "hr-state", role: "status", "aria-live": "polite", "aria-busy": "true", children: [
-    /* @__PURE__ */ jsx12("span", { className: "hr-spinner", "aria-hidden": "true" }),
-    /* @__PURE__ */ jsx12("p", { className: "hr-state-text", children: text })
+  return /* @__PURE__ */ jsxs11("div", { className: "hr-state", role: "status", "aria-live": "polite", "aria-busy": "true", children: [
+    /* @__PURE__ */ jsx13("span", { className: "hr-spinner", "aria-hidden": "true" }),
+    /* @__PURE__ */ jsx13("p", { className: "hr-state-text", children: text })
   ] });
 }
 function EmptyState() {
-  return /* @__PURE__ */ jsxs10("div", { className: "hr-state", children: [
-    /* @__PURE__ */ jsx12("p", { className: "hr-state-title", children: "No routines yet" }),
-    /* @__PURE__ */ jsx12("p", { className: "hr-state-text", children: "Scheduled jobs for this profile will appear here." })
+  return /* @__PURE__ */ jsxs11("div", { className: "hr-state", children: [
+    /* @__PURE__ */ jsx13("p", { className: "hr-state-title", children: "No routines yet" }),
+    /* @__PURE__ */ jsx13("p", { className: "hr-state-text", children: "Scheduled jobs for this profile will appear here." })
   ] });
 }
 function EmptyFilterState() {
-  return /* @__PURE__ */ jsxs10("div", { className: "hr-state", children: [
-    /* @__PURE__ */ jsx12("p", { className: "hr-state-title", children: "No routines match this filter" }),
-    /* @__PURE__ */ jsx12("p", { className: "hr-state-text", children: "Try a different filter to see more routines." })
+  return /* @__PURE__ */ jsxs11("div", { className: "hr-state", children: [
+    /* @__PURE__ */ jsx13("p", { className: "hr-state-title", children: "No routines match this filter" }),
+    /* @__PURE__ */ jsx13("p", { className: "hr-state-text", children: "Try a different filter to see more routines." })
   ] });
 }
 function ErrorState({
@@ -5694,26 +5728,26 @@ function ErrorState({
   message,
   onRetry
 }) {
-  return /* @__PURE__ */ jsxs10("div", { className: "hr-error", role: "alert", children: [
-    /* @__PURE__ */ jsx12("strong", { children: title }),
-    /* @__PURE__ */ jsx12("p", { className: "hr-row-meta", children: message }),
-    /* @__PURE__ */ jsx12("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
+  return /* @__PURE__ */ jsxs11("div", { className: "hr-error", role: "alert", children: [
+    /* @__PURE__ */ jsx13("strong", { children: title }),
+    /* @__PURE__ */ jsx13("p", { className: "hr-row-meta", children: message }),
+    /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
   ] });
 }
 function UnavailableState({
   profile,
   onRetry
 }) {
-  return /* @__PURE__ */ jsxs10("div", { className: "hr-error", role: "alert", children: [
-    /* @__PURE__ */ jsx12("strong", { children: "Routines unavailable for this profile." }),
-    /* @__PURE__ */ jsx12("p", { className: "hr-row-meta", children: profile ? `The Desktop profile \u201C${profile}\u201D has no routines route right now. Connect the profile, then retry.` : "The active Desktop profile has no routines route right now. Select a profile, then retry." }),
-    /* @__PURE__ */ jsx12("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
+  return /* @__PURE__ */ jsxs11("div", { className: "hr-error", role: "alert", children: [
+    /* @__PURE__ */ jsx13("strong", { children: "Routines unavailable for this profile." }),
+    /* @__PURE__ */ jsx13("p", { className: "hr-row-meta", children: profile ? `The Desktop profile \u201C${profile}\u201D has no routines route right now. Connect the profile, then retry.` : "The active Desktop profile has no routines route right now. Select a profile, then retry." }),
+    /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
   ] });
 }
 function StaleBanner({ onRetry }) {
-  return /* @__PURE__ */ jsxs10("div", { className: "hr-stale", role: "status", children: [
-    /* @__PURE__ */ jsx12("span", { children: "Showing last loaded jobs." }),
-    /* @__PURE__ */ jsx12("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
+  return /* @__PURE__ */ jsxs11("div", { className: "hr-stale", role: "status", children: [
+    /* @__PURE__ */ jsx13("span", { children: "Showing last loaded jobs." }),
+    /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
   ] });
 }
 function NeedsConfigurationNotice({
@@ -5721,9 +5755,9 @@ function NeedsConfigurationNotice({
   onConfigure
 }) {
   if (targets.length === 0) return null;
-  return /* @__PURE__ */ jsxs10("div", { className: "hr-stale", role: "status", children: [
-    /* @__PURE__ */ jsx12("span", { children: targets.length === 1 ? "One paused routine needs configuration." : `${targets.length} paused routines need configuration.` }),
-    targets.map((target) => /* @__PURE__ */ jsx12(
+  return /* @__PURE__ */ jsxs11("div", { className: "hr-stale", role: "status", children: [
+    /* @__PURE__ */ jsx13("span", { children: targets.length === 1 ? "One paused routine needs configuration." : `${targets.length} paused routines need configuration.` }),
+    targets.map((target) => /* @__PURE__ */ jsx13(
       "button",
       {
         type: "button",
@@ -5737,7 +5771,7 @@ function NeedsConfigurationNotice({
 }
 
 // src/views/RoutinesPage.tsx
-import { Fragment as Fragment4, jsx as jsx13, jsxs as jsxs11 } from "react/jsx-runtime";
+import { Fragment as Fragment4, jsx as jsx14, jsxs as jsxs12 } from "react/jsx-runtime";
 function pastTense(kind) {
   if (kind === "pause") return "paused";
   if (kind === "resume") return "resumed";
@@ -5787,6 +5821,26 @@ function RoutinesPage() {
   }, [state.jobs, selectedJobKey]);
   const selectedJobId = selectedJob ? jobIdOf(selectedJob) : "";
   const selectedJobLabel = selectedJob ? routineTitle(selectedJob, selectedJobKey || "Routine") : selectedJobKey || "Routine";
+  function closeSurface(surface) {
+    const key = surface === "inspector" ? selectedJobKey : null;
+    if (surface === "inspector") setSelectedJobKey(null);
+    if (surface === "composer") setIsCreating(false);
+    if (surface === "guided") handleGuidedClose();
+    const focusId = dismissFocusId(surface, key);
+    if (focusId === null) return;
+    setTimeout(() => {
+      focusById(focusId);
+    }, 0);
+  }
+  const openSurface = selectedJob !== null ? "inspector" : guided !== null ? "guided" : isCreating ? "composer" : null;
+  function handleWorkspaceKeyDown(event) {
+    if (event.key !== "Escape") return;
+    if (openSurface === null) return;
+    if (!escapeLeavesPanel(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeSurface(openSurface);
+  }
   useEffect3(() => {
     let cancelled = false;
     dispatch({ type: "routes-loading" });
@@ -6050,10 +6104,10 @@ function RoutinesPage() {
     const shownCount = filteredJobs.length;
     const isReduced = shownCount < totalCount;
     const countText = isReduced ? `Showing ${shownCount} of ${totalCount} routines.` : `Showing all ${totalCount} routines.`;
-    return /* @__PURE__ */ jsxs11(Fragment4, { children: [
-      /* @__PURE__ */ jsxs11("div", { className: "hr-toolbar", children: [
-        /* @__PURE__ */ jsxs11("div", { className: "hr-search-wrap", children: [
-          /* @__PURE__ */ jsx13(
+    return /* @__PURE__ */ jsxs12(Fragment4, { children: [
+      /* @__PURE__ */ jsxs12("div", { className: "hr-toolbar", children: [
+        /* @__PURE__ */ jsxs12("div", { className: "hr-search-wrap", children: [
+          /* @__PURE__ */ jsx14(
             "input",
             {
               type: "text",
@@ -6064,19 +6118,19 @@ function RoutinesPage() {
               "aria-label": "Search routines"
             }
           ),
-          searchQuery ? /* @__PURE__ */ jsx13(
+          searchQuery ? /* @__PURE__ */ jsx14(
             "button",
             {
               type: "button",
               className: "hr-search-clear",
               onClick: () => setSearchQuery(""),
               "aria-label": "Clear search",
-              children: /* @__PURE__ */ jsx13("svg", { width: "10", height: "10", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", children: /* @__PURE__ */ jsx13("path", { d: "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" }) })
+              children: /* @__PURE__ */ jsx14("svg", { width: "10", height: "10", viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true", children: /* @__PURE__ */ jsx14("path", { d: "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" }) })
             }
           ) : null
         ] }),
-        /* @__PURE__ */ jsxs11("div", { className: "hr-filters-col", children: [
-          /* @__PURE__ */ jsx13(
+        /* @__PURE__ */ jsxs12("div", { className: "hr-filters-col", children: [
+          /* @__PURE__ */ jsx14(
             FilterNav,
             {
               filter: state.filter,
@@ -6084,10 +6138,10 @@ function RoutinesPage() {
               onSelect: (value) => dispatch({ type: "filter-changed", filter: value })
             }
           ),
-          state.status === S.READY && totalCount > 0 ? /* @__PURE__ */ jsx13("span", { className: "hr-count-right", children: countText }) : null
+          state.status === S.READY && totalCount > 0 ? /* @__PURE__ */ jsx14("span", { className: "hr-count-right", children: countText }) : null
         ] })
       ] }),
-      filteredJobs.length === 0 ? state.jobs.length === 0 ? /* @__PURE__ */ jsx13(EmptyState, {}) : /* @__PURE__ */ jsx13(EmptyFilterState, {}) : /* @__PURE__ */ jsx13(
+      filteredJobs.length === 0 ? state.jobs.length === 0 ? /* @__PURE__ */ jsx14(EmptyState, {}) : /* @__PURE__ */ jsx14(EmptyFilterState, {}) : /* @__PURE__ */ jsx14(
         RoutineList,
         {
           jobs: filteredJobs,
@@ -6095,6 +6149,7 @@ function RoutinesPage() {
           locked,
           inspectedId: selectedJobKey,
           inspectorId: INSPECTOR_PANEL_ID,
+          rowControlId: routineRowFocusId,
           onInspect: (key) => {
             setSelectedJobKey(key);
             if (key) {
@@ -6126,10 +6181,10 @@ function RoutinesPage() {
   }
   const body = [];
   if (state.status === S.ROUTES_LOADING) {
-    body.push(/* @__PURE__ */ jsx13(LoadingState, { text: "Loading routines." }, "routes-loading"));
+    body.push(/* @__PURE__ */ jsx14(LoadingState, { text: "Loading routines." }, "routes-loading"));
   } else if (state.status === S.ROUTES_ERROR) {
     body.push(
-      /* @__PURE__ */ jsx13(
+      /* @__PURE__ */ jsx14(
         ErrorState,
         {
           title: "Could not list routines.",
@@ -6141,7 +6196,7 @@ function RoutinesPage() {
     );
   } else if (state.status === S.ROUTE_UNAVAILABLE) {
     body.push(
-      /* @__PURE__ */ jsx13(
+      /* @__PURE__ */ jsx14(
         UnavailableState,
         {
           profile: state.activeProfile ?? (typeof activeProfile === "string" ? activeProfile : null),
@@ -6153,21 +6208,21 @@ function RoutinesPage() {
   } else if (state.status === S.LIST_LOADING) {
     if (state.jobs.length > 0) {
       body.push(
-        /* @__PURE__ */ jsx13(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-loading")
+        /* @__PURE__ */ jsx14(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-loading")
       );
-      body.push(/* @__PURE__ */ jsx13("div", { children: renderList() }, "stale-list"));
+      body.push(/* @__PURE__ */ jsx14("div", { children: renderList() }, "stale-list"));
     } else {
-      body.push(/* @__PURE__ */ jsx13(LoadingState, { text: "Loading routines." }, "list-loading"));
+      body.push(/* @__PURE__ */ jsx14(LoadingState, { text: "Loading routines." }, "list-loading"));
     }
   } else if (state.status === S.LIST_ERROR) {
     if (state.jobs.length > 0) {
       body.push(
-        /* @__PURE__ */ jsx13(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-error")
+        /* @__PURE__ */ jsx14(StaleBanner, { onRetry: () => dispatch({ type: "retry-list" }) }, "stale-error")
       );
-      body.push(/* @__PURE__ */ jsx13("div", { children: renderList() }, "stale-list-error"));
+      body.push(/* @__PURE__ */ jsx14("div", { children: renderList() }, "stale-list-error"));
     }
     body.push(
-      /* @__PURE__ */ jsx13(
+      /* @__PURE__ */ jsx14(
         ErrorState,
         {
           title: "Could not load routines.",
@@ -6181,7 +6236,7 @@ function RoutinesPage() {
     const reopenTargets = guidedReopenTargets();
     if (reopenTargets.length > 0) {
       body.push(
-        /* @__PURE__ */ jsx13(
+        /* @__PURE__ */ jsx14(
           NeedsConfigurationNotice,
           {
             targets: reopenTargets,
@@ -6191,20 +6246,21 @@ function RoutinesPage() {
         )
       );
     }
-    body.push(/* @__PURE__ */ jsx13("div", { children: renderList() }, "ready-list"));
+    body.push(/* @__PURE__ */ jsx14("div", { children: renderList() }, "ready-list"));
   }
   const profileLabel = typeof activeProfile === "string" && activeProfile ? activeProfile : "\u2014";
-  return /* @__PURE__ */ jsxs11("section", { id: "hermes-routines-root", className: "hr-root", "aria-labelledby": "hermes-routines-heading", children: [
-    /* @__PURE__ */ jsx13("style", { children: ROUTINES_CSS }),
-    /* @__PURE__ */ jsxs11("div", { className: "hr-workspace", children: [
-      /* @__PURE__ */ jsxs11("div", { className: `hr-feed-column${!selectedJob && !guided && !isCreating ? " hr-feed-contained" : ""}`, children: [
-        /* @__PURE__ */ jsxs11("header", { className: "hr-header", children: [
-          /* @__PURE__ */ jsxs11("div", { className: "hr-header-top", children: [
-            /* @__PURE__ */ jsx13("h2", { id: "hermes-routines-heading", ref: headingRef, tabIndex: -1, className: "hr-title", children: "Routines" }),
-            /* @__PURE__ */ jsx13(
+  return /* @__PURE__ */ jsxs12("section", { id: "hermes-routines-root", className: "hr-root", "aria-labelledby": "hermes-routines-heading", children: [
+    /* @__PURE__ */ jsx14("style", { children: ROUTINES_CSS }),
+    /* @__PURE__ */ jsxs12("div", { className: "hr-workspace", onKeyDown: handleWorkspaceKeyDown, children: [
+      /* @__PURE__ */ jsxs12("div", { className: `hr-feed-column${!selectedJob && !guided && !isCreating ? " hr-feed-contained" : ""}`, children: [
+        /* @__PURE__ */ jsxs12("header", { className: "hr-header", children: [
+          /* @__PURE__ */ jsxs12("div", { className: "hr-header-top", children: [
+            /* @__PURE__ */ jsx14("h2", { id: "hermes-routines-heading", ref: headingRef, tabIndex: -1, className: "hr-title", children: "Routines" }),
+            /* @__PURE__ */ jsx14(
               "button",
               {
                 type: "button",
+                id: NEW_ROUTINE_CONTROL_ID,
                 className: "hr-btn-new",
                 onClick: () => {
                   setSelectedJobKey(null);
@@ -6214,7 +6270,7 @@ function RoutinesPage() {
                 },
                 "aria-label": "New routine",
                 title: "New routine",
-                children: /* @__PURE__ */ jsxs11(
+                children: /* @__PURE__ */ jsxs12(
                   "svg",
                   {
                     width: "18",
@@ -6227,23 +6283,23 @@ function RoutinesPage() {
                     strokeLinejoin: "round",
                     "aria-hidden": "true",
                     children: [
-                      /* @__PURE__ */ jsx13("line", { x1: "12", y1: "5", x2: "12", y2: "19" }),
-                      /* @__PURE__ */ jsx13("line", { x1: "5", y1: "12", x2: "19", y2: "12" })
+                      /* @__PURE__ */ jsx14("line", { x1: "12", y1: "5", x2: "12", y2: "19" }),
+                      /* @__PURE__ */ jsx14("line", { x1: "5", y1: "12", x2: "19", y2: "12" })
                     ]
                   }
                 )
               }
             ),
-            /* @__PURE__ */ jsxs11("span", { className: "hr-sr-only", children: [
+            /* @__PURE__ */ jsxs12("span", { className: "hr-sr-only", children: [
               "Profile: ",
               profileLabel
             ] })
           ] }),
-          /* @__PURE__ */ jsx13("p", { className: "hr-sub", children: "Routines are scheduled jobs this profile runs to do recurring tasks." })
+          /* @__PURE__ */ jsx14("p", { className: "hr-sub", children: "Routines are scheduled jobs this profile runs to do recurring tasks." })
         ] }),
         body
       ] }),
-      selectedJob ? /* @__PURE__ */ jsx13(
+      selectedJob ? /* @__PURE__ */ jsx14(
         RoutineInspectorPanel,
         {
           job: selectedJob,
@@ -6253,11 +6309,11 @@ function RoutinesPage() {
           activeProfile: state.activeProfile ?? (typeof activeProfile === "string" ? activeProfile : null),
           busy: selectedJobId !== "" && state.pending.indexOf(selectedJobId) !== -1,
           disabled: locked,
-          onClose: () => setSelectedJobKey(null),
+          onClose: () => closeSurface("inspector"),
           onPause: () => handlePause(selectedJobId, selectedJobLabel),
           onResume: () => handleResume(selectedJobId, selectedJobLabel)
         }
-      ) : guided ? /* @__PURE__ */ jsx13(
+      ) : guided ? /* @__PURE__ */ jsx14(
         GuidedRoutinePanel,
         {
           routine: guided.routine,
@@ -6267,33 +6323,33 @@ function RoutinesPage() {
           submittedDelivery: guided.delivery,
           activeRoute,
           onLaunch: handleGuidedLaunch,
-          onClose: handleGuidedClose
+          onClose: () => closeSurface("guided")
         }
-      ) : isCreating ? /* @__PURE__ */ jsx13(
+      ) : isCreating ? /* @__PURE__ */ jsx14(
         RoutineComposerPanel,
         {
           activeRoute,
           activeProfile: state.activeProfile ?? (typeof activeProfile === "string" ? activeProfile : null),
           destinationRoutes: activeRoute === null ? state.routes : [activeRoute, ...state.routes],
           disabled: locked,
-          onClose: () => setIsCreating(false),
+          onClose: () => closeSurface("composer"),
           onSubmit: handleCreateRoutine,
           onSubmitGuided: handleCreateGuided
         }
       ) : null
     ] }),
-    /* @__PURE__ */ jsx13(StatusLine, { text: liveText, statusRef, restatesVisibleState: liveRestatesVisible })
+    /* @__PURE__ */ jsx14(StatusLine, { text: liveText, statusRef, restatesVisibleState: liveRestatesVisible })
   ] });
 }
 
 // src/plugin.tsx
-import { jsx as jsx14 } from "react/jsx-runtime";
+import { jsx as jsx15 } from "react/jsx-runtime";
 function register(ctx) {
   ctx.register({
     id: ROUTE_ID,
     area: ROUTES_AREA,
     data: { path: ROUTE_PATH },
-    render: () => /* @__PURE__ */ jsx14(RoutinesPage, {})
+    render: () => /* @__PURE__ */ jsx15(RoutinesPage, {})
   });
   ctx.register({
     id: SIDEBAR_ID,
@@ -6332,9 +6388,11 @@ export {
   INSPECTOR_PANEL_ID,
   INTERVAL_UNITS,
   INTERVAL_VALUES,
+  NEW_ROUTINE_CONTROL_ID,
   NOW_WINDOW_MS,
   PLUGIN_ID,
   PLUGIN_NAME,
+  PanelNav,
   REVIEW_PATCHABLE,
   ROUTE_ID,
   ROUTE_PATH,
@@ -6389,12 +6447,15 @@ export {
   diagOfConfirmResult,
   diagOfLaunchResult,
   diagOfProvisionalResult,
+  dismissFocusId,
+  escapeLeavesPanel,
   explainFailureOf,
   findAppliedDuplicate,
   findDestinationOption,
   findRouteByKey,
   fingerprintJob,
   fingerprintSnapshot,
+  focusById,
   formatDate,
   generateTimeSlots,
   guidedConfigCandidateOf,
@@ -6453,6 +6514,7 @@ export {
   routineKey,
   routinePausedOf,
   routinePromptOf,
+  routineRowFocusId,
   routineStateOf,
   routineTerminal,
   routineTitle,

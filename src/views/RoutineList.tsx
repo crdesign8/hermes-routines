@@ -20,6 +20,13 @@ export interface RoutineListProps {
    * never disagree about the id.
    */
   inspectorId?: string;
+  /**
+   * Builds the id of a row's disclosure control from its view key, so
+   * dismissing the inspector can hand focus back to the row the user came
+   * from. Omitted means no focus restoration: nothing is invented, and a
+   * caller cannot emit a row id the page would never resolve.
+   */
+  rowControlId?: (viewKey: string) => string;
   /** Receives the canonical job_id plus the display title (mutations never key on the title). */
   onPause: (jobId: string, label: string) => void;
   onResume: (jobId: string, label: string) => void;
@@ -39,6 +46,7 @@ export function RoutineList({
   inspectedId,
   onInspect,
   inspectorId = INSPECTOR_PANEL_ID,
+  rowControlId,
   onPause,
   onResume,
 }: RoutineListProps): ReactElement {
@@ -83,6 +91,7 @@ export function RoutineList({
             busy={busier}
             disabled={locked || jobId === ''}
             inspectorId={inspectorId}
+            controlId={rowControlId ? rowControlId(viewKey) : undefined}
             onSelect={() => handleSelect(viewKey)}
             onPause={() => onPause(jobId, routineTitle(job, fallback))}
             onResume={() => onResume(jobId, routineTitle(job, fallback))}

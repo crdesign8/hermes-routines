@@ -154,9 +154,15 @@ describe('routine-inspector-readonly', () => {
 
     const nodes = collect(tree);
     const buttons = nodes.filter((n) => n.type === 'button');
-    const labels = buttons.map((b) => texts(b).join(''));
-    assert.equal(buttons.length, 2, 'only back + disabled switch exist');
-    assert.ok(labels.some((t) => /back to routines/i.test(t)), 'back action stays');
+    // The header navigation (issue #78: a dismiss control beside the list,
+    // the Back affordance for a full-screen panel) plus the disabled switch.
+    // Nothing else — in particular no second, editable copy of any control.
+    const nav = nodes.filter((n) => typeof n.props?.className === 'string' && n.props.className.includes('hr-btn-nav'));
+    assert.equal(nav.length, 2, 'the panel navigation is the one header affordance');
+    assert.equal(buttons.length, 3, 'only the navigation + disabled switch exist');
+    const labels = buttons.map((b) => texts(b).join('') || String(b.props['aria-label'] ?? ''));
+    assert.ok(labels.some((t) => /back to routines/i.test(t)), 'the back affordance stays');
+    assert.ok(labels.some((t) => /close details for/i.test(t)), 'and the dismiss control is labelled');
     assert.ok(!labels.some((t) => /pause/i.test(t)), 'no pause affordance');
     assert.ok(!labels.some((t) => /resume/i.test(t)), 'no resume affordance');
     assert.ok(!labels.some((t) => /copy/i.test(t)), 'no copy affordance');

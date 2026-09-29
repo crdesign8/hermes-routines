@@ -16,6 +16,7 @@ import {
   type TriggerType,
 } from '../domain/routineSchedule';
 import { SelectField, type SelectOption } from './SelectField';
+import { PanelNav } from './PanelNav';
 import {
   BROADCAST_ACKNOWLEDGEMENT,
   DESTINATION_ADVANCED,
@@ -245,27 +246,9 @@ export function RoutineComposerPanel({
   return (
     <aside className="hr-inspector hr-create-inspector" aria-label="Create Routine">
       <header className="hr-inspector-header">
-        <button
-          type="button"
-          className="hr-btn-action hr-btn-back"
-          onClick={onClose}
-          aria-label="Back to routines"
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            aria-hidden="true"
-            style={{ flexShrink: 0 }}
-          >
-            <path
-              fillRule="evenodd"
-              d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"
-            />
-          </svg>
-          <span>Back to routines</span>
-        </button>
+        {/* The form covers the list on a narrow viewport (Back) and sits
+            beside it in the split view (dismiss) — issue #78. */}
+        <PanelNav closeLabel="Cancel and close the create form" onClose={onClose} />
       </header>
 
       <div className="hr-inspector-body">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { host, useValue, type PluginProfileRoute } from '@hermes/plugin-sdk';
 import {
   ROUTINES_VIEW_STATUS,
@@ -31,6 +31,13 @@ import { ROUTINES_CSS } from './routinesStyles';
 import { FilterNav } from './FilterNav';
 import { RoutineList } from './RoutineList';
 import { INSPECTOR_PANEL_ID, RoutineInspectorPanel } from './RoutineInspectorPanel';
+import {
+  NEW_ROUTINE_CONTROL_ID,
+  dismissFocusId,
+  escapeLeavesPanel,
+  focusById,
+  routineRowFocusId,
+} from './PanelNav';
 import { RoutineComposerPanel } from './RoutineComposerPanel';
 import { GuidedRoutinePanel } from './GuidedRoutinePanel';
 import { StatusLine } from './panels';
@@ -171,6 +178,52 @@ export function RoutinesPage() {
   const selectedJobLabel = selectedJob
     ? routineTitle(selectedJob, selectedJobKey || 'Routine')
     : selectedJobKey || 'Routine';
+
+  /**
+   * One dismiss path for every panel (issue #78), so the control in the
+   * header, the Escape key and the row's own toggle can never disagree
+   * about what closing means: the panel unmounts, then focus returns to
+   * wherever the user would expect to continue — the row the inspector
+   * belonged to, the New routine control for the composer, nothing for the
+   * guided panel (its opener unmounts behind it). Restored on the next
+   * tick, because the target lives in the panel that is being removed.
+   */
+  function closeSurface(surface: 'inspector' | 'composer' | 'guided'): void {
+    const key = surface === 'inspector' ? selectedJobKey : null;
+    if (surface === 'inspector') setSelectedJobKey(null);
+    if (surface === 'composer') setIsCreating(false);
+    if (surface === 'guided') handleGuidedClose();
+    const focusId = dismissFocusId(surface, key);
+    if (focusId === null) return;
+    setTimeout(() => {
+      focusById(focusId);
+    }, 0);
+  }
+
+  // Which panel owns the workspace, decided in one place: the panels are
+  // mutually exclusive by construction, and the header control and the
+  // Escape key both read THIS, so neither can be right about one panel
+  // while the other is open.
+  const openSurface: 'inspector' | 'composer' | 'guided' | null =
+    selectedJob !== null ? 'inspector' : guided !== null ? 'guided' : isCreating ? 'composer' : null;
+
+  /**
+   * Escape dismisses the open panel — and only the open panel. With
+   * nothing open the key is not handled at all, so it cannot steal a
+   * keystroke from the search box; and a focused control that owns Escape
+   * for itself (a text field, an open dropdown — the composer is built
+   * from dropdowns) keeps it, because a key that dismisses the form the
+   * instant it dismisses a menu inside it resolves two intents at once and
+   * only the first is recoverable.
+   */
+  function handleWorkspaceKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (event.key !== 'Escape') return;
+    if (openSurface === null) return;
+    if (!escapeLeavesPanel(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeSurface(openSurface);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -593,6 +646,7 @@ export function RoutinesPage() {
             locked={locked}
             inspectedId={selectedJobKey}
             inspectorId={INSPECTOR_PANEL_ID}
+            rowControlId={routineRowFocusId}
             onInspect={(key) => {
               setSelectedJobKey(key);
               if (key) {
@@ -696,7 +750,9 @@ export function RoutinesPage() {
   return (
     <section id="hermes-routines-root" className="hr-root" aria-labelledby="hermes-routines-heading">
       <style>{ROUTINES_CSS}</style>
-      <div className="hr-workspace">
+      {/* One key handler for the whole split workspace, so Escape means
+          "leave the panel that is open" everywhere inside it (issue #78). */}
+      <div className="hr-workspace" onKeyDown={handleWorkspaceKeyDown}>
         <div className={`hr-feed-column${!selectedJob && !guided && !isCreating ? ' hr-feed-contained' : ''}`}>
           <header className="hr-header">
             <div className="hr-header-top">
@@ -705,6 +761,7 @@ export function RoutinesPage() {
               </h2>
               <button
                 type="button"
+                id={NEW_ROUTINE_CONTROL_ID}
                 className="hr-btn-new"
                 onClick={() => {
                   setSelectedJobKey(null);
@@ -747,7 +804,7 @@ export function RoutinesPage() {
             activeProfile={state.activeProfile ?? (typeof activeProfile === 'string' ? activeProfile : null)}
             busy={selectedJobId !== '' && state.pending.indexOf(selectedJobId) !== -1}
             disabled={locked}
-            onClose={() => setSelectedJobKey(null)}
+            onClose={() => closeSurface('inspector')}
             onPause={() => handlePause(selectedJobId, selectedJobLabel)}
             onResume={() => handleResume(selectedJobId, selectedJobLabel)}
           />
@@ -760,7 +817,7 @@ export function RoutinesPage() {
             submittedDelivery={guided.delivery}
             activeRoute={activeRoute}
             onLaunch={handleGuidedLaunch}
-            onClose={handleGuidedClose}
+            onClose={() => closeSurface('guided')}
           />
         ) : isCreating ? (
           <RoutineComposerPanel
@@ -773,7 +830,7 @@ export function RoutinesPage() {
             // always among the choices.
             destinationRoutes={activeRoute === null ? state.routes : [activeRoute, ...state.routes]}
             disabled={locked}
-            onClose={() => setIsCreating(false)}
+            onClose={() => closeSurface('composer')}
             onSubmit={handleCreateRoutine}
             onSubmitGuided={handleCreateGuided}
           />

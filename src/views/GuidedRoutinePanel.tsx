@@ -20,6 +20,7 @@ import {
 } from '../domain/guidedWorkflow';
 import { activateConfigured, confirmProposal, readJobConfig } from '../gateway/proposalConfirm';
 import { GuidedProposalReview } from './GuidedProposalReview';
+import { PanelNav } from './PanelNav';
 
 // The guided configuration window: the ONLY place that says what is known
 // about a routine that EXISTS, is addressable, and is proven paused.
@@ -439,27 +440,9 @@ export function GuidedRoutinePanel({
   return (
     <aside className="hr-inspector hr-create-inspector" aria-label="Configure routine with Hermes">
       <header className="hr-inspector-header">
-        <button
-          type="button"
-          className="hr-btn-action hr-btn-back"
-          onClick={onClose}
-          aria-label="Back to routines"
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            aria-hidden="true"
-            style={{ flexShrink: 0 }}
-          >
-            <path
-              fillRule="evenodd"
-              d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"
-            />
-          </svg>
-          <span>Back to routines</span>
-        </button>
+        {/* Narrow viewport: Back, because the panel covers the list. Split
+            view: a dismiss, because the list is still beside it (issue #78). */}
+        <PanelNav closeLabel="Close configuration and return to routines" onClose={onClose} />
       </header>
 
       <div className="hr-inspector-body">

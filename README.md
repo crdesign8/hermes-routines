@@ -60,6 +60,14 @@ Limits:
   configuration it shows a separated, read-only `LAST EXECUTION` block with
   the latest run, its outcome, the failure reason when the run failed, and
   the next run while the routine can still fire.
+- Panel navigation follows the layout. In the split view the routines list
+  stays on screen beside the panel, so the header control is an explicit
+  dismiss (labelled for what it closes) rather than a "Back to routines"
+  that promises a navigation the user never made. Below 820px the panel
+  covers the list, and the same control reads as **Back to routines**.
+  Escape dismisses whichever panel is open — and a focused text field or an
+  open dropdown keeps its own Escape. Closing returns focus to the row the
+  inspector belonged to, or to the control that opened the panel.
 
 ## Screenshots
 
