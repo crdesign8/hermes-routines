@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A review → confirm → apply → verify → activate path for guided routine
+  configuration, closing the loop opened by **Configure with Hermes**. The
+  flow is driven by an explicit state machine
+  (`domain/guidedWorkflow.ts`): `provisional_paused`, `configuring`,
+  `proposal_ready`, `applying`, `configured_paused`, `activating`, `active`
+  and `needs_attention`, with `GUIDED_TRANSITIONS` as the single table of
+  legal successors and a reducer that refuses anything else — so the
+  question "may I mutate now?" is answered by the state, not by a
+  combination of component booleans.
+
+  The proposal arrives through an explicit, user-confirmed handoff
+  (`submitProposalForRoutine`): a string is read as ONE bare JSON object
+  literal and nothing else, so prose is refused rather than repaired, and
+  the object must be bound to the exact routine on screen (owner
+  connection/profile **and** `job_id`) or refused with `job_mismatch`.
+  The review itself (`GuidedProposalReview`) is a real table of current
+  versus proposed values built from backend truth read at review time, not
+  from the typed form; changed fields are marked with the word "changed"
+  rather than color alone, the agent's explanation renders separately from
+  the authoritative values, and fields no proposal can write (delivery,
+  model override) are shown as current values instead of being hidden.
+
+  `confirmProposal` is the only door to the backend, and its order is the
+  guarantee: re-run the stale guard immediately before the mutation, apply
+  through the deterministic primitive, re-read and verify the persisted
+  values, and only then — and only when the person asked for activation —
+  call the official resume path and re-read once more. Success is claimed
+  only after backend truth confirms the transition, so a generated
+  proposal, a patch request that returned, or a resume that answered ok
+  are each individually insufficient. Activation is deliberately not part
+  of the proposal contract: a validated proposal always carries
+  `desiredActive: false`, so a proposal can never turn a routine on.
+
+  Failures are staged (`handoff`, `stale`, `apply`, `verify`, `resume`,
+  `activate-verify`) and each one names the recovery that is safe to
+  offer: `review` where nothing was mutated, `apply` only where
+  re-confirming cannot mint a second job, `refresh` wherever an
+  addressable row may already exist, and `activation` for a resume of a
+  configuration that is already applied and verified. A routine that is
+  configured but failed to activate therefore stays paused and retries
+  activation without restarting clarification. No failure path deletes
+  the provisional job, and closing the panel resumes nothing — the
+  component owns no cleanup effect that can mutate.
+
 - A guided configuration handoff: a routine created with **Configure with
   Hermes** is created **paused**, and from that state the page can open a
   Hermes Desktop chat already bound to that exact routine. The path is

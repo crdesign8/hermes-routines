@@ -102,6 +102,7 @@ export type ProposalRefusalCode =
   | 'bad_job_id'
   | 'bad_owner'
   | 'owner_mismatch'
+  | 'job_mismatch'
   | 'bad_base'
   | 'empty_patch'
   | 'unknown_patch_field'
@@ -384,4 +385,77 @@ export function submitProposalHandoff(input: unknown): ProposalValidation {
     );
   }
   return validateProposal(input, null);
+}
+
+/** The routine a pasted handoff must be bound to before it may be reviewed. */
+export interface ProposalRoutineTarget {
+  /** Authoritative id of the routine under configuration. */
+  jobId: string;
+  connectionId: string;
+  profile: string;
+}
+
+/**
+ * The review surface's single entry point for an explicit,
+ * user-confirmed handoff (issue #64).
+ *
+ * Two gates, in order:
+ *
+ *   1. STRUCTURE. An already-structured value passes straight through. A
+ *      string — the text a person pasted — is read as ONE JSON object
+ *      literal and nothing else: prose, a transcript excerpt or a fenced
+ *      chat block that is not a bare JSON object is refused with
+ *      `handoff_must_be_structured`, never repaired, never coerced, never
+ *      searched for a payload. So free-form LLM output still cannot
+ *      become routine state; only a well-formed object can, and it still
+ *      has to survive strict validation.
+ *   2. IDENTITY. `target` binds the proposal to the exact routine on
+ *      screen: owner connection/profile AND `jobId` must match, so a
+ *      proposal minted for another routine is refused with
+ *      `job_mismatch` instead of being shown as this routine's review.
+ *
+ * Both gates are pure and cost zero host calls; the caller still applies
+ * the stale guard against backend truth before any mutation.
+ */
+export function submitProposalForRoutine(
+  input: unknown,
+  target: ProposalRoutineTarget | null,
+): ProposalValidation {
+  let candidate: unknown = input;
+  if (typeof candidate === 'string') {
+    const text = candidate.trim();
+    if (!text) {
+      return refusal(
+        'handoff_must_be_structured',
+        'paste the proposal object Hermes returned — an empty handoff is not a proposal',
+      );
+    }
+    try {
+      candidate = JSON.parse(text);
+    } catch {
+      return refusal(
+        'handoff_must_be_structured',
+        'the handoff could not be read as a JSON object — paste the proposal exactly as Hermes returned it',
+      );
+    }
+  }
+  if (asRecord(candidate) === null) {
+    return refusal(
+      'handoff_must_be_structured',
+      'the handoff must be a structured proposal object — free-form text is never parsed into routine configuration',
+    );
+  }
+  const expectedOwner =
+    target === null
+      ? null
+      : { connectionId: trimmedText(target.connectionId), profile: trimmedText(target.profile) };
+  const validated = validateProposal(candidate, expectedOwner);
+  if (validated.ok === false) return validated;
+  if (target !== null && validated.proposal.jobId !== target.jobId) {
+    return refusal(
+      'job_mismatch',
+      `this proposal configures ${validated.proposal.jobId}, not ${target.jobId} — ask Hermes for a proposal bound to this routine`,
+    );
+  }
+  return validated;
 }
