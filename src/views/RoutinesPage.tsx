@@ -8,8 +8,16 @@ import {
   type RoutinesState,
 } from '../state/routinesState';
 import { findRouteByKey } from '../domain/routing';
-import { filterCounts, jobIdFromResponse, jobIdOf, visibleJobs } from '../domain/jobs';
-import { humanScheduleOf, routineKey, routinePromptOf, routineTitle } from '../domain/present';
+import { filterCounts, jobIdFromResponse, jobIdOf, visibleJobs, type RoutineJob } from '../domain/jobs';
+import { attentionTargets, needsAttention } from '../domain/attention';
+import {
+  humanScheduleOf,
+  isFailedStatus,
+  routineKey,
+  routinePausedOf,
+  routinePromptOf,
+  routineTitle,
+} from '../domain/present';
 import { wrapHostError } from '../lib/errors';
 import {
   buildAddParams,
@@ -42,10 +50,12 @@ import { RoutineComposerPanel } from './RoutineComposerPanel';
 import { GuidedRoutinePanel } from './GuidedRoutinePanel';
 import { StatusLine } from './panels';
 import {
+  ATTENTION_BAND_ID,
   EmptyFilterState,
   EmptyState,
   ErrorState,
   LoadingState,
+  NeedsAttentionNotice,
   NeedsConfigurationNotice,
   StaleBanner,
   UnavailableState,
@@ -93,6 +103,21 @@ function pastTense(kind: string): string {
   if (kind === 'pause') return 'paused';
   if (kind === 'resume') return 'resumed';
   return 'saved';
+}
+
+/**
+ * One search predicate, shared by the visible rows, the chip counts and the
+ * attention summary. They are three numbers about the same set of routines,
+ * so they must not be derived by three slightly different copies of this
+ * rule: a copy that searched one field less would make the summary promise
+ * a routine the list could not show. Matched on the display title (falling
+ * back to the id) and the humanized schedule, case-insensitively.
+ */
+function matchesQuery(job: RoutineJob, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  const name = (routineTitle(job, '') || jobIdOf(job)).toLowerCase();
+  const schedule = (humanScheduleOf(job) || '').toLowerCase();
+  return name.includes(q) || schedule.includes(q);
 }
 
 /** The guided panel's inputs: an addressable handle plus submitted values. */
@@ -152,32 +177,55 @@ export function RoutinesPage() {
     if (!stillThere) setSelectedJobKey(null);
   }, [state.jobs, selectedJobKey]);
 
-  const filteredJobs = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return shown;
-    return shown.filter((job) => {
-      const name = (routineTitle(job, '') || jobIdOf(job)).toLowerCase();
-      const schedule = (humanScheduleOf(job) || '').toLowerCase();
-      return name.includes(q) || schedule.includes(q);
-    });
-  }, [shown, searchQuery]);
-
   // Rows matching the SEARCH alone, with no status filter applied. The chip
-  // counts are computed over this set, not over `filteredJobs`: a count
-  // taken from the already-filtered rows would read "Paused 0" while paused
-  // routines exist, because the active filter had removed them before the
-  // count was taken. Each chip answers "how many rows would I open?", so
-  // each must be counted against every search match, not against the one
-  // slice that happens to be showing (issue #79).
+  // counts and the attention summary are computed over this set, not over
+  // `filteredJobs`: a count taken from the already-filtered rows would read
+  // "Paused 0" while paused routines exist, because the active filter had
+  // removed them before the count was taken. Each chip answers "how many
+  // rows would I open?", so each must be counted against every search match,
+  // not against the one slice that happens to be showing (issue #79).
   const searchMatches = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = searchQuery.trim();
     if (!q) return state.jobs;
-    return state.jobs.filter((job) => {
-      const name = (routineTitle(job, '') || jobIdOf(job)).toLowerCase();
-      const schedule = (humanScheduleOf(job) || '').toLowerCase();
-      return name.includes(q) || schedule.includes(q);
-    });
+    return state.jobs.filter((job) => matchesQuery(job, q));
   }, [state.jobs, searchQuery]);
+
+  const filteredJobs = useMemo(() => {
+    // Search first, then the attention focus: the focus is a THIRD dimension
+    // beside the lifecycle filter (issue #80), narrowing to the routines
+    // whose latest run is failing. It intersects whatever is showing rather
+    // than replacing it, and the reducer resets the lifecycle filter to
+    // 'all' when a focus starts, so a focus can never hide a target at the
+    // very moment the user asked to see them.
+    const searched = searchQuery.trim()
+      ? shown.filter((job) => matchesQuery(job, searchQuery))
+      : shown;
+    if (state.attentionFocus === null) return searched;
+    const focus = state.attentionFocus;
+    return searched.filter((job) => {
+      const id = jobIdOf(job);
+      return id !== '' && focus.indexOf(id) !== -1;
+    });
+  }, [shown, searchQuery, state.attentionFocus]);
+
+  // The needs-attention summary (issue #80): how many routines are failing
+  // right now, and how many paused ones carry an older failure.
+  //
+  // Both numbers come from the same domain verdict that decides the focus,
+  // so the summary, the focused list and the rows cannot disagree about what
+  // "needs attention" means. Counted over the SEARCH matches, like the chip
+  // counts, because the number must answer "how many would I open?".
+  const attention = useMemo(() => {
+    const failing = attentionTargets(searchMatches);
+    // Paused routines whose recorded run failed. Deliberately NOT in the
+    // attention slice (nothing will retry them while paused — see
+    // domain/attention.ts), but counted separately so excluding them is
+    // stated on the page instead of happening silently.
+    const pausedFailures = searchMatches.filter(
+      (job) => routinePausedOf(job) && isFailedStatus(job) && !needsAttention(job),
+    ).length;
+    return { count: failing.length, pausedFailures };
+  }, [searchMatches]);
 
   const selectedJob = useMemo(() => {
     if (!selectedJobKey) return null;
@@ -604,6 +652,25 @@ export function RoutinesPage() {
     return targets;
   }
 
+  /**
+   * Enter or leave the attention focus (issue #80). The band swaps itself
+   * for the other state, which unmounts the control the user just pressed —
+   * so focus is handed to the band that replaced it on the next tick, for the
+   * same reason `closeSurface` restores panel focus there. Without this, a
+   * keyboard user activating either control is dropped to the top of the
+   * document with no idea what changed.
+   */
+  function setAttentionFocus(event: 'focus' | 'clear'): void {
+    if (event === 'focus') {
+      dispatch({ type: 'attention-focus', jobs: searchMatches });
+    } else {
+      dispatch({ type: 'attention-focus-cleared' });
+    }
+    setTimeout(() => {
+      focusById(ATTENTION_BAND_ID);
+    }, 0);
+  }
+
   function renderList(): ReactNode {
     // The toolbar no longer paints "Showing all N routines.": it restated
     // what the active filter chip already said, and the chips now carry a
@@ -611,6 +678,45 @@ export function RoutinesPage() {
     // matches alone, so every chip reports what it would really open and
     // the current chip's number always equals the rows on screen.
     const counts = state.status === S.READY ? filterCounts(searchMatches) : null;
+
+    // A live focus bar, shown INSTEAD of the summary while one is active:
+    // the same count, restated as the state the list is now in plus the way
+    // out of it. A focus with no way back would be a trap — a list that
+    // silently shrank to two rows with no visible control explaining why.
+    //
+    // The number is the rows ACTUALLY ON SCREEN (`filteredJobs`), not the
+    // size of the focus: a search that narrows the focus would otherwise
+    // announce "Showing 3 routines" above a list holding one, which is the
+    // same class of lie issue #79 fixed for the chip counts. The focus bar
+    // carries role="status" like the summary it replaces, so entering and
+    // leaving a focus are both announced rather than only the entry.
+    const focusBar =
+      state.attentionFocus !== null && state.attentionFocus.length > 0 ? (
+        <div
+          id={ATTENTION_BAND_ID}
+          className="hr-attention hr-attention-active"
+          role="status"
+          tabIndex={-1}
+        >
+          {/* One template string, not fragments around `{' '}`: assistive
+              tech announces adjacent text nodes separately, so a sentence
+              split by interpolation reads as three disconnected words. */}
+          <span className="hr-attention-text">
+            {filteredJobs.length === 0
+              ? 'No failing routine matches this search'
+              : filteredJobs.length === 1
+                ? 'Showing 1 routine that needs attention'
+                : `Showing ${filteredJobs.length} routines that need attention`}
+          </span>
+          <button
+            type="button"
+            className="hr-btn hr-btn-small"
+            onClick={() => setAttentionFocus('clear')}
+          >
+            Show all routines
+          </button>
+        </div>
+      ) : null;
 
     return (
       <>
@@ -646,9 +752,31 @@ export function RoutinesPage() {
             />
           </div>
         </div>
+        {/* Quiet when healthy: NeedsAttentionNotice renders null for a zero
+            count, so there is no empty warning band above a clean list. */}
+        {focusBar ?? (
+          <NeedsAttentionNotice
+            count={attention.count}
+            paused={attention.pausedFailures}
+            onFocus={() => setAttentionFocus('focus')}
+          />
+        )}
         {filteredJobs.length === 0 ? (
           state.jobs.length === 0 ? (
             <EmptyState />
+          ) : state.attentionFocus !== null ? (
+            // The only way a live focus can match nothing is a search that no
+            // longer covers any failing routine: the reducer re-derives the
+            // focus on every list load, so a routine that recovered or
+            // vanished would have dropped the focus rather than emptied it.
+            // Copy that names the real cause — the generic "no routines match
+            // this filter" would blame a filter the user never applied, and
+            // "every routine is healthy" would be a claim about rows this
+            // search is not even showing.
+            <EmptyFilterState
+              title="No failing routine matches this search"
+              hint="Clear the search box to see the routines that need attention."
+            />
           ) : (
             <EmptyFilterState />
           )

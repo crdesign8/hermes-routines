@@ -243,6 +243,50 @@ the settled count is still announced by the polite live region, so no
 number is both painted twice and read twice. The redundant *Showing all
 N routines.* toolbar line is removed entirely.
 
+Runtime health (issue #80): lifecycle and execution health are separate
+dimensions, and the health one is modeled on its own in
+`src/domain/attention.ts`. The chips still answer "can this routine
+fire?"; the needs-attention band answers "is this routine working?".
+
+- Precedence, decided once: an unaddressable row (no `job_id`) → never
+  qualifies, since the focus is keyed on `job_id` and a number must not
+  promise a row the *Show them* control cannot reveal; completed → never
+  qualifies; lifecycle `error` → qualifies (an explicit current claim,
+  even with a successful last run, and even while paused — resuming a
+  broken job does not fix it); a recorded success → clears the state,
+  so the `last_fire_error` / `last_stderr` / `last_exit_code` left by
+  the run that failed cannot repaint a healthy routine; paused → a
+  pre-pause failure is history and does not qualify; a failed status
+  token on a live routine → qualifies; anything else (never ran, or a
+  token this plugin does not read as failure) → does not qualify.
+  Unknown is not failure.
+- The band renders `null` at a zero count, so a healthy list has no
+  empty warning section at all — it is not a fourth permanent tab. A
+  page whose only failure is a paused one is therefore quiet; the
+  history is still on the row.
+- It is a `role="status"` band, not a `role="alert"`: a failing routine
+  is work to get through, not a blocked operation. The count is painted
+  text and the glyph is `aria-hidden`, so the state is never carried by
+  color alone. Both band states share `ATTENTION_BAND_ID` and a
+  `tabIndex={-1}` focus target.
+- *Show them* dispatches an attention focus keyed on canonical `job_id`s
+  (never a display name). The focus intersects the lifecycle filter
+  rather than replacing it, is re-derived on every `list-loaded` so a
+  recovered or vanished routine drops out, and is released entirely when
+  no target survives. Choosing a lifecycle chip releases it too. The
+  only empty state a live focus can still reach is a search that no
+  longer covers a failing routine, and it names the search rather than
+  blaming the filter.
+- The focus bar counts the rows actually on screen, not the size of
+  the focus, so a narrowing search cannot announce three rows above a
+  list holding one. Entering or leaving a focus swaps the band for its
+  other state, which unmounts the pressed control, so focus is handed to
+  the replacement band on the next tick (`focusById(ATTENTION_BAND_ID)`).
+- Paused failures are named on the page when the band is shown ("1
+  paused routine also failed before it was paused") and the row always
+  states its own failure, so excluding them from the count is visible
+  rather than silent.
+
 Mount note: the route surface is the single `ROUTES_AREA`
 contribution (`id: routines`, `path: /routines`, `render` through the
 contribution). The default-export descriptor carries `id` / `name` /

@@ -556,6 +556,22 @@ export const ROUTINES_CSS = [
   '.hr-error { border: 1px solid color-mix(in srgb, var(--ui-red, #f87171) 40%, transparent); border-left-width: 4px; border-radius: 8px; padding: 14px 16px; background: var(--ui-bg-elevated, rgba(255,255,255,0.02)); color: var(--ui-text-primary, #fff); margin: 16px 0; }',
   '.hr-error strong { color: var(--ui-red, #f87171); }',
   '.hr-stale { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.1)); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; background: var(--ui-bg-tertiary, rgba(255,255,255,0.02)); color: var(--ui-text-secondary, #ccc); font-size: 12px; }',
+  // Needs-attention summary (issue #80). A quiet band, deliberately close to
+  // the stale banner it borrows its box from — the difference must be the
+  // WORDS and the accent, not a loud alarm: a warning that screams on a
+  // routine nobody can fix right now trains users to ignore it. The text
+  // carries the state, so the red accent only reinforces what is already
+  // written ("2 routines need attention") and is never the sole signal.
+  '.hr-attention { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; border: 1px solid color-mix(in srgb, var(--ui-red, #f87171) 40%, transparent); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; background: var(--ui-bg-tertiary, rgba(255,255,255,0.02)); color: var(--ui-text-primary, #fff); font-size: 12px; }',
+  '.hr-attention-glyph { flex: 0 0 auto; color: var(--ui-red, #f87171); }',
+  '.hr-attention-text { font-weight: 600; }',
+  // Secondary clause, so the excluded paused failures read as context beside
+  // the headline and not as a second number the user has to reconcile.
+  '.hr-attention-note { color: var(--ui-text-tertiary, #888); }',
+  // The focus bar is the same band in its active state: same severity, a
+  // different sentence, and the control that leaves it.
+  '.hr-attention-active { border-color: color-mix(in srgb, var(--ui-red, #f87171) 55%, transparent); margin-bottom: 8px; }',
+  '.hr-attention .hr-btn { margin-left: auto; }',
   '.hr-muted { color: var(--ui-text-tertiary, #888); font-size: 13px; line-height: 1.4; }',
   '.hr-status { margin-top: 10px; color: var(--ui-text-tertiary, #888); font-size: 12px; }',
   // A status line that only restates what the page already shows (the

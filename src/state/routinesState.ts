@@ -1,6 +1,7 @@
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import { activeRouteKey, coerceRoutes, resolveActiveRoute } from '../domain/routing';
 import { jobIdOf, normalizeJobs, withPausedFlag, type RoutineFilter, type RoutineJob } from '../domain/jobs';
+import { attentionTargets } from '../domain/attention';
 import { messageOf } from '../lib/errors';
 
 // Page state machine for the Routines view. Pure and reducer-driven: every
@@ -45,6 +46,17 @@ export interface RoutinesState {
   pending: string[];
   filter: RoutineFilter;
   snapshot: RoutineJob[] | null;
+  /**
+   * Canonical `job_id`s the user asked to focus from the needs-attention
+   * summary (issue #80), or null for no focus. This is a THIRD dimension
+   * beside `filter`, not a new lifecycle slice: a routine can be both paused
+   * and failing, so the focus cannot be expressed as 'all' | 'active' |
+   * 'paused' without losing one of the two answers. It is transient view
+   * state, so every path that drops the inventory (a profile switch, a
+   * routes reload) clears it — a focus that outlives its rows would filter
+   * the list down to nothing with no way back except a fresh chip click.
+   */
+  attentionFocus: string[] | null;
 }
 
 export type RoutinesEvent =
@@ -58,6 +70,8 @@ export type RoutinesEvent =
   | { type: 'list-error'; error: unknown; key: unknown }
   | { type: 'retry-list' }
   | { type: 'filter-changed'; filter: unknown }
+  | { type: 'attention-focus'; jobs: unknown }
+  | { type: 'attention-focus-cleared' }
   | { type: 'mutate-start'; jobId: unknown }
   | { type: 'mutate-end'; jobId: unknown }
   | { type: 'optimistic-pause'; jobId: string }
@@ -79,6 +93,7 @@ export function initialRoutinesState(): RoutinesState {
     pending: [],
     filter: 'all',
     snapshot: null,
+    attentionFocus: null,
   };
 }
 
@@ -86,6 +101,31 @@ function profileText(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+/**
+ * Keep only the focus targets that are STILL failing in the inventory that
+ * just arrived, or null when none of them is.
+ *
+ * The focus is a claim about specific routines, so it is re-derived instead
+ * of trusted: a routine whose latest run succeeded must leave it (issue #80
+ * — recovery clears the attention state), and a routine the backend no
+ * longer returns cannot stay in it either.
+ *
+ * The result is null, never `[]`, when nothing survives. The two are
+ * different states and conflating them blanks the page: null means "not
+ * focused" and shows every row, while `[]` would filter the list down to
+ * nothing and leave the user staring at an empty page with no control
+ * explaining why. That is exactly the case a single recovering routine
+ * creates, so the guard is on the INTERSECTION, not on the surviving set.
+ */
+function pruneAttentionFocus(focus: string[] | null, jobs: RoutineJob[]): string[] | null {
+  if (focus === null) return null;
+  const alive = attentionTargets(jobs)
+    .map((job) => jobIdOf(job))
+    .filter((id) => id !== '');
+  const kept = focus.filter((id) => alive.indexOf(id) !== -1);
+  return kept.length > 0 ? kept : null;
 }
 
 export function routinesViewReducer(
@@ -109,6 +149,7 @@ export function routinesViewReducer(
         notice: null,
         pending: [],
         snapshot: null,
+        attentionFocus: null,
       };
     case 'routes-loaded': {
       const usable = coerceRoutes(event.routes);
@@ -129,6 +170,7 @@ export function routinesViewReducer(
           notice: null,
           pending: [],
           snapshot: null,
+          attentionFocus: null,
         };
       }
       return {
@@ -143,6 +185,7 @@ export function routinesViewReducer(
         notice: null,
         pending: [],
         snapshot: null,
+        attentionFocus: null,
       };
     }
     case 'routes-error':
@@ -155,6 +198,7 @@ export function routinesViewReducer(
         activeProfile: null,
         activeConnectionId: null,
         jobs: [],
+        attentionFocus: null,
       };
     case 'retry-routes':
       return {
@@ -169,6 +213,7 @@ export function routinesViewReducer(
         notice: null,
         pending: [],
         snapshot: null,
+        attentionFocus: null,
       };
     case 'active-changed': {
       const profile = profileText(event.profile);
@@ -188,6 +233,7 @@ export function routinesViewReducer(
           notice: null,
           pending: [],
           snapshot: null,
+          attentionFocus: null,
         };
       }
       return {
@@ -201,6 +247,7 @@ export function routinesViewReducer(
         notice: null,
         pending: [],
         snapshot: null,
+        attentionFocus: null,
       };
     }
     case 'list-loading':
@@ -209,13 +256,20 @@ export function routinesViewReducer(
       // Race guard: a superseded request (profile A resolving after the
       // switch to B) carries A's key and is ignored — the view keeps B.
       if (typeof event.key !== 'string' || event.key !== base.activeKey) return base;
+      const jobs = normalizeJobs(event.jobs);
       return {
         ...base,
         status: S.READY,
-        jobs: normalizeJobs(event.jobs),
+        jobs,
         error: null,
         snapshot: null,
         pending: [],
+        // A focus is a claim about specific rows, so it is re-checked
+        // against the inventory that just arrived. A routine that recovered
+        // (or was deleted) leaves the focus, and a focus left with nothing in
+        // it is dropped entirely — an empty focus would empty the list and
+        // leave the user on a blank page with no control that says why.
+        attentionFocus: pruneAttentionFocus(base.attentionFocus, jobs),
       };
     }
     case 'list-error': {
@@ -228,7 +282,28 @@ export function routinesViewReducer(
       return {
         ...base,
         filter: event.filter === 'active' || event.filter === 'paused' ? event.filter : 'all',
+        // A lifecycle chip is a different question from the attention focus,
+        // and the user answering one has answered the other: they are no
+        // longer looking at "what is failing". Keeping both would leave the
+        // list showing a slice of one question while the focus bar claims
+        // another, with no way back to the rest of the list.
+        attentionFocus: null,
       };
+    case 'attention-focus': {
+      // Focus the routines that currently need attention, by canonical
+      // identity. Ids are taken from the domain verdict, never from the
+      // event payload, so a caller cannot focus a healthy routine (or a row
+      // with no id) by passing its name. The lifecycle filter is reset
+      // because the focus IS the slice now; leaving 'paused' on top of an
+      // attention focus would silently hide the active ones.
+      const ids = attentionTargets(event.jobs)
+        .map((job) => jobIdOf(job))
+        .filter((id) => id !== '');
+      if (ids.length === 0) return { ...base, attentionFocus: null };
+      return { ...base, filter: 'all', attentionFocus: ids };
+    }
+    case 'attention-focus-cleared':
+      return base.attentionFocus === null ? base : { ...base, attentionFocus: null };
     case 'mutate-start': {
       // '' is the create slot: a create has no job_id until the backend
       // answers, and the lock must cover that window too.

@@ -38,6 +38,8 @@ Supported:
 
 - View routines for the active Hermes profile.
 - Search and filter the routine list.
+- See, at a glance, which routines need attention because their last run
+  failed, and focus exactly those rows.
 - Inspect the schedule and stored run instruction for each routine.
 - Create a routine from a name, schedule, and prompt.
 - Pause and resume existing routines.
@@ -132,7 +134,12 @@ full installation reference.
    a complete route for that profile; there is no profile picker in this view.
 4. Use the list to inspect routines. The **All / Active / Paused** tabs each
    show how many routines that slice holds; the filter tabs and the search box
-   narrow the list together. Then use the **New routine** control to submit a name,
+   narrow the list together. When a routine's last run failed, a band above
+   the list says how many **need attention** and **Show them** focuses exactly
+   those rows. A paused routine that failed before it was paused is kept out
+   of that count, since nothing will retry it until you resume it; when the
+   band is shown it also names those routines, and their row always states
+   the failure. Then use the **New routine** control to submit a name,
    schedule, and prompt. The prompt is the instruction that the host will
    execute when the routine runs. **Start enabled** decides whether that
    routine can run as soon as it is created.
