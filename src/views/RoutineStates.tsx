@@ -97,14 +97,6 @@ export function StaleBanner({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-/** One paused-never-ran routine the user may (re)open for configuration. */
-export interface GuidedReopenTarget {
-  jobId: string;
-  title: string;
-  /** True when this is the session the user just closed (in-session resume). */
-  resumed: boolean;
-}
-
 /**
  * Shared id of the needs-attention band, in both of its states (the summary
  * and the focus bar). The two replace each other, so the element that
@@ -181,39 +173,83 @@ export function NeedsAttentionNotice({
 }
 
 /**
- * Incomplete-configuration notice (issue #65 Part B, scenarios 1–2): the
- * list names paused routines whose configuration is incomplete and offers
- * to (re)open each one. Opening only rebuilds an addressable handle and
- * re-reads truth — it never resumes, applies, or recreates anything.
+ * Shared id of the needs-configuration band, in both of its states (the
+ * summary and the focus bar). The two replace each other, so the element
+ * that replaces the one the user just pressed is where focus has to land:
+ * the pressed control unmounts with its band, and a keyboard user left on
+ * nothing has lost their place in the page. Restored on the next tick,
+ * because the replacement band does not exist yet when the click runs.
+ * Deliberately distinct from ATTENTION_BAND_ID: the two bands replace
+ * different summaries, and focus must land on the band that replaced the
+ * control the user just pressed.
+ */
+export const CONFIG_BAND_ID = 'hermes-routines-config';
+
+/**
+ * Incomplete-configuration summary (issue #93).
+ *
+ * The banner is aggregate awareness only: it names how many paused,
+ * never-ran routines still need configuration and offers exactly one
+ * navigation action that focuses exactly those rows. It never grows a
+ * per-routine button, however many routines qualify: the list identifies
+ * the affected entities and the inspector acts on one entity.
+ * Quiet by construction: with zero candidates this renders nothing, so
+ * there is no empty band to scroll past. The words carry the state, so no
+ * glyph and no bordered band — an incomplete configuration is
+ * information, not a failure.
  */
 export function NeedsConfigurationNotice({
-  targets,
-  onConfigure,
+  count,
+  onView,
 }: {
-  targets: GuidedReopenTarget[];
-  onConfigure: (jobId: string) => void;
+  count: number;
+  onView: () => void;
 }) {
-  if (targets.length === 0) return null;
-  // Quiet by the attention-budget rule: this names paused rows that can be
-  // (re)opened, not a failure. Spacing and typography group the actions;
-  // the bordered bands stay reserved for stale/error/attention states.
+  if (count === 0) return null;
   return (
-    <div className="hr-config-note" role="status">
+    <div id={CONFIG_BAND_ID} className="hr-config-note" role="status" tabIndex={-1}>
       <span>
-        {targets.length === 1
-          ? 'One paused routine needs configuration.'
-          : `${targets.length} paused routines need configuration.`}
+        {count === 1 ? '1 routine needs configuration' : `${count} routines need configuration`}
       </span>
-      {targets.map((target) => (
-        <button
-          key={target.jobId}
-          type="button"
-          className="hr-btn hr-btn-small"
-          onClick={() => onConfigure(target.jobId)}
-        >
-          {target.resumed ? `Resume configuration of ${target.title}` : `Configure ${target.title}`}
-        </button>
-      ))}
+      <button type="button" className="hr-btn hr-btn-small" onClick={onView}>
+        View
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Live configuration-focus bar, shown instead of the summary while a
+ * configuration focus is active: the slice the list is now in, plus the
+ * way out of it. The count is the rows actually on screen, not the size
+ * of the focus, so a search narrowing the focus cannot disagree with the
+ * list below it. Role status like the summary it replaces, so entering
+ * and leaving the focus are both announced.
+ */
+export function NeedsConfigurationFocusBar({
+  visibleCount,
+  onClear,
+}: {
+  visibleCount: number;
+  onClear: () => void;
+}) {
+  return (
+    <div
+      id={CONFIG_BAND_ID}
+      className="hr-attention hr-attention-active"
+      role="status"
+      tabIndex={-1}
+    >
+      <span className="hr-attention-text">
+        {visibleCount === 0
+          ? 'No routine needing configuration matches this search'
+          : visibleCount === 1
+            ? 'Showing 1 routine that needs configuration'
+            : `Showing ${visibleCount} routines that need configuration`}
+      </span>
+      <button type="button" className="hr-btn hr-btn-small" onClick={onClear}>
+        Show all routines
+      </button>
     </div>
   );
 }

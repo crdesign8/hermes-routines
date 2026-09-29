@@ -34,6 +34,13 @@ export interface RoutineInspectorPanelProps {
   onClose: () => void;
   onPause: () => void;
   onResume: () => void;
+  /**
+   * Reopen handler for an incomplete configuration (issue #93). Present
+   * only so the page can wire its existing guided-reopen path; the panel
+   * calls it with the candidate's canonical job_id and renders no action
+   * at all when the inspected row is not a candidate.
+   */
+  onConfigure?: (jobId: string) => void;
 }
 
 export function RoutineInspectorPanel({
@@ -41,6 +48,7 @@ export function RoutineInspectorPanel({
   fallback,
   id = INSPECTOR_PANEL_ID,
   onClose,
+  onConfigure,
 }: RoutineInspectorPanelProps): ReactElement {
   const title = routineTitle(job, fallback);
   const schedule = humanScheduleOf(job) || '—';
@@ -61,9 +69,12 @@ export function RoutineInspectorPanel({
   const describedDelivery = describeDestination(storedDelivery);
   // Incomplete configuration (issue #65 Part B, scenario 1): paused and
   // never run means no complete configuration to preserve. Read-only
-  // text — never a control, never a resume: the reopen action lives on
-  // the list, where the owning route is known.
-  const needsConfiguration = guidedConfigCandidateOf(job) !== null;
+  // text plus, when the page wired one, the single reopen action that
+  // lives in this detail context (issue #93) — never on the list, never
+  // on the banner. The candidate carries the canonical job_id the
+  // handler is called with.
+  const configCandidate = guidedConfigCandidateOf(job);
+  const needsConfiguration = configCandidate !== null;
   // Failure hierarchy (issue #76): the run's story reads what failed,
   // then the concise reason when one can be safely derived, then —
   // collapsed and visually secondary — the raw evidence. Null for every
@@ -98,15 +109,24 @@ export function RoutineInspectorPanel({
 
         {/* Paused and never run: its configuration is incomplete. Stated
             in words so the list/inspector answer scenario 1 even after a
-            reload wiped the guided panel state. Quiet by the
-            attention-budget rule: information, not a state to act on here
-            (the reopen action lives on the list). */}
+            reload wiped the guided panel state. The single reopen action
+            lives here, in the detail context of the one routine it acts
+            on (issue #93) — never on the list, never on the banner. */}
         {needsConfiguration ? (
           <div className="hr-inspector-note">
             <span className="hr-create-active-title">Paused · needs configuration</span>
             <span className="hr-create-active-subtitle">
               This routine is paused and has never run — its configuration is incomplete.
             </span>
+            {configCandidate !== null && onConfigure ? (
+              <button
+                type="button"
+                className="hr-btn hr-btn-small"
+                onClick={() => onConfigure(configCandidate.jobId)}
+              >
+                Continue configuration
+              </button>
+            ) : null}
           </div>
         ) : null}
 

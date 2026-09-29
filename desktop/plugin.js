@@ -1037,6 +1037,216 @@ function attentionCount(jobs) {
   return attentionTargets(jobs).length;
 }
 
+// src/domain/diagnostics.ts
+var GUIDED_DIAG_STAGES = Object.freeze({
+  /** The provisional create did not reach the paused invariant. */
+  PROVISIONAL_CREATE: "provisional-create",
+  /** The configuration chat could not be opened. */
+  SESSION_LAUNCH: "session-launch",
+  /** A pasted proposal failed validation before any backend read. */
+  PROPOSAL_VALIDATION: "proposal-validation",
+  /** A proposal was refused because its target moved or vanished. */
+  STALE_REJECTION: "stale-rejection",
+  /** The deterministic write did not reach replaced-and-paused. */
+  APPLY: "apply",
+  /** The write happened but backend truth could not confirm it. */
+  VERIFICATION: "verification",
+  /** A verified configuration could not be resumed and proven active. */
+  ACTIVATION: "activation"
+});
+function isStage(value) {
+  return typeof value === "string" && Object.values(GUIDED_DIAG_STAGES).indexOf(value) !== -1;
+}
+var RETRIABLE_REASONS = /* @__PURE__ */ new Set([
+  "list_failed",
+  "read_failed",
+  "refresh_failed",
+  "verification_unreadable",
+  "verification_missing",
+  "truth_unconfirmed",
+  "truth_unreadable",
+  "session_target_unreadable",
+  "create_rejected",
+  "pause_rejected",
+  "no_new_chat",
+  "no_composer",
+  "draft_not_claimed"
+]);
+function isRetriableDiagReason(reason) {
+  return typeof reason === "string" && RETRIABLE_REASONS.has(reason);
+}
+function recordGuidedDiag(stage, reason) {
+  if (!isStage(stage)) {
+    throw new TypeError(`unknown guided diagnostics stage: ${String(stage)}`);
+  }
+  if (typeof reason !== "string" || !reason.trim()) {
+    throw new TypeError("a guided diagnostics record requires a non-empty reason code");
+  }
+  const code = reason.trim();
+  return Object.freeze({ stage, reason: code, retriable: isRetriableDiagReason(code) });
+}
+
+// src/domain/provisional.ts
+function cronOutcomeOf(answer) {
+  if (answer === null || typeof answer !== "object") {
+    return { ok: false, error: "the backend returned no result" };
+  }
+  const row = answer;
+  if (row.success !== false) return { ok: true, error: "" };
+  const detail = typeof row.error === "string" ? row.error.trim() : "";
+  return { ok: false, error: detail || "the backend rejected the request" };
+}
+function pausedConfirmedBy(answer) {
+  if (answer === null || typeof answer !== "object") return false;
+  const job = answer.job;
+  if (job === null || typeof job !== "object") return false;
+  return job.enabled === false;
+}
+function rowOf(answer) {
+  if (answer === null || typeof answer !== "object") return null;
+  const job = answer.job;
+  return job !== null && typeof job === "object" ? job : null;
+}
+function scopeOf(route) {
+  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
+  return backendTargetProfile(route, "") || null;
+}
+function mintedRoutineFrom(route, addAnswer) {
+  const backendProfile = scopeOf(route);
+  if (!route || !backendProfile) {
+    return {
+      ok: false,
+      reason: "no_route",
+      message: "Provisional creation requires a resolved profile route",
+      jobId: "",
+      route: null,
+      backendProfile: null,
+      createdPaused: false
+    };
+  }
+  const created = cronOutcomeOf(addAnswer);
+  if (!created.ok) {
+    return {
+      ok: false,
+      reason: "create_rejected",
+      message: "the backend refused to create the routine: " + created.error,
+      jobId: "",
+      route,
+      backendProfile,
+      createdPaused: false
+    };
+  }
+  const jobId = jobIdFromResponse(addAnswer);
+  if (!jobId) {
+    return {
+      ok: false,
+      reason: "identity_unresolved",
+      message: "the routine was created but the backend returned no job id, so it cannot be addressed \u2014 check the routines list before configuring it",
+      jobId: "",
+      route,
+      backendProfile,
+      createdPaused: false
+    };
+  }
+  return { ok: true, jobId, route, backendProfile, job: rowOf(addAnswer) };
+}
+function resolveProvisionalCreate(input) {
+  const minted = mintedRoutineFrom(input.route, input.addAnswer);
+  if (minted.ok === false) return minted;
+  const { jobId, route, backendProfile } = minted;
+  if (input.pause.status === "rejected") {
+    return {
+      ok: false,
+      reason: "pause_rejected",
+      message: "the routine was created but pausing it failed (" + input.pause.message + ") \u2014 it may still run on its schedule; check it before the first run",
+      jobId,
+      route,
+      backendProfile,
+      createdPaused: false
+    };
+  }
+  const paused = cronOutcomeOf(input.pause.answer);
+  if (!paused.ok) {
+    return {
+      ok: false,
+      reason: "pause_rejected",
+      message: "the routine was created but the backend refused to pause it: " + paused.error,
+      jobId,
+      route,
+      backendProfile,
+      createdPaused: false
+    };
+  }
+  if (!pausedConfirmedBy(input.pause.answer)) {
+    return {
+      ok: false,
+      reason: "pause_unconfirmed",
+      message: "the routine was created but the backend did not confirm it is paused \u2014 check it before its first run",
+      jobId,
+      route,
+      backendProfile,
+      createdPaused: false
+    };
+  }
+  return {
+    ok: true,
+    routine: {
+      jobId,
+      route,
+      backendProfile,
+      createdPaused: true,
+      job: rowOf(input.pause.answer) ?? minted.job
+    }
+  };
+}
+var RUN_EVIDENCE_KEYS = Object.freeze([
+  "last_run_at",
+  "lastRunAt",
+  "last_run",
+  "lastRun",
+  "last_status",
+  "lastStatus",
+  "last_fire_error",
+  "lastFireError",
+  "last_error",
+  "lastError"
+]);
+function hasRunEvidence(job) {
+  for (const key of RUN_EVIDENCE_KEYS) {
+    const value = job[key];
+    if (typeof value === "string" && value.trim() !== "") return true;
+    if (value !== void 0 && value !== null && typeof value !== "string") return true;
+  }
+  return false;
+}
+function guidedConfigCandidateOf(job) {
+  if (job === null || job === void 0) return null;
+  const row = job;
+  const id = typeof row.job_id === "string" ? row.job_id.trim() : "";
+  if (!id) return null;
+  if (!jobPaused(row)) return null;
+  if (hasRunEvidence(row)) return null;
+  return { jobId: id };
+}
+function buildReopenHandle(route, job) {
+  const candidate = guidedConfigCandidateOf(job);
+  if (candidate === null) return null;
+  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
+  const backendProfile = backendTargetProfile(route, "") || null;
+  if (!backendProfile) return null;
+  return {
+    jobId: candidate.jobId,
+    route,
+    backendProfile,
+    createdPaused: true,
+    job: job ?? null
+  };
+}
+function diagOfProvisionalResult(result) {
+  if (result.ok) return recordGuidedDiag(GUIDED_DIAG_STAGES.PROVISIONAL_CREATE, "ok");
+  return recordGuidedDiag(GUIDED_DIAG_STAGES.PROVISIONAL_CREATE, result.reason);
+}
+
 // src/lib/errors.ts
 function messageOf(value) {
   if (typeof value === "string") return value;
@@ -1074,7 +1284,8 @@ function initialRoutinesState() {
     pending: [],
     filter: "all",
     snapshot: null,
-    attentionFocus: null
+    attentionFocus: null,
+    configFocus: null
   };
 }
 function profileText(value) {
@@ -1085,6 +1296,16 @@ function profileText(value) {
 function pruneAttentionFocus(focus, jobs) {
   if (focus === null) return null;
   const alive = attentionTargets(jobs).map((job) => jobIdOf(job)).filter((id) => id !== "");
+  const kept = focus.filter((id) => alive.indexOf(id) !== -1);
+  return kept.length > 0 ? kept : null;
+}
+function pruneConfigFocus(focus, jobs) {
+  if (focus === null) return null;
+  const alive = [];
+  for (const job of jobs) {
+    const candidate = guidedConfigCandidateOf(job);
+    if (candidate !== null && alive.indexOf(candidate.jobId) === -1) alive.push(candidate.jobId);
+  }
   const kept = focus.filter((id) => alive.indexOf(id) !== -1);
   return kept.length > 0 ? kept : null;
 }
@@ -1106,7 +1327,8 @@ function routinesViewReducer(state, event) {
         notice: null,
         pending: [],
         snapshot: null,
-        attentionFocus: null
+        attentionFocus: null,
+        configFocus: null
       };
     case "routes-loaded": {
       const usable = coerceRoutes(event.routes);
@@ -1127,7 +1349,8 @@ function routinesViewReducer(state, event) {
           notice: null,
           pending: [],
           snapshot: null,
-          attentionFocus: null
+          attentionFocus: null,
+          configFocus: null
         };
       }
       return {
@@ -1142,7 +1365,8 @@ function routinesViewReducer(state, event) {
         notice: null,
         pending: [],
         snapshot: null,
-        attentionFocus: null
+        attentionFocus: null,
+        configFocus: null
       };
     }
     case "routes-error":
@@ -1155,7 +1379,8 @@ function routinesViewReducer(state, event) {
         activeProfile: null,
         activeConnectionId: null,
         jobs: [],
-        attentionFocus: null
+        attentionFocus: null,
+        configFocus: null
       };
     case "retry-routes":
       return {
@@ -1170,7 +1395,8 @@ function routinesViewReducer(state, event) {
         notice: null,
         pending: [],
         snapshot: null,
-        attentionFocus: null
+        attentionFocus: null,
+        configFocus: null
       };
     case "active-changed": {
       const profile = profileText(event.profile);
@@ -1190,7 +1416,8 @@ function routinesViewReducer(state, event) {
           notice: null,
           pending: [],
           snapshot: null,
-          attentionFocus: null
+          attentionFocus: null,
+          configFocus: null
         };
       }
       return {
@@ -1204,7 +1431,8 @@ function routinesViewReducer(state, event) {
         notice: null,
         pending: [],
         snapshot: null,
-        attentionFocus: null
+        attentionFocus: null,
+        configFocus: null
       };
     }
     case "list-loading":
@@ -1224,7 +1452,12 @@ function routinesViewReducer(state, event) {
         // (or was deleted) leaves the focus, and a focus left with nothing in
         // it is dropped entirely — an empty focus would empty the list and
         // leave the user on a blank page with no control that says why.
-        attentionFocus: pruneAttentionFocus(base.attentionFocus, jobs)
+        attentionFocus: pruneAttentionFocus(base.attentionFocus, jobs),
+        // The configuration focus is re-derived the same way: a routine
+        // that ran, resumed, or vanished is no longer a candidate and
+        // leaves it, and an emptied focus is dropped instead of blanking
+        // the page.
+        configFocus: pruneConfigFocus(base.configFocus, jobs)
       };
     }
     case "list-error": {
@@ -1237,20 +1470,34 @@ function routinesViewReducer(state, event) {
       return {
         ...base,
         filter: event.filter === "active" || event.filter === "paused" ? event.filter : "all",
-        // A lifecycle chip is a different question from the attention focus,
-        // and the user answering one has answered the other: they are no
-        // longer looking at "what is failing". Keeping both would leave the
-        // list showing a slice of one question while the focus bar claims
-        // another, with no way back to the rest of the list.
-        attentionFocus: null
+        // A lifecycle chip is a different question from either focus, and
+        // the user answering one has answered the other: they are no longer
+        // looking at "what is failing" or "what needs configuration".
+        // Keeping any of them would leave the list showing a slice of one
+        // question while a focus bar claims another, with no way back to
+        // the rest of the list.
+        attentionFocus: null,
+        configFocus: null
       };
     case "attention-focus": {
       const ids = attentionTargets(event.jobs).map((job) => jobIdOf(job)).filter((id) => id !== "");
       if (ids.length === 0) return { ...base, attentionFocus: null };
-      return { ...base, filter: "all", attentionFocus: ids };
+      return { ...base, filter: "all", attentionFocus: ids, configFocus: null };
     }
     case "attention-focus-cleared":
       return base.attentionFocus === null ? base : { ...base, attentionFocus: null };
+    case "config-focus": {
+      const ids = [];
+      const rows = Array.isArray(event.jobs) ? event.jobs : [];
+      for (const job of rows) {
+        const candidate = guidedConfigCandidateOf(job);
+        if (candidate !== null && ids.indexOf(candidate.jobId) === -1) ids.push(candidate.jobId);
+      }
+      if (ids.length === 0) return { ...base, configFocus: null };
+      return { ...base, filter: "all", attentionFocus: null, configFocus: ids };
+    }
+    case "config-focus-cleared":
+      return base.configFocus === null ? base : { ...base, configFocus: null };
     case "mutate-start": {
       if (typeof event.jobId !== "string") return base;
       if (base.pending.indexOf(event.jobId) !== -1) return { ...base, notice: null };
@@ -1479,216 +1726,6 @@ var RETRIABLE_GATEWAY_PATTERNS = [
 function isRetriableGatewayError(message) {
   if (typeof message !== "string" || !message.trim()) return false;
   return RETRIABLE_GATEWAY_PATTERNS.some((pattern) => pattern.test(message));
-}
-
-// src/domain/diagnostics.ts
-var GUIDED_DIAG_STAGES = Object.freeze({
-  /** The provisional create did not reach the paused invariant. */
-  PROVISIONAL_CREATE: "provisional-create",
-  /** The configuration chat could not be opened. */
-  SESSION_LAUNCH: "session-launch",
-  /** A pasted proposal failed validation before any backend read. */
-  PROPOSAL_VALIDATION: "proposal-validation",
-  /** A proposal was refused because its target moved or vanished. */
-  STALE_REJECTION: "stale-rejection",
-  /** The deterministic write did not reach replaced-and-paused. */
-  APPLY: "apply",
-  /** The write happened but backend truth could not confirm it. */
-  VERIFICATION: "verification",
-  /** A verified configuration could not be resumed and proven active. */
-  ACTIVATION: "activation"
-});
-function isStage(value) {
-  return typeof value === "string" && Object.values(GUIDED_DIAG_STAGES).indexOf(value) !== -1;
-}
-var RETRIABLE_REASONS = /* @__PURE__ */ new Set([
-  "list_failed",
-  "read_failed",
-  "refresh_failed",
-  "verification_unreadable",
-  "verification_missing",
-  "truth_unconfirmed",
-  "truth_unreadable",
-  "session_target_unreadable",
-  "create_rejected",
-  "pause_rejected",
-  "no_new_chat",
-  "no_composer",
-  "draft_not_claimed"
-]);
-function isRetriableDiagReason(reason) {
-  return typeof reason === "string" && RETRIABLE_REASONS.has(reason);
-}
-function recordGuidedDiag(stage, reason) {
-  if (!isStage(stage)) {
-    throw new TypeError(`unknown guided diagnostics stage: ${String(stage)}`);
-  }
-  if (typeof reason !== "string" || !reason.trim()) {
-    throw new TypeError("a guided diagnostics record requires a non-empty reason code");
-  }
-  const code = reason.trim();
-  return Object.freeze({ stage, reason: code, retriable: isRetriableDiagReason(code) });
-}
-
-// src/domain/provisional.ts
-function cronOutcomeOf(answer) {
-  if (answer === null || typeof answer !== "object") {
-    return { ok: false, error: "the backend returned no result" };
-  }
-  const row = answer;
-  if (row.success !== false) return { ok: true, error: "" };
-  const detail = typeof row.error === "string" ? row.error.trim() : "";
-  return { ok: false, error: detail || "the backend rejected the request" };
-}
-function pausedConfirmedBy(answer) {
-  if (answer === null || typeof answer !== "object") return false;
-  const job = answer.job;
-  if (job === null || typeof job !== "object") return false;
-  return job.enabled === false;
-}
-function rowOf(answer) {
-  if (answer === null || typeof answer !== "object") return null;
-  const job = answer.job;
-  return job !== null && typeof job === "object" ? job : null;
-}
-function scopeOf(route) {
-  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
-  return backendTargetProfile(route, "") || null;
-}
-function mintedRoutineFrom(route, addAnswer) {
-  const backendProfile = scopeOf(route);
-  if (!route || !backendProfile) {
-    return {
-      ok: false,
-      reason: "no_route",
-      message: "Provisional creation requires a resolved profile route",
-      jobId: "",
-      route: null,
-      backendProfile: null,
-      createdPaused: false
-    };
-  }
-  const created = cronOutcomeOf(addAnswer);
-  if (!created.ok) {
-    return {
-      ok: false,
-      reason: "create_rejected",
-      message: "the backend refused to create the routine: " + created.error,
-      jobId: "",
-      route,
-      backendProfile,
-      createdPaused: false
-    };
-  }
-  const jobId = jobIdFromResponse(addAnswer);
-  if (!jobId) {
-    return {
-      ok: false,
-      reason: "identity_unresolved",
-      message: "the routine was created but the backend returned no job id, so it cannot be addressed \u2014 check the routines list before configuring it",
-      jobId: "",
-      route,
-      backendProfile,
-      createdPaused: false
-    };
-  }
-  return { ok: true, jobId, route, backendProfile, job: rowOf(addAnswer) };
-}
-function resolveProvisionalCreate(input) {
-  const minted = mintedRoutineFrom(input.route, input.addAnswer);
-  if (minted.ok === false) return minted;
-  const { jobId, route, backendProfile } = minted;
-  if (input.pause.status === "rejected") {
-    return {
-      ok: false,
-      reason: "pause_rejected",
-      message: "the routine was created but pausing it failed (" + input.pause.message + ") \u2014 it may still run on its schedule; check it before the first run",
-      jobId,
-      route,
-      backendProfile,
-      createdPaused: false
-    };
-  }
-  const paused = cronOutcomeOf(input.pause.answer);
-  if (!paused.ok) {
-    return {
-      ok: false,
-      reason: "pause_rejected",
-      message: "the routine was created but the backend refused to pause it: " + paused.error,
-      jobId,
-      route,
-      backendProfile,
-      createdPaused: false
-    };
-  }
-  if (!pausedConfirmedBy(input.pause.answer)) {
-    return {
-      ok: false,
-      reason: "pause_unconfirmed",
-      message: "the routine was created but the backend did not confirm it is paused \u2014 check it before its first run",
-      jobId,
-      route,
-      backendProfile,
-      createdPaused: false
-    };
-  }
-  return {
-    ok: true,
-    routine: {
-      jobId,
-      route,
-      backendProfile,
-      createdPaused: true,
-      job: rowOf(input.pause.answer) ?? minted.job
-    }
-  };
-}
-var RUN_EVIDENCE_KEYS = Object.freeze([
-  "last_run_at",
-  "lastRunAt",
-  "last_run",
-  "lastRun",
-  "last_status",
-  "lastStatus",
-  "last_fire_error",
-  "lastFireError",
-  "last_error",
-  "lastError"
-]);
-function hasRunEvidence(job) {
-  for (const key of RUN_EVIDENCE_KEYS) {
-    const value = job[key];
-    if (typeof value === "string" && value.trim() !== "") return true;
-    if (value !== void 0 && value !== null && typeof value !== "string") return true;
-  }
-  return false;
-}
-function guidedConfigCandidateOf(job) {
-  if (job === null || job === void 0) return null;
-  const row = job;
-  const id = typeof row.job_id === "string" ? row.job_id.trim() : "";
-  if (!id) return null;
-  if (!jobPaused(row)) return null;
-  if (hasRunEvidence(row)) return null;
-  return { jobId: id };
-}
-function buildReopenHandle(route, job) {
-  const candidate = guidedConfigCandidateOf(job);
-  if (candidate === null) return null;
-  if (!route || typeof route.connectionId !== "string" || !route.connectionId) return null;
-  const backendProfile = backendTargetProfile(route, "") || null;
-  if (!backendProfile) return null;
-  return {
-    jobId: candidate.jobId,
-    route,
-    backendProfile,
-    createdPaused: true,
-    job: job ?? null
-  };
-}
-function diagOfProvisionalResult(result) {
-  if (result.ok) return recordGuidedDiag(GUIDED_DIAG_STAGES.PROVISIONAL_CREATE, "ok");
-  return recordGuidedDiag(GUIDED_DIAG_STAGES.PROVISIONAL_CREATE, result.reason);
 }
 
 // src/gateway/provisionalCreate.ts
@@ -3709,6 +3746,10 @@ var ROUTINES_CSS = [
   // Failure text for the row: words plus color, so the failure reads even
   // when color is unavailable (issue #76).
   ".hr-sub-failed { color: var(--ui-red, #f87171); font-weight: 500; }",
+  // Configuration state for the row (issue #93): plain secondary words on
+  // the single summary line — no button, no badge, no bordered chrome.
+  // The row identifies; the inspector acts.
+  ".hr-sub-config { color: var(--ui-text-secondary, #ccc); }",
   "",
   "/* Shared detail rows. The expanded in-place block is gone (issue #77): a row never grows, so these rows belong to the inspector alone and the label/value cells keep the same rendering wherever they are read. */",
   ".hr-detail {",
@@ -4074,8 +4115,9 @@ var ROUTINES_CSS = [
   "  gap: 2px;",
   "  padding: 0;",
   "}",
-  // Quiet needs-configuration notice (issue #92): this names paused rows
-  // that can be (re)opened, not a failure — so it takes no bordered band.
+  // Quiet aggregate needs-configuration summary (issues #92 and #93):
+  // this names how many paused rows still need configuration, not a
+  // failure — so it takes no bordered band and offers exactly one action.
   // The StaleBanner keeps .hr-stale; errors and the attention band keep
   // their stronger treatment.
   ".hr-config-note {",
@@ -4405,6 +4447,10 @@ var ROUTINES_CSS = [
   // its label, so it still says what it does at any width (issue #79).
   "  .hr-btn-new { padding: 0 10px; gap: 5px; }",
   "  .hr-row-sub { margin-left: 26px; }",
+  // The aggregate configuration summary keeps its single action beside
+  // the count on a narrow viewport (issue #93): the row already wraps,
+  // so the banner only tightens its spacing instead of stacking.
+  "  .hr-config-note { gap: 6px; margin: 0 0 10px; }",
   "}"
 ].join("\n");
 
@@ -4493,6 +4539,7 @@ function RoutineCard(props) {
   const { tone, failure: failure3 } = statusOf(job);
   const schedule = humanScheduleOf(job) || "\u2014";
   const nextCopy = routineActive(job) ? nextRunCopyOf(nextRunIso(job)) : null;
+  const needsConfiguration = guidedConfigCandidateOf(job) !== null;
   return /* @__PURE__ */ jsxs3(
     "li",
     {
@@ -4582,6 +4629,10 @@ function RoutineCard(props) {
           failure3 !== null ? /* @__PURE__ */ jsxs3(Fragment, { children: [
             /* @__PURE__ */ jsx3("span", { className: "hr-sub-sep", children: "|" }),
             /* @__PURE__ */ jsx3("span", { className: "hr-sub-failed", children: failure3 })
+          ] }) : null,
+          needsConfiguration ? /* @__PURE__ */ jsxs3(Fragment, { children: [
+            /* @__PURE__ */ jsx3("span", { className: "hr-sub-sep", children: "|" }),
+            /* @__PURE__ */ jsx3("span", { className: "hr-sub-config", children: "Needs configuration" })
           ] }) : null
         ] }) : /* @__PURE__ */ jsxs3(Fragment, { children: [
           /* @__PURE__ */ jsx3("span", { className: "hr-sub-schedule", children: schedule }),
@@ -4764,7 +4815,8 @@ function RoutineInspectorPanel({
   job,
   fallback,
   id = INSPECTOR_PANEL_ID,
-  onClose
+  onClose,
+  onConfigure
 }) {
   const title = routineTitle(job, fallback);
   const schedule = humanScheduleOf(job) || "\u2014";
@@ -4773,7 +4825,8 @@ function RoutineInspectorPanel({
   const storedDelivery = readStoredDelivery(row);
   const storedModelOverride = readStoredModelOverride(row);
   const describedDelivery = describeDestination(storedDelivery);
-  const needsConfiguration = guidedConfigCandidateOf(job) !== null;
+  const configCandidate = guidedConfigCandidateOf(job);
+  const needsConfiguration = configCandidate !== null;
   const failure3 = explainFailureOf(job);
   return /* @__PURE__ */ jsxs6("aside", { className: "hr-inspector", id, "aria-label": `Details for ${title}`, children: [
     /* @__PURE__ */ jsx6("header", { className: "hr-inspector-header", children: /* @__PURE__ */ jsx6(PanelNav, { closeLabel: `Close details for ${title}`, onClose }) }),
@@ -4781,7 +4834,16 @@ function RoutineInspectorPanel({
       /* @__PURE__ */ jsx6("h3", { className: "hr-create-title", children: title }),
       needsConfiguration ? /* @__PURE__ */ jsxs6("div", { className: "hr-inspector-note", children: [
         /* @__PURE__ */ jsx6("span", { className: "hr-create-active-title", children: "Paused \xB7 needs configuration" }),
-        /* @__PURE__ */ jsx6("span", { className: "hr-create-active-subtitle", children: "This routine is paused and has never run \u2014 its configuration is incomplete." })
+        /* @__PURE__ */ jsx6("span", { className: "hr-create-active-subtitle", children: "This routine is paused and has never run \u2014 its configuration is incomplete." }),
+        configCandidate !== null && onConfigure ? /* @__PURE__ */ jsx6(
+          "button",
+          {
+            type: "button",
+            className: "hr-btn hr-btn-small",
+            onClick: () => onConfigure(configCandidate.jobId),
+            children: "Continue configuration"
+          }
+        ) : null
       ] }) : null,
       /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-card", children: [
         /* @__PURE__ */ jsxs6("div", { className: "hr-create-active-info", children: [
@@ -6020,24 +6082,34 @@ function NeedsAttentionNotice({
     /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onFocus, children: "Show them" })
   ] });
 }
+var CONFIG_BAND_ID = "hermes-routines-config";
 function NeedsConfigurationNotice({
-  targets,
-  onConfigure
+  count,
+  onView
 }) {
-  if (targets.length === 0) return null;
-  return /* @__PURE__ */ jsxs12("div", { className: "hr-config-note", role: "status", children: [
-    /* @__PURE__ */ jsx13("span", { children: targets.length === 1 ? "One paused routine needs configuration." : `${targets.length} paused routines need configuration.` }),
-    targets.map((target) => /* @__PURE__ */ jsx13(
-      "button",
-      {
-        type: "button",
-        className: "hr-btn hr-btn-small",
-        onClick: () => onConfigure(target.jobId),
-        children: target.resumed ? `Resume configuration of ${target.title}` : `Configure ${target.title}`
-      },
-      target.jobId
-    ))
+  if (count === 0) return null;
+  return /* @__PURE__ */ jsxs12("div", { id: CONFIG_BAND_ID, className: "hr-config-note", role: "status", tabIndex: -1, children: [
+    /* @__PURE__ */ jsx13("span", { children: count === 1 ? "1 routine needs configuration" : `${count} routines need configuration` }),
+    /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onView, children: "View" })
   ] });
+}
+function NeedsConfigurationFocusBar({
+  visibleCount,
+  onClear
+}) {
+  return /* @__PURE__ */ jsxs12(
+    "div",
+    {
+      id: CONFIG_BAND_ID,
+      className: "hr-attention hr-attention-active",
+      role: "status",
+      tabIndex: -1,
+      children: [
+        /* @__PURE__ */ jsx13("span", { className: "hr-attention-text", children: visibleCount === 0 ? "No routine needing configuration matches this search" : visibleCount === 1 ? "Showing 1 routine that needs configuration" : `Showing ${visibleCount} routines that need configuration` }),
+        /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onClear, children: "Show all routines" })
+      ]
+    }
+  );
 }
 
 // src/views/RoutinesPage.tsx
@@ -6087,13 +6159,17 @@ function RoutinesPage() {
   }, [state.jobs, searchQuery]);
   const filteredJobs = useMemo2(() => {
     const searched = searchQuery.trim() ? shown.filter((job) => matchesQuery(job, searchQuery)) : shown;
-    if (state.attentionFocus === null) return searched;
-    const focus = state.attentionFocus;
-    return searched.filter((job) => {
+    const inAttention = state.attentionFocus === null ? searched : searched.filter((job) => {
+      const id = jobIdOf(job);
+      return id !== "" && state.attentionFocus !== null && state.attentionFocus.indexOf(id) !== -1;
+    });
+    if (state.configFocus === null) return inAttention;
+    const focus = state.configFocus;
+    return inAttention.filter((job) => {
       const id = jobIdOf(job);
       return id !== "" && focus.indexOf(id) !== -1;
     });
-  }, [shown, searchQuery, state.attentionFocus]);
+  }, [shown, searchQuery, state.attentionFocus, state.configFocus]);
   const attention = useMemo2(() => {
     const failing = attentionTargets(searchMatches);
     const pausedFailures = searchMatches.filter(
@@ -6101,6 +6177,10 @@ function RoutinesPage() {
     ).length;
     return { count: failing.length, pausedFailures };
   }, [searchMatches]);
+  const configCandidates = useMemo2(() => {
+    if (guided !== null) return [];
+    return searchMatches.filter((job) => guidedConfigCandidateOf(job) !== null);
+  }, [searchMatches, guided]);
   const selectedJob = useMemo2(() => {
     if (!selectedJobKey) return null;
     return state.jobs.find(
@@ -6315,6 +6395,7 @@ function RoutinesPage() {
         submitted: { name, schedule, prompt },
         autoSubmit: true
       });
+      dispatch({ type: "config-focus-cleared" });
       setGuided({ routine: result.routine, name, schedule, prompt, delivery, initialLaunch });
       setGuidedRecent(null);
       setIsCreating(false);
@@ -6335,6 +6416,7 @@ function RoutinesPage() {
     setGuided(null);
   }
   function handleGuidedReopen(jobId) {
+    dispatch({ type: "config-focus-cleared" });
     if (guidedRecent !== null && guidedRecent.routine.jobId === jobId) {
       setGuided(guidedRecent);
       setGuidedRecent(null);
@@ -6368,30 +6450,6 @@ function RoutinesPage() {
     setIsCreating(false);
     setSelectedJobKey(null);
   }
-  function guidedReopenTargets() {
-    if (guided !== null) return [];
-    const targets = [];
-    const seen = [];
-    if (guidedRecent !== null) {
-      const id = guidedRecent.routine.jobId;
-      const row = state.jobs.find((job) => jobIdOf(job) === id) ?? null;
-      if (row !== null && guidedConfigCandidateOf(row) !== null) {
-        targets.push({
-          jobId: id,
-          title: routineTitle(row, guidedRecent.name || "Routine"),
-          resumed: true
-        });
-        seen.push(id);
-      }
-    }
-    for (const job of state.jobs) {
-      const id = jobIdOf(job);
-      if (!id || seen.indexOf(id) !== -1) continue;
-      if (guidedConfigCandidateOf(job) === null) continue;
-      targets.push({ jobId: id, title: routineTitle(job, "Routine"), resumed: false });
-    }
-    return targets;
-  }
   function setAttentionFocus(event) {
     if (event === "focus") {
       dispatch({ type: "attention-focus", jobs: searchMatches });
@@ -6400,6 +6458,16 @@ function RoutinesPage() {
     }
     setTimeout(() => {
       focusById(ATTENTION_BAND_ID);
+    }, 0);
+  }
+  function setConfigFocus(event) {
+    if (event === "focus") {
+      dispatch({ type: "config-focus", jobs: searchMatches });
+    } else {
+      dispatch({ type: "config-focus-cleared" });
+    }
+    setTimeout(() => {
+      focusById(CONFIG_BAND_ID);
     }, 0);
   }
   function renderList() {
@@ -6482,6 +6550,18 @@ function RoutinesPage() {
           {
             title: "No failing routine matches this search",
             hint: "Clear the search box to see the routines that need attention."
+          }
+        )
+      ) : state.configFocus !== null ? (
+        // Same trap one dimension over: the only way a live
+        // configuration focus can match nothing is a search that no
+        // longer covers any candidate — a configured or vanished
+        // routine would have dropped the focus on the next list load.
+        /* @__PURE__ */ jsx14(
+          EmptyFilterState,
+          {
+            title: "No routine needing configuration matches this search",
+            hint: "Clear the search box to see the routines that need configuration."
           }
         )
       ) : /* @__PURE__ */ jsx14(EmptyFilterState, {}) : /* @__PURE__ */ jsx14(
@@ -6576,18 +6656,30 @@ function RoutinesPage() {
       )
     );
   } else if (state.status === S.READY) {
-    const reopenTargets = guidedReopenTargets();
-    if (reopenTargets.length > 0) {
-      body.push(
-        /* @__PURE__ */ jsx14(
-          NeedsConfigurationNotice,
-          {
-            targets: reopenTargets,
-            onConfigure: handleGuidedReopen
-          },
-          "needs-configuration"
-        )
-      );
+    if (guided === null) {
+      if (state.configFocus !== null && state.configFocus.length > 0) {
+        body.push(
+          /* @__PURE__ */ jsx14(
+            NeedsConfigurationFocusBar,
+            {
+              visibleCount: filteredJobs.length,
+              onClear: () => setConfigFocus("clear")
+            },
+            "config-focus"
+          )
+        );
+      } else if (configCandidates.length > 0) {
+        body.push(
+          /* @__PURE__ */ jsx14(
+            NeedsConfigurationNotice,
+            {
+              count: configCandidates.length,
+              onView: () => setConfigFocus("focus")
+            },
+            "needs-configuration"
+          )
+        );
+      }
     }
     body.push(/* @__PURE__ */ jsx14("div", { children: renderList() }, "ready-list"));
   }
@@ -6655,7 +6747,8 @@ function RoutinesPage() {
           disabled: locked,
           onClose: () => closeSurface("inspector"),
           onPause: () => handlePause(selectedJobId, selectedJobLabel),
-          onResume: () => handleResume(selectedJobId, selectedJobLabel)
+          onResume: () => handleResume(selectedJobId, selectedJobLabel),
+          onConfigure: handleGuidedReopen
         }
       ) : guided ? /* @__PURE__ */ jsx14(
         GuidedRoutinePanel,
@@ -6718,6 +6811,7 @@ export {
   BROADCAST_ADDRESS_ACTION,
   BROADCAST_ADVANCED_ACTION,
   BROADCAST_REVIEW_WARNING,
+  CONFIG_BAND_ID,
   DAYS_OF_MONTH,
   DAYS_OF_WEEK,
   DEFAULT_SCHEDULE_CONFIG,
@@ -6746,6 +6840,7 @@ export {
   NEW_ROUTINE_CONTROL_ID,
   NOW_WINDOW_MS,
   NeedsAttentionNotice,
+  NeedsConfigurationFocusBar,
   NeedsConfigurationNotice,
   PLUGIN_ID,
   PLUGIN_NAME,
