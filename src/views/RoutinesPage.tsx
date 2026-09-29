@@ -30,7 +30,7 @@ import {
 import { ROUTINES_CSS } from './routinesStyles';
 import { FilterNav } from './FilterNav';
 import { RoutineList } from './RoutineList';
-import { RoutineInspectorPanel } from './RoutineInspectorPanel';
+import { INSPECTOR_PANEL_ID, RoutineInspectorPanel } from './RoutineInspectorPanel';
 import { RoutineComposerPanel } from './RoutineComposerPanel';
 import { GuidedRoutinePanel } from './GuidedRoutinePanel';
 import { StatusLine } from './panels';
@@ -592,6 +592,7 @@ export function RoutinesPage() {
             pending={state.pending}
             locked={locked}
             inspectedId={selectedJobKey}
+            inspectorId={INSPECTOR_PANEL_ID}
             onInspect={(key) => {
               setSelectedJobKey(key);
               if (key) {
@@ -741,6 +742,7 @@ export function RoutinesPage() {
           <RoutineInspectorPanel
             job={selectedJob}
             fallback={selectedJobKey || 'Routine'}
+            id={INSPECTOR_PANEL_ID}
             activeRoute={activeRoute}
             activeProfile={state.activeProfile ?? (typeof activeProfile === 'string' ? activeProfile : null)}
             busy={selectedJobId !== '' && state.pending.indexOf(selectedJobId) !== -1}

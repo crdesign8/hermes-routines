@@ -253,7 +253,7 @@ describe('inspector last-execution block', () => {
     assert.ok(rowFor({ ...BASE, next_run_at: next }, 'Next run') !== null, 'and the inspector shows it');
 
     // A terminal routine has no future: showing a next run would be a lie
-    // the expanded card already refuses to tell.
+    // the domain refuses to tell, in the row and in the inspector alike.
     const completed = routines.lastExecutionOf({ ...BASE, next_run_at: next, state: 'completed' });
     assert.equal(completed.nextRun, null, 'a completed routine has no next run');
     assert.equal(rowFor({ ...BASE, next_run_at: next, state: 'completed' }, 'Next run'), null, 'nor a rendered row');
@@ -275,29 +275,28 @@ describe('inspector last-execution block', () => {
     assert.match(all, /camelCase failure detail/);
   });
 
-  it('agrees with the expanded card and the health indicator', () => {
+  it('agrees with the row summary and the health indicator', () => {
     const job = { ...BASE, last_run_at: FAILURE_RUN, last_status: 'failed', last_fire_error: 'boom' };
 
-    // Compared at the rendered surface, not helper against helper: the card
-    // and the inspector must paint the same outcome for the same row.
-    const card = collect(routines.RoutineDetails({ job }));
+    // The outcome has one primary home since issue #77: the inspector. It is
+    // painted through the shared ResultTone primitive, so the tone that
+    // reaches the user is derived in exactly one place.
     const block = collect(lastRunBlock(job));
-
+    const outcome = routines.ResultTone({ kind: 'error', text: 'Failed' });
     const toneOf = (nodes) => nodes
       .map((n) => n.props?.className)
       .filter((c) => typeof c === 'string' && c.startsWith('hr-result'))
       .join('');
-    assert.ok(toneOf(card).includes('hr-result-error'), 'the card paints the error tone');
-    assert.equal(toneOf(block), toneOf(card), 'the inspector paints the same tone');
 
-    // The card inlines the reason in its outcome cell; the inspector gives it
-    // its own row. The words reaching the user must be identical either way.
-    assert.equal(
-      texts(card).join(' ').includes('boom'),
-      texts(block).join(' ').includes('boom'),
-      'the failure reason reaches both surfaces',
+    assert.ok(toneOf(block).includes('hr-result-error'), 'the inspector paints the error tone');
+    assert.equal(toneOf(collect(outcome)), toneOf(block), 'the shared primitive paints the same tone');
+    assert.match(texts(outcome).join(' '), /Failed/, 'and the same outcome label');
+
+    assert.match(
+      texts(block).join(' '),
+      /boom/,
+      'the failure reason reaches the surface that owns it',
     );
-
     assert.equal(routines.routineHealthOf(job), 'failed', 'the indicator still reports the failure');
     assert.equal(routines.lastExecutionOf(job).known, true);
   });

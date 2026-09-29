@@ -49,7 +49,10 @@ Supported:
 Limits:
 
 - The current page intentionally provides no delete, edit-mutation, or run-now
-  actions — the row Edit control only opens the read-only inspector.
+  actions — the row Details control only opens the read-only inspector.
+- Routine rows never expand. Selecting one marks it and opens the inspector,
+  which is the single home for schedule, next run, last run and last result;
+  the row keeps a one-line summary that never wraps.
 - The routine backend exposes exactly five `cron.manage` actions — list, add,
   remove, pause, and resume — with no update and no run action.
 - The inspector panel is a disabled, read-only mirror of the composer: it

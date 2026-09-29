@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Routine rows stay compact, and the inspector owns the detail. Selecting a
+  routine used to expand the list row into a full detail block — Schedule,
+  Next run, Last run, Last result — that restated the lateral inspector
+  verbatim and reflowed the whole list on every click. Rows no longer
+  expand: selection now *marks* the row (a background tint plus an accent
+  bar painted on the existing box, so it takes no layout space) and opens
+  the inspector, which is the one primary home for that metadata.
+
+  The row keeps only what an operator scans for on one line —
+  `Every day at 09:00 | Last run failed | Next run in 19 hours` — and that
+  line never wraps, so a long schedule truncates instead of growing the row.
+  The failure summary stays visible while scanning; the failure *story*
+  (what failed, why, and the raw evidence) is the inspector's alone.
+
+  Selection is a toggle rather than a one-way door: the row that owns the
+  inspector closes it again. Both the row title and its Details control
+  carry `aria-expanded`, and `aria-controls` names the panel *only while it
+  is open* — the previous relation pointed at a block inside the row, which
+  no longer exists, and naming an unmounted panel would be a second kind of
+  dangling reference. Keyboard operation is unchanged (Enter and Space on
+  the focused row title).
+
+  On a narrow viewport the inspector is the primary surface: it takes the
+  full width and its own scroll instead of sharing a cramped column, while
+  the list keeps its compact rows.
+
+  The `RoutineDetails` component is deleted rather than left as an unused
+  second renderer of the same values; its `RunWhen` and `ResultTone`
+  primitives move to `RunOutcome`, the inspector's only caller, so an
+  outcome tone is still derived in exactly one place. The row's Details
+  control is now labelled **Details** — it opens a read-only detail
+  surface, which is what it always did.
+
 - Failures are now explained before they are dumped. The list row states
   the failure in words — `Every day at 09:00 | Last run failed | Next run
   in 19 hours` — beside the icon instead of behind its color, and a paused

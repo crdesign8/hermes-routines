@@ -322,7 +322,7 @@ describe('rendered run-time copy (issue #75 acceptance)', () => {
     );
   });
 
-  it('the expanded card and the inspector read overdue for a stale schedule', () => {
+  it('the inspector reads overdue for a stale schedule', () => {
     const job = {
       ...BASE,
       last_run_at: wallClock(-(2 * DAY)),
@@ -330,7 +330,6 @@ describe('rendered run-time copy (issue #75 acceptance)', () => {
       next_run_at: wallClock(-90_000),
     };
     const surfaces = [
-      ['expanded card', routines.RoutineDetails({ job })],
       ['inspector', inspectorFor(job)],
     ];
     for (const [name, tree] of surfaces) {
@@ -341,10 +340,9 @@ describe('rendered run-time copy (issue #75 acceptance)', () => {
     }
   });
 
-  it('the expanded card and the inspector stay future-oriented for a pending schedule', () => {
+  it('the inspector stays future-oriented for a pending schedule', () => {
     const job = { ...BASE, next_run_at: wallClock(2 * HOUR) };
     const surfaces = [
-      ['expanded card', routines.RoutineDetails({ job })],
       ['inspector', inspectorFor(job)],
     ];
     for (const [name, tree] of surfaces) {
@@ -370,7 +368,6 @@ describe('rendered run-time copy (issue #75 acceptance)', () => {
     const surfaces = [
       ['page', paint(readyWith(jobs))],
       ['inspector', inspectorFor(jobs[2])],
-      ['expanded card', routines.RoutineDetails({ job: jobs[2] })],
     ];
     for (const [name, tree] of surfaces) {
       const copied = strings(tree);
