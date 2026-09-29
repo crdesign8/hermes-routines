@@ -293,6 +293,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closed, and create supplies a `name` while Hermes generates the
   `job_id`.
 
+- Next-run copy could contradict itself. The list built one generic
+  relative-time string and prepended "Next", so a `next_run_at` that had
+  already passed rendered "Next in 2 minutes ago" — future-oriented grammar
+  glued to a past-oriented distance — and a just-due one rendered "Next in
+  just now". Copy is now a state machine over the timestamp's relation to
+  the clock, with a single canonical "now" window (±1 minute, symmetric,
+  inclusive and pinned by tests): a future schedule reads "Next run in 2
+  minutes", the near-now band reads "Due now", a stale schedule reads
+  "Overdue by 2 minutes", and run history stays past-oriented ("2 minutes
+  ago", "just now" — a timestamp ahead of the clock is skew and never
+  claims a run that has not happened). A terminal routine no longer
+  announces a next run at all, and the zero-padded "Next in 06 days" form
+  is gone with the vocabulary. The generic formatter that made the
+  concatenation possible was removed instead of left as an unused
+  footgun; the rendered copy now comes from one domain state machine, so
+  the collapsed row, the expanded card and the inspector can never
+  disagree about what a timestamp means.
+
 ## [0.1.0] - 2026-09-24
 
 Initial releasable state of the standalone Hermes Desktop plugin for

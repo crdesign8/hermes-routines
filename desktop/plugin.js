@@ -1114,10 +1114,44 @@ function lastResultOf(job) {
   }
   return { kind: "neutral", text: lastStatusOf(job) ?? "\u2014" };
 }
-function runDistanceOf(iso) {
-  const text = formatWhen(iso ?? null);
-  if (text === null) return null;
-  return { text, date: formatDate(iso ?? null) };
+var NOW_WINDOW_MS = 6e4;
+function relationOfDiff(diffMs) {
+  if (diffMs > NOW_WINDOW_MS) return "future";
+  if (diffMs < -NOW_WINDOW_MS) return "past";
+  return "now";
+}
+function distanceText(absMs) {
+  const minutes = Math.floor(absMs / 6e4);
+  if (minutes < 60) return `${minutes} ${plural(minutes, "minute")}`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} ${plural(hours, "hour")}`;
+  const days = Math.round(hours / 24);
+  return `${days} ${plural(days, "day")}`;
+}
+function runDistanceOf(iso, now) {
+  const timestamp = parseTimestamp(iso ?? null);
+  if (timestamp === null) return null;
+  const elapsedMs = (now ?? /* @__PURE__ */ new Date()).getTime() - timestamp.getTime();
+  return {
+    text: relationOfDiff(-elapsedMs) === "past" ? `${distanceText(elapsedMs)} ago` : "just now",
+    date: formatDate(iso ?? null)
+  };
+}
+function nextRunCopyOf(iso, now) {
+  const timestamp = parseTimestamp(iso ?? null);
+  if (timestamp === null) return null;
+  const diffMs = timestamp.getTime() - (now ?? /* @__PURE__ */ new Date()).getTime();
+  const date = formatDate(iso ?? null);
+  const relation = relationOfDiff(diffMs);
+  if (relation === "future") {
+    const distance = distanceText(diffMs);
+    return { state: "future", text: `in ${distance}`, sentence: `Next run in ${distance}`, date };
+  }
+  if (relation === "past") {
+    const distance = distanceText(-diffMs);
+    return { state: "overdue", text: `overdue by ${distance}`, sentence: `Overdue by ${distance}`, date };
+  }
+  return { state: "now", text: "due now", sentence: "Due now", date };
 }
 function lastExecutionOf(job) {
   const result = lastResultOf(job);
@@ -1133,7 +1167,7 @@ function lastExecutionOf(job) {
     // execution shows the empty state and no issue row, even when the backend
     // parked a benign reason there (issueOf also reads paused_reason).
     issue: known && failed2 ? issueOf(job) : null,
-    nextRun: routineActive(job) ? runDistanceOf(nextRunIso(job)) : null
+    nextRun: routineActive(job) ? nextRunCopyOf(nextRunIso(job)) : null
   };
 }
 function routineHealthOf(job) {
@@ -1150,12 +1184,9 @@ function collapsedSubtitleOf(job) {
   if (routineErrored(job)) return "Error";
   if (routinePausedOf(job)) return "Paused";
   const base = humanScheduleOf(job) || "\u2014";
-  const next = nextRunIso(job);
-  const when = next === null ? null : formatWhen(next);
-  if (when === null) return base;
-  const daysMatch = /^in (\d+) days?$/.exec(when);
-  const nextText = daysMatch?.[1] !== void 0 ? `Next in ${daysMatch[1].padStart(2, "0")} days` : `Next ${when.charAt(0).toUpperCase()}${when.slice(1)}`;
-  return `${base}  |  ${nextText}`;
+  const next = nextRunCopyOf(nextRunIso(job));
+  if (next === null) return base;
+  return `${base}  |  ${next.sentence}`;
 }
 function parseTimestamp(value) {
   if (typeof value !== "string") return null;
@@ -1164,29 +1195,6 @@ function parseTimestamp(value) {
   const time = Date.parse(trimmed);
   if (Number.isNaN(time)) return null;
   return new Date(time);
-}
-function formatWhen(iso, now) {
-  const timestamp = parseTimestamp(iso ?? null);
-  if (timestamp === null) return null;
-  const reference = now ?? /* @__PURE__ */ new Date();
-  const diffMs = timestamp.getTime() - reference.getTime();
-  if (diffMs > 0) {
-    if (diffMs < 6e4) return "soon";
-    const minutes2 = Math.floor(diffMs / 6e4);
-    if (minutes2 < 60) return `in ${minutes2} ${plural(minutes2, "minute")}`;
-    const hours2 = Math.round(minutes2 / 60);
-    if (hours2 < 24) return `in ${hours2} ${plural(hours2, "hour")}`;
-    const days2 = Math.round(hours2 / 24);
-    return `in ${days2} ${plural(days2, "day")}`;
-  }
-  const elapsedMs = -diffMs;
-  if (elapsedMs < 6e4) return "just now";
-  const minutes = Math.floor(elapsedMs / 6e4);
-  if (minutes < 60) return `${minutes} ${plural(minutes, "minute")} ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} ${plural(hours, "hour")} ago`;
-  const days = Math.round(hours / 24);
-  return `${days} ${plural(days, "day")} ago`;
 }
 function formatDate(iso) {
   const timestamp = parseTimestamp(iso ?? null);
@@ -3995,7 +4003,7 @@ function RoutineDetails({
   job
 }) {
   const schedule = humanScheduleOf(job) || "\u2014";
-  const nextRun = routineActive(job) ? runDistanceOf(nextRunIso(job)) : null;
+  const nextRun = routineActive(job) ? nextRunCopyOf(nextRunIso(job)) : null;
   const lastRun = runDistanceOf(lastRunIso(job));
   const result = lastResultOf(job);
   return /* @__PURE__ */ jsxs("div", { className: "hr-details", children: [
@@ -4090,8 +4098,7 @@ function RoutineCard(props) {
   const terminal = routineTerminal(job);
   const { tone } = statusOf(job);
   const schedule = humanScheduleOf(job) || "\u2014";
-  const nextIso = nextRunIso(job);
-  const nextDistance = nextIso ? formatWhen(nextIso) : null;
+  const nextCopy = routineActive(job) ? nextRunCopyOf(nextRunIso(job)) : null;
   const controlsId = `hr-details-${fallback.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
   return /* @__PURE__ */ jsxs3(
     "li",
@@ -4177,12 +4184,9 @@ function RoutineCard(props) {
         ] }),
         /* @__PURE__ */ jsx4("div", { className: "hr-row-sub", children: !expanded ? /* @__PURE__ */ jsx4("div", { className: "hr-row-subtitle", children: paused ? /* @__PURE__ */ jsx4("span", { className: "hr-sub-paused", children: "Paused" }) : /* @__PURE__ */ jsxs3(Fragment, { children: [
           /* @__PURE__ */ jsx4("span", { className: "hr-sub-schedule", children: schedule }),
-          nextDistance ? /* @__PURE__ */ jsxs3(Fragment, { children: [
+          nextCopy ? /* @__PURE__ */ jsxs3(Fragment, { children: [
             /* @__PURE__ */ jsx4("span", { className: "hr-sub-sep", children: "|" }),
-            /* @__PURE__ */ jsxs3("span", { className: "hr-sub-next", children: [
-              "Next in ",
-              nextDistance
-            ] })
+            /* @__PURE__ */ jsx4("span", { className: "hr-sub-next", children: nextCopy.sentence })
           ] }) : null
         ] }) }) : /* @__PURE__ */ jsx4("div", { id: controlsId, className: "hr-row-details", children: /* @__PURE__ */ jsx4(RoutineDetails, { job, fallback }) }) })
       ]
@@ -6235,6 +6239,7 @@ export {
   GuidedRoutinePanel,
   INTERVAL_UNITS,
   INTERVAL_VALUES,
+  NOW_WINDOW_MS,
   PLUGIN_ID,
   PLUGIN_NAME,
   REVIEW_PATCHABLE,
@@ -6295,7 +6300,6 @@ export {
   fingerprintJob,
   fingerprintSnapshot,
   formatDate,
-  formatWhen,
   generateTimeSlots,
   guidedConfigCandidateOf,
   guidedIndicator,
@@ -6325,6 +6329,7 @@ export {
   listRoutines,
   messageOf,
   mintedRoutineFrom,
+  nextRunCopyOf,
   nextRunIso,
   normalizeJobs,
   openGuidedRoutineChat,
