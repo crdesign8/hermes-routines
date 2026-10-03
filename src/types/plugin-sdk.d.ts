@@ -49,6 +49,12 @@
 //     calls them, so they are NOT declared here.
 //   - useValue: sdk/index.ts (`export { useStore as useValue }`)
 //   - ROUTES_AREA = 'routes', SIDEBAR_NAV_AREA = 'sidebar.nav': app/routes.ts
+//   - host.navigate(path): sdk/index.ts (`navigate: (path: string) => ...`,
+//     hash routes such as '/routines', with workspace reveal)
+//   - PALETTE_AREA = 'palette', PaletteContribution:
+//     app/command-palette/contrib.ts (label + run; the rows this plugin adds)
+//   - STATUSBAR_AREAS = { left, right }: sdk/index.ts (`statusBar.left` /
+//     `statusBar.right`; render contributions owned by the mounting component)
 //
 // Do NOT add a symbol here without checking it exists upstream: the Desktop
 // builds the runtime import shim from `Object.keys` of the live SDK module
@@ -123,6 +129,12 @@ declare module '@hermes/plugin-sdk' {
   interface PluginHost {
     profileRoutes(): Promise<PluginProfileRoute[]>;
     /**
+     * Navigate the app router (hash routes such as '/routines'). Verified
+     * in sdk/index.ts: `navigate: (path: string) => ...` — the supported
+     * SDK path for shell commands, never a DOM navigation.
+     */
+    navigate(path: string): void;
+    /**
      * Start a fresh chat draft, optionally pointed at another profile or
      * cross-connection route. Verified in sdk/index.ts (2026-09-28):
      * `newChat(profile?: null | string | PluginProfileRoute, options?):
@@ -179,6 +191,25 @@ declare module '@hermes/plugin-sdk' {
   export const host: PluginHost;
   export const ROUTES_AREA: 'routes';
   export const SIDEBAR_NAV_AREA: 'sidebar.nav';
+  export const PALETTE_AREA: 'palette';
+  export const STATUSBAR_AREAS: { readonly left: 'statusBar.left'; readonly right: 'statusBar.right' };
+  /**
+   * Payload of a `palette` data contribution. Mirrors upstream's
+   * `PaletteContribution` (app/command-palette/contrib.ts): the rows this
+   * plugin adds carry an id, a label, keywords and a `run` handler. The
+   * action/detail/keepOpen fields exist upstream but nothing in this plugin
+   * uses them, so they stay optional here.
+   */
+  export interface PaletteContribution {
+    id: string;
+    label: string;
+    action?: string;
+    keywords?: string[];
+    run: () => void;
+    detail?: () => string;
+    detailVariant?: 'muted' | 'state';
+    keepOpen?: boolean;
+  }
   /**
    * Subscribe to a readonly atom in React (the SDK's useValue binding over
    * nanostores' useStore). Verified in sdk/index.ts (useStore aliased as
