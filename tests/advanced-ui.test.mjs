@@ -125,12 +125,50 @@ function submitButton(element) {
   return found;
 }
 
+/**
+ * The results-destination control. Since issue #100 it is the host Select
+ * family over NativeSelect, so it is found by its visible label text and
+ * its role=combobox trigger rather than by the retired component identity.
+ */
 function destinationSelect(element) {
   const found = collect(element).find(
-    (n) => n.type === routines.SelectField && n.props.label === 'Where should results go?',
+    (n) => n.type === 'button' && n.props.role === 'combobox' && n.props['aria-label'] === 'Where should results go?',
   );
   assert.ok(found, 'the results destination control must exist');
   return found;
+}
+
+/**
+ * The destination options, as `{ value, label }` pairs.
+ *
+ * Since issue #100 the options are host `SelectItem`s in the rendered tree,
+ * not an array on a prop: the value is the serialized string the select
+ * stores, and the label is the item's text. Values reach the domain as the
+ * same strings the composer passes down, so comparing them is unchanged.
+ */
+function destinationOptions(element) {
+  const trigger = destinationSelect(element);
+  // Scoped to THIS trigger's own Select root: the composer renders other
+  // selects (the WHEN TO RUN trigger), and collecting every select-item on
+  // the page would blend their options into the destination list.
+  // Compared on the trigger's own key, not by object identity: each walk
+  // rebuilds the tree, so `includes(trigger)` can never match.
+  const key = trigger.props['aria-label'];
+  const root = collect(element).find(
+    (n) =>
+      n.type === 'ui-select' &&
+      collect(n).some((c) => c.type === 'button' && c.props['aria-label'] === key),
+  );
+  assert.ok(root, `the destination trigger ${key} must belong to a select`);
+  const items = collect(root).filter(
+    (n) => n.type === 'ui-select-item' && n.props['data-slot'] === 'select-item',
+  );
+  assert.ok(items.length > 0, 'the destination select must offer options');
+  return items.map((n) => ({
+    value: n.props.value,
+    label: texts(n).join('').trim(),
+    selected: n.props['aria-selected'] === true,
+  }));
 }
 
 function renderInspector(job) {
@@ -219,8 +257,8 @@ describe('advanced-ui composer', () => {
     assert.doesNotMatch(body, /profile default/);
     assert.doesNotMatch(body, /every connected channel/i);
     assert.doesNotMatch(body, /Send to every connected channel/);
-    // The destination control is a SelectField: its label lives in props
-    // (expanded by collect), not in text children.
+    // The destination control is the host select; its trigger names the
+    // question in its accessible name rather than in text children.
     destinationSelect(element);
     await submitButton(element).props.onClick();
     assert.deepEqual(submitted, {
@@ -249,7 +287,7 @@ describe('advanced-ui composer', () => {
         return true;
       },
     });
-    const labels = destinationSelect(element).props.options.map((o) => o.label);
+    const labels = destinationOptions(element).map((o) => o.label);
     assert.ok(!labels.includes('Send to every connected channel'));
     await submitButton(element).props.onClick();
     assert.equal(calls, 0, 'a primary broadcast value must never reach submit');
@@ -345,7 +383,7 @@ describe('advanced-ui composer', () => {
     presetComposer();
     const element = renderComposer({ onSubmit: async () => true });
     const select = destinationSelect(element);
-    const options = select.props.options;
+    const options = destinationOptions(element);
     assert.ok(Array.isArray(options) && options.length >= 3);
     for (const opt of options) {
       assert.doesNotMatch(String(opt.value), /origin/i);
@@ -353,7 +391,12 @@ describe('advanced-ui composer', () => {
     }
     const nodes = collect(element);
     assert.ok(
-      !nodes.some((n) => n.type === routines.SelectField && /model/i.test(n.props.label ?? '')),
+      !nodes.some(
+        (n) =>
+          n.type === 'button' &&
+          n.props.role === 'combobox' &&
+          /model/i.test(n.props['aria-label'] ?? ''),
+      ),
       'no model picker may exist',
     );
     assert.ok(
@@ -388,13 +431,14 @@ describe('advanced-ui composer', () => {
 
   it('reveals the structured override only for the advanced choice', async () => {
     presetComposer();
-    const preset = destinationSelect(renderComposer({ onSubmit: async () => true }));
+    const element = renderComposer({ onSubmit: async () => true });
+    destinationSelect(element);
     assert.deepEqual(
-      preset.props.options.map((o) => o.value),
+      destinationOptions(element).map((o) => o.value),
       ['', 'local', 'bot-chat:matias', 'advanced'],
     );
     assert.ok(
-      !preset.props.options.some((o) => o.value === 'all' || /every connected channel/i.test(o.label)),
+      !destinationOptions(element).some((o) => o.value === 'all' || /every connected channel/i.test(o.label)),
       'broadcast must not be a primary destination',
     );
     presetComposer({ destinationChoice: 'advanced' });
@@ -412,7 +456,7 @@ describe('advanced-ui composer', () => {
       // machine, where the token cannot resolve.
       destinationRoutes: [ROUTE, LOCAL_ROUTE],
     });
-    const labels = destinationSelect(element).props.options.map((o) => o.label);
+    const labels = destinationOptions(element).map((o) => o.label);
     assert.ok(labels.includes('Bot Chat → matias'), 'a local destination is offered by name');
     assert.ok(
       !labels.some((l) => /t1/.test(l)),
@@ -428,11 +472,11 @@ describe('advanced-ui composer', () => {
     presetComposer();
     const element = renderComposer({ onSubmit: async () => true, destinationRoutes: [] });
     assert.deepEqual(
-      destinationSelect(element).props.options.map((o) => o.value),
+      destinationOptions(element).map((o) => o.value),
       ['', 'local', 'advanced'],
     );
     assert.ok(
-      !destinationSelect(element).props.options.some((o) => o.value === 'all'),
+      !destinationOptions(element).some((o) => o.value === 'all'),
       'an empty roster still must not offer broadcast',
     );
   });

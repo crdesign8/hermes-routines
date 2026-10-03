@@ -88,6 +88,6 @@ export * from './views/RoutineInspectorPanel';
 export * from './views/PanelNav';
 export * from './views/GuidedRoutinePanel';
 export * from './views/GuidedProposalReview';
-export * from './views/SelectField';
 export * from './views/FilterNav';
+export * from './views/NativeSelect';
 export * from './views/RoutineStates';

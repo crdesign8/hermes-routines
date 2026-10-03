@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { Button } from '@hermes/plugin-sdk';
 import type { RoutineJob } from '../domain/jobs';
 import { guidedConfigCandidateOf } from '../domain/provisional';
 import {
@@ -96,8 +97,9 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
         <div className="hr-row-actions">
           {!terminal ? (
             paused ? (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="xs"
                 className="hr-icon-btn hr-icon-btn-resume"
                 disabled={disabled || busy}
                 onClick={(e) => {
@@ -108,10 +110,11 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
                 title="Resume routine"
               >
                 Resume
-              </button>
+              </Button>
             ) : (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="xs"
                 className="hr-icon-btn hr-icon-btn-pause"
                 disabled={disabled || busy}
                 onClick={(e) => {
@@ -122,12 +125,13 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
                 title="Pause routine"
               >
                 Pause
-              </button>
+              </Button>
             )
           ) : null}
 
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="xs"
             id={controlId}
             className={`hr-icon-btn hr-icon-btn-edit${inspected ? ' hr-icon-btn-active' : ''}`}
             aria-expanded={inspected}
@@ -140,7 +144,7 @@ export function RoutineCard(props: RoutineCardProps): ReactElement {
             title="Details"
           >
             Details
-          </button>
+          </Button>
         </div>
       </div>
 

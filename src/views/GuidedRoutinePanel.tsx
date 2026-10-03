@@ -1,4 +1,5 @@
 import { useState, type ReactElement } from 'react';
+import { Button, Input, Textarea } from '@hermes/plugin-sdk';
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import type { GuidedLaunchResult } from '../gateway/guidedLaunch';
 import type { ProvisionalRoutine } from '../domain/provisional';
@@ -359,9 +360,9 @@ export function GuidedRoutinePanel({
   /** Action row for every phase except the review, which owns its own. */
   function actionsFor(): ReactElement {
     const close = (
-      <button type="button" className="hr-btn hr-btn-back-routines" onClick={onClose}>
+      <Button variant="text" size="sm" onClick={onClose}>
         Close
-      </button>
+      </Button>
     );
     if (showReview) {
       return <div className="hr-create-actions">{close}</div>;
@@ -370,14 +371,14 @@ export function GuidedRoutinePanel({
       return (
         <div className="hr-create-actions">
           {close}
-          <button
-            type="button"
-            className="hr-btn hr-btn-create-submit"
+          <Button
+            variant="default"
+            size="sm"
             disabled={inFlight}
             onClick={() => void handleActivate()}
           >
             {wf.failure !== null && wf.failure.stage === 'resume' ? 'Retry activation' : 'Activate now'}
-          </button>
+          </Button>
         </div>
       );
     }
@@ -387,34 +388,34 @@ export function GuidedRoutinePanel({
         <div className="hr-create-actions">
           {close}
           {recovery === 'apply' ? (
-            <button
-              type="button"
-              className="hr-btn hr-btn-create-submit"
+            <Button
+              variant="default"
+              size="sm"
               disabled={inFlight}
               onClick={() => void handleConfirm(wf.desiredActive)}
             >
               Try applying again
-            </button>
+            </Button>
           ) : null}
           {recovery === 'activation' ? (
-            <button
-              type="button"
-              className="hr-btn hr-btn-create-submit"
+            <Button
+              variant="default"
+              size="sm"
               disabled={inFlight}
               onClick={() => void handleActivate()}
             >
               Retry activation
-            </button>
+            </Button>
           ) : null}
           {recovery === 'refresh' ? (
-            <button
-              type="button"
-              className="hr-btn hr-btn-create-submit"
+            <Button
+              variant="default"
+              size="sm"
               disabled={inFlight}
               onClick={() => void handleRefresh()}
             >
               Refresh status
-            </button>
+            </Button>
           ) : null}
         </div>
       );
@@ -424,14 +425,14 @@ export function GuidedRoutinePanel({
         <div className="hr-create-actions">
           {close}
           {!opened ? (
-            <button
-              type="button"
-              className="hr-btn hr-btn-create-submit"
+            <Button
+              variant="default"
+              size="sm"
               disabled={launching}
               onClick={() => void handleLaunch()}
             >
               {launching ? 'Opening…' : failed ? 'Retry chat' : 'Configure with Hermes'}
-            </button>
+            </Button>
           ) : null}
         </div>
       );
@@ -473,9 +474,8 @@ export function GuidedRoutinePanel({
 
         <div className="hr-create-field">
           <label className="hr-field-label">Job id</label>
-          <input
+          <Input
             type="text"
-            className="hr-create-input"
             value={routine.jobId}
             disabled
             readOnly
@@ -496,8 +496,7 @@ export function GuidedRoutinePanel({
           <>
             <div className="hr-create-field">
               <label className="hr-field-label">What should this routine do?</label>
-              <textarea
-                className="hr-create-textarea"
+              <Textarea
                 rows={3}
                 value={instruction ?? ''}
                 disabled
@@ -557,9 +556,8 @@ export function GuidedRoutinePanel({
             <label className="hr-field-label" htmlFor="hr-guided-handoff">
               Proposal returned by Hermes
             </label>
-            <textarea
+            <Textarea
               id="hr-guided-handoff"
-              className="hr-create-textarea"
               rows={4}
               value={handoff}
               onChange={(e) => setHandoff(e.target.value)}
@@ -569,14 +567,14 @@ export function GuidedRoutinePanel({
               }
             />
             <div className="hr-create-actions">
-              <button
-                type="button"
-                className="hr-btn hr-btn-create-submit"
+              <Button
+                variant="default"
+                size="sm"
                 disabled={inFlight || handoff.trim().length === 0}
                 onClick={() => void handleReviewProposal()}
               >
                 {busy ? 'Reading…' : 'Review proposal'}
-              </button>
+              </Button>
             </div>
           </div>
         ) : null}

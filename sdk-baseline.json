@@ -76,7 +76,7 @@
       "kind": "host-member",
       "surface": "host.request",
       "upstream": "apps/desktop/src/sdk/index.ts:1621",
-      "note": "Active-gateway RPC (method, params?, timeoutMs?) — used only when no route resolves."
+      "note": "Active-gateway RPC (method, params?, timeoutMs?) \u2014 used only when no route resolves."
     },
     {
       "name": "newChat",
@@ -104,7 +104,7 @@
       "kind": "host-member",
       "surface": "host.state.profile",
       "upstream": "apps/desktop/src/sdk/index.ts:712",
-      "note": "Readonly atom of the active gateway profile — the active-profile binding the page subscribes to."
+      "note": "Readonly atom of the active gateway profile \u2014 the active-profile binding the page subscribes to."
     },
     {
       "name": "state.connectionId",
@@ -124,6 +124,54 @@
       "kind": "shim-internal",
       "upstream": "apps/desktop/src/sdk/index.ts:21",
       "note": "Minimal structural stand-in for the nanostores ReadableAtom that types host.state atoms. Declared inside the shim, never imported by src."
+    },
+    {
+      "name": "Button",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:1802",
+      "note": "Ordinary compact action. cva variant/size props replace the hr-btn class ladder."
+    },
+    {
+      "name": "Input",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:1850",
+      "note": "Text input. Carries controlVariants chrome and opt-out autocorrect/spellcheck."
+    },
+    {
+      "name": "Textarea",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:1873",
+      "note": "Multiline input; same control chrome as Input plus a min-height floor."
+    },
+    {
+      "name": "Select",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:1868",
+      "note": "Radix Select root (value/onValueChange). Replaces the custom SelectField combobox and keeps the role=combobox/listbox/option contract escapeLeavesPanel relies on."
+    },
+    {
+      "name": "SelectTrigger",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:1868",
+      "note": "The select's button surface: controlVariants chrome plus a chevron-down Codicon."
+    },
+    {
+      "name": "SelectValue",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:1868",
+      "note": "Renders the selected item's text, or the placeholder while unset."
+    },
+    {
+      "name": "SelectContent",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:1868",
+      "note": "Portalled dropdown surface (position=popper, collisionPadding 8)."
+    },
+    {
+      "name": "SelectItem",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:1868",
+      "note": "One option row: menuItem chrome plus a check indicator on the selected value."
     }
   ]
 }

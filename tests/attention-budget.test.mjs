@@ -133,6 +133,20 @@ function collect(node, out = []) {
   return out;
 }
 
+/**
+ * The composer's two acts, located by ACCESSIBLE NAME rather than by the
+ * retired hr-btn-* classes (issue #100 moved both onto the host Button, so
+ * the class no longer exists). Naming the control is also the stronger
+ * assertion: it is what a user or a screen reader actually reaches.
+ */
+function act(nodes, label) {
+  const found = nodes.find(
+    (n) => n.type === 'button' && (n.props['aria-label'] === label || textOf(n).includes(label)),
+  );
+  assert.ok(found, `the "${label}" action must exist`);
+  return found;
+}
+
 /** The stylesheet rule block for one selector, without its braces. */
 function ruleBlock(selector) {
   const start = cssSource.indexOf(`'${selector} {`);
@@ -177,8 +191,8 @@ describe('attention budget (issue #92)', () => {
   it('carries the assisted path on one button plus exactly one sentence', () => {
     const element = renderGuided();
     const nodes = documentOrder(element);
-    const button = nodes.find((n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-hermes');
-    assert.ok(button, 'the secondary act must exist');
+    const button = act(nodes, 'Finish with Hermes →');
+    assert.equal(button.props['data-variant'], 'ghost', 'a quiet act, not a filled one');
     assert.equal(textOf(button).trim(), 'Finish with Hermes →');
     assert.equal(button.props['aria-label'], 'Create this routine and finish the setup with Hermes');
     const notes = nodes.filter((n) => n.props && n.props.className === 'hr-create-hermes-note');
@@ -194,14 +208,13 @@ describe('attention budget (issue #92)', () => {
   it('keeps the primary action filled and the secondary act borderless', () => {
     const element = renderGuided();
     const nodes = documentOrder(element);
-    const primary = nodes.find((n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-submit');
-    assert.ok(primary, 'the primary action must exist');
-    assert.match(textOf(primary), /Create Routine/);
-    const submitRule = ruleBlock('.hr-btn-create-submit');
-    assert.match(submitRule, /background: var\(--dt-primary/, 'the primary action stays filled');
-    const secondaryRule = ruleBlock('.hr-btn-create-hermes');
-    assert.match(secondaryRule, /background: transparent/, 'the secondary act takes no fill');
-    assert.match(secondaryRule, /border: none/, 'the secondary act takes no border');
+    const primary = act(nodes, 'Create Routine');
+    // The host Button's variants carry the emphasis: `default` is the filled
+    // primary, `ghost` is the quiet act. This is the same attention hierarchy
+    // the removed CSS encoded, now owned by the theme instead of a stylesheet.
+    assert.equal(primary.props['data-variant'], 'default', 'the primary action stays filled');
+    const secondary = act(nodes, 'Finish with Hermes →');
+    assert.equal(secondary.props['data-variant'], 'ghost', 'the secondary act takes no fill');
     const quietRule = ruleBlock('.hr-create-hermes-quiet');
     assert.equal(/border/.test(quietRule), false, 'the quiet wrapper takes no border');
     assert.equal(/background/.test(quietRule), false, 'the quiet wrapper takes no fill');
@@ -212,8 +225,8 @@ describe('attention budget (issue #92)', () => {
       presetComposer(draft);
       const element = renderComposer({ onSubmit: async () => true, onSubmitGuided: async () => true });
       const nodes = documentOrder(element);
-      const finish = nodes.find((n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-hermes');
-      const create = nodes.find((n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-submit');
+      const finish = act(nodes, 'Finish with Hermes →');
+      const create = act(nodes, 'Create Routine');
       assert.equal(finish.props.disabled, true, 'quiet act refused on an incomplete draft');
       assert.equal(create.props.disabled, true, 'primary refused on an incomplete draft');
     }
@@ -224,8 +237,14 @@ describe('attention budget (issue #92)', () => {
       presetComposer({ pendingPath });
       const element = renderComposer({ onSubmit: async () => true, onSubmitGuided: async () => true });
       const nodes = documentOrder(element);
-      const finish = nodes.find((n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-hermes');
-      const create = nodes.find((n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-submit');
+      const finish = nodes.find(
+        (n) => n.type === 'button' && n.props['aria-label'] === 'Create this routine and finish the setup with Hermes',
+      );
+      assert.ok(finish, 'the quiet act must exist while a path is pending');
+      // The primary act's label swaps to "Creating…" while it is in flight,
+      // so it is located by its host variant, not by its text.
+      const create = nodes.find((n) => n.type === 'button' && n.props['data-variant'] === 'default');
+      assert.ok(create, 'the primary action must exist while a path is pending');
       assert.match(textOf(finish), pendingPath === 'guided' ? /Starting…/ : /Finish with Hermes →/);
       assert.match(textOf(create), pendingPath === 'direct' ? /Creating…/ : /Create Routine/);
       assert.equal(finish.props.disabled, true);

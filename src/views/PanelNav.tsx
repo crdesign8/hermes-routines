@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { Button } from '@hermes/plugin-sdk';
 
 // Panel navigation for every right-side panel (inspector, composer, guided
 // configuration) — the responsive split the issue demands (issue #78).
@@ -92,8 +93,9 @@ export function PanelNav({ closeLabel, onClose }: PanelNavProps): ReactElement {
   return (
     <div className="hr-nav">
       {/* Narrow viewport only: the panel covers the list, so leaving it is a back navigation. */}
-      <button
-        type="button"
+      <Button
+        variant="text"
+        size="xs"
         className="hr-btn-nav hr-nav-back"
         onClick={onClose}
         aria-label="Back to routines"
@@ -102,10 +104,11 @@ export function PanelNav({ closeLabel, onClose }: PanelNavProps): ReactElement {
           <path fillRule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
         </svg>
         <span>Back to routines</span>
-      </button>
+      </Button>
       {/* Split view only: the list is still on screen, so this dismisses the panel beside it. */}
-      <button
-        type="button"
+      <Button
+        variant="text"
+        size="xs"
         className="hr-btn-nav hr-nav-close"
         onClick={onClose}
         aria-label={closeLabel}
@@ -114,7 +117,7 @@ export function PanelNav({ closeLabel, onClose }: PanelNavProps): ReactElement {
         <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style={{ flexShrink: 0 }}>
           <path fillRule="evenodd" d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
         </svg>
-      </button>
+      </Button>
     </div>
   );
 }

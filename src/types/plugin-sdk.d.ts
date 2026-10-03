@@ -56,6 +56,10 @@
 // does not exist fails the plugin at ESM link time — it never loads.
 declare module '@hermes/plugin-sdk' {
   import type { ReactNode } from 'react';
+  // The UI kit declarations below are components, so they return an element
+  // type rather than JSX.Element — ReactElement keeps them assignable to
+  // JSX children without pulling JSX's global namespace into the shim.
+  import type { ReactElement } from 'react';
 
   /** One desktop profile connection, as returned by `host.profileRoutes()`. */
   export interface PluginProfileRoute {
@@ -181,4 +185,97 @@ declare module '@hermes/plugin-sdk' {
    * useValue, sourced from the nanostores React binding).
    */
   export function useValue<T>(atom: ReadableAtom<T>): T;
+
+  // ---- Host UI kit (issue #100) ----------------------------------------
+  //
+  // The Desktop host re-exports its own Radix + Tailwind primitives so a
+  // plugin is native by default: components/ui/{button,input,textarea,
+  // select,separator}.tsx, all re-exported from sdk/index.ts. Each mirrors
+  // the upstream prop surface this plugin calls. Upstream types are
+  // `React.ComponentProps<...>`, so every DOM attribute passes through —
+  // the shim keeps that by intersecting with the intrinsic props rather
+  // than enumerating them.
+  //
+  // `variant`/`size` are the cva VariantProps of the upstream button
+  // (class-variance-authority), declared literally because cva types do not
+  // exist here. Only the combinations this plugin uses are listed; upstream
+  // accepts more, and an unlisted value still typechecks as string.
+  type ButtonVariant =
+    | 'default'
+    | 'secondary'
+    | 'outline'
+    | 'ghost'
+    | 'chip'
+    | 'link'
+    | 'text'
+    | 'destructive';
+  type ButtonSize =
+    | 'xs'
+    | 'sm'
+    | 'default'
+    | 'lg'
+    | 'micro'
+    | 'inline'
+    | 'icon'
+    | 'icon-xs'
+    | 'icon-sm'
+    | 'icon-lg';
+
+  /**
+   * Ordinary compact action. Renders a real `<button data-slot="button">`
+   * with `type="button"` baked in, so callers keep dropping their own
+   * `type`. `disabled || loading` upstream: a loading button is inert.
+   */
+  export const Button: (
+    props: React.ComponentPropsWithoutRef<'button'> & {
+      variant?: ButtonVariant;
+      size?: ButtonSize;
+      loading?: boolean;
+    },
+  ) => ReactElement;
+
+  /** Text input; `prefix`/`suffix` add in-field adornments. */
+  export const Input: (
+    props: React.ComponentPropsWithoutRef<'input'> & {
+      size?: ButtonSize;
+      prefix?: ReactNode;
+      suffix?: ReactNode;
+      containerClassName?: string;
+    },
+  ) => ReactElement;
+
+  /** Multiline input, same control chrome as `Input`. */
+  export const Textarea: (
+    props: React.ComponentPropsWithoutRef<'textarea'> & { size?: ButtonSize },
+  ) => ReactElement;
+
+  /**
+   * Radix Select root. NOTE `value` is string-only upstream, so every
+   * option value is serialized before it crosses this boundary.
+   */
+  export const Select: (props: {
+    value?: string;
+    defaultValue?: string;
+    onValueChange?: (value: string) => void;
+    disabled?: boolean;
+    children?: ReactNode;
+  }) => ReactElement;
+
+  /** The select's trigger surface — a button with a chevron-down Codicon. */
+  export const SelectTrigger: (
+    props: React.ComponentPropsWithoutRef<'button'> & { size?: ButtonSize },
+  ) => ReactElement;
+
+  /** Renders the selected item's text, or `placeholder` while unset. */
+  export const SelectValue: (props: { placeholder?: string }) => ReactElement;
+
+  /** Portalled dropdown surface. */
+  export const SelectContent: (props: { children?: ReactNode }) => ReactElement;
+
+  /** One option row. */
+  export const SelectItem: (props: {
+    value: string;
+    disabled?: boolean;
+    children?: ReactNode;
+  }) => ReactElement;
 }

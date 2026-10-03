@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type ReactElement } from 'react';
+import { Button, Input, Textarea } from '@hermes/plugin-sdk';
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import {
   DAYS_OF_MONTH,
@@ -15,7 +16,7 @@ import {
   type ScheduleConfig,
   type TriggerType,
 } from '../domain/routineSchedule';
-import { SelectField, type SelectOption } from './SelectField';
+import { NativeSelect, type SelectOption } from './NativeSelect';
 import { PanelNav } from './PanelNav';
 import {
   BROADCAST_ACKNOWLEDGEMENT,
@@ -266,9 +267,8 @@ export function RoutineComposerPanel({
         {/* Name Input */}
         <div className="hr-create-field">
           <label className="hr-field-label">Name</label>
-          <input
+          <Input
             type="text"
-            className="hr-create-input"
             placeholder="Name this Routine"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -279,8 +279,7 @@ export function RoutineComposerPanel({
         {/* What should this routine do Textarea */}
         <div className="hr-create-field">
           <label className="hr-field-label">What should this routine do?</label>
-          <textarea
-            className="hr-create-textarea"
+          <Textarea
             placeholder="e.g. Check server health and notify #ops channel"
             rows={3}
             value={prompt}
@@ -294,7 +293,7 @@ export function RoutineComposerPanel({
           <div className="hr-create-section-label">WHEN TO RUN</div>
 
           {/* Trigger Dropdown */}
-          <SelectField<TriggerType>
+          <NativeSelect<TriggerType>
             label="Trigger"
             value={scheduleConfig.trigger}
             options={TRIGGER_OPTIONS}
@@ -304,7 +303,7 @@ export function RoutineComposerPanel({
           {/* Sub-selectors */}
           {scheduleConfig.trigger === 'every_day' || scheduleConfig.trigger === 'weekdays' ? (
             <div className="hr-create-sub-row">
-              <SelectField<string>
+              <NativeSelect<string>
                 label="at"
                 value={scheduleConfig.time}
                 options={timeOptions}
@@ -315,13 +314,13 @@ export function RoutineComposerPanel({
 
           {scheduleConfig.trigger === 'every_week' ? (
             <div className="hr-create-sub-split">
-              <SelectField<DayOfWeek>
+              <NativeSelect<DayOfWeek>
                 label="on"
                 value={scheduleConfig.dayOfWeek}
                 options={dayOfWeekOptions}
                 onChange={(val) => setScheduleConfig((prev) => ({ ...prev, dayOfWeek: val }))}
               />
-              <SelectField<string>
+              <NativeSelect<string>
                 label="at"
                 value={scheduleConfig.time}
                 options={timeOptions}
@@ -332,13 +331,13 @@ export function RoutineComposerPanel({
 
           {scheduleConfig.trigger === 'every_month' ? (
             <div className="hr-create-sub-split">
-              <SelectField<number>
+              <NativeSelect<number>
                 label="on the"
                 value={scheduleConfig.dayOfMonth}
                 options={DAYS_OF_MONTH}
                 onChange={(val) => setScheduleConfig((prev) => ({ ...prev, dayOfMonth: val }))}
               />
-              <SelectField<string>
+              <NativeSelect<string>
                 label="at"
                 value={scheduleConfig.time}
                 options={timeOptions}
@@ -349,13 +348,13 @@ export function RoutineComposerPanel({
 
           {scheduleConfig.trigger === 'interval' ? (
             <div className="hr-create-sub-split">
-              <SelectField<number>
+              <NativeSelect<number>
                 label="every"
                 value={scheduleConfig.intervalValue}
                 options={intervalValueOptions}
                 onChange={(val) => setScheduleConfig((prev) => ({ ...prev, intervalValue: val }))}
               />
-              <SelectField<IntervalUnit>
+              <NativeSelect<IntervalUnit>
                 label="unit"
                 value={scheduleConfig.intervalUnit}
                 options={intervalUnitOptions}
@@ -381,7 +380,7 @@ export function RoutineComposerPanel({
             issue forbids. */}
         <div className="hr-create-when-section">
           <div className="hr-create-section-label">RESULTS</div>
-          <SelectField<string>
+          <NativeSelect<string>
             label="Where should results go?"
             value={destinationChoice}
             options={destinationChoices.map((o) => ({ value: o.value, label: o.label }))}
@@ -402,26 +401,23 @@ export function RoutineComposerPanel({
             <div className="hr-create-field">
               <label className="hr-field-label">Advanced destination override</label>
               <div className="hr-create-sub-split">
-                <input
+                <Input
                   type="text"
-                  className="hr-create-input"
                   placeholder="Platform"
                   value={advancedPlatform}
                   onChange={(e) => setAdvancedPlatform(e.target.value)}
                   aria-label="Advanced destination platform"
                 />
-                <input
+                <Input
                   type="text"
-                  className="hr-create-input"
                   placeholder="Channel or chat id"
                   value={advancedChatId}
                   onChange={(e) => setAdvancedChatId(e.target.value)}
                   aria-label="Advanced destination channel or chat id"
                 />
               </div>
-              <input
+              <Input
                 type="text"
-                className="hr-create-input"
                 placeholder="Thread id (optional)"
                 value={advancedThreadId}
                 onChange={(e) => setAdvancedThreadId(e.target.value)}
@@ -437,16 +433,16 @@ export function RoutineComposerPanel({
                 <p className="hr-create-broadcast-note">
                   Sending to every connected channel is not a normal destination.
                 </p>
-                <button
-                  type="button"
-                  className="hr-btn"
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => {
                     setBroadcastOptIn(true);
                     setBroadcastConfirmed(false);
                   }}
                 >
                   {BROADCAST_ADVANCED_ACTION}
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}
@@ -457,6 +453,12 @@ export function RoutineComposerPanel({
                 Results are delivered to every channel this profile is connected to. Nothing narrows
                 this later.
               </p>
+              {/* Deliberately a native checkbox, not the host Checkbox
+                  (issue #100): upstream's Checkbox is a Radix BUTTON, and a
+                  <label> cannot wrap a button — migrating it would drop
+                  click-the-text and change the element type assistive tech
+                  expects. The issue's own rule applies: do not replace when
+                  the primitive cannot preserve the behavior. */}
               <label className="hr-create-broadcast-check">
                 <input
                   type="checkbox"
@@ -466,16 +468,16 @@ export function RoutineComposerPanel({
                 />
                 <span>{BROADCAST_ACKNOWLEDGEMENT}</span>
               </label>
-              <button
-                type="button"
-                className="hr-btn"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   setBroadcastOptIn(false);
                   setBroadcastConfirmed(false);
                 }}
               >
                 {BROADCAST_ADDRESS_ACTION}
-              </button>
+              </Button>
             </div>
           ) : null}
 
@@ -499,8 +501,9 @@ export function RoutineComposerPanel({
                 : 'The routine is created paused, so it waits until you turn it on yourself.'}
             </span>
           </div>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             role="switch"
             aria-checked={startEnabled}
             aria-label="Start the routine enabled"
@@ -508,7 +511,7 @@ export function RoutineComposerPanel({
             onClick={() => setStartEnabled(!startEnabled)}
           >
             <span className="hr-switch-thumb" />
-          </button>
+          </Button>
         </div>
 
         {error ? (
@@ -532,15 +535,15 @@ export function RoutineComposerPanel({
             <span id="hr-create-hermes-title" className="hr-sr-only">
               Finish with Hermes
             </span>
-            <button
-              type="button"
-              className="hr-btn hr-btn-create-hermes"
+            <Button
+              variant="ghost"
+              size="sm"
               aria-label="Create this routine and finish the setup with Hermes"
               disabled={!draftReady || busy || broadcastBlocked}
               onClick={() => void handleSubmit('guided')}
             >
               {pendingPath === 'guided' ? 'Starting…' : 'Finish with Hermes →'}
-            </button>
+            </Button>
             <p className="hr-create-hermes-note">
               Let Hermes review this paused routine in chat before you enable it.
             </p>
@@ -549,22 +552,22 @@ export function RoutineComposerPanel({
 
         {/* Final actions */}
         <div className="hr-create-actions">
-          <button
-            type="button"
-            className="hr-btn hr-btn-back-routines"
+          <Button
+            variant="text"
+            size="sm"
             onClick={onClose}
           >
             Cancel
-          </button>
+          </Button>
 
-          <button
-            type="button"
-            className="hr-btn hr-btn-create-submit"
+          <Button
+            variant="default"
+            size="sm"
             disabled={!draftReady || busy || broadcastBlocked}
             onClick={() => void handleSubmit('direct')}
           >
             {pendingPath === 'direct' ? 'Creating…' : 'Create Routine'}
-          </button>
+          </Button>
         </div>
       </div>
     </aside>

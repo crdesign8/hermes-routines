@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { Button } from '@hermes/plugin-sdk';
 import type { RoutineFilter } from '../domain/jobs';
 
 // In-view filter navigation. Pure: filters in, one callback out. The
@@ -36,9 +37,10 @@ export function FilterNav({ filter, disabled, counts, onSelect }: FilterNavProps
       {FILTER_OPTIONS.map((entry) => {
         const count = counts ? counts[entry.value] : null;
         return (
-          <button
+          <Button
             key={entry.value}
-            type="button"
+            variant="chip"
+            size="xs"
             className={'hr-filter-chip' + (filter === entry.value ? ' hr-filter-chip-current' : '')}
             aria-current={filter === entry.value ? 'true' : undefined}
             // One accessible name for the whole control: a bare "All 15"
@@ -56,7 +58,7 @@ export function FilterNav({ filter, disabled, counts, onSelect }: FilterNavProps
                 {count}
               </span>
             )}
-          </button>
+          </Button>
         );
       })}
     </nav>
