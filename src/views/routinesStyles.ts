@@ -810,7 +810,15 @@ export const ROUTINES_CSS = [
   '  margin-bottom: 12px;',
   '}',
   '',
-  '/* Custom Select Field */',
+  // Vertical rhythm for the schedule selects. The retired
+  // .hr-select-container rule carried this as part of its chrome; the host
+  // control supplies its own box, so the spacing belongs to the wrapper.
+  // Without it a standalone select (the Trigger) would butt straight against
+  // the section's preview sentence.
+  '.hr-select {',
+  '  width: 100%;',
+  '  margin-bottom: 12px;',
+  '}',
   '.hr-create-sub-row {',
   '  width: 100%;',
   '  margin-top: 10px;',

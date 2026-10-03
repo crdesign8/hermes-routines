@@ -246,6 +246,11 @@ describe('host UI kit adoption (issue #100)', () => {
     // Layout the primitive does not decide is still declared, on a container.
     assert.match(stylesheet, /\.hr-create-actions > \* \{/, 'the actions row still splits its two acts');
     assert.match(stylesheet, /\.hr-search-wrap > input \{/, 'the search field still owns its height');
+    // The select's vertical rhythm rode along on the retired
+    // .hr-select-container rule. The host control brings its own box, so the
+    // spacing has to be re-declared or the WHEN TO RUN selects collide with
+    // the sentence preview below them.
+    assert.match(stylesheet, /\.hr-select \{[^}]*margin-bottom: 12px;/, 'selects keep their vertical rhythm');
   });
 
   it('no view re-implements a primitive with raw markup', () => {
