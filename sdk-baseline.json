@@ -40,6 +40,24 @@
       "note": "Sidebar nav row contribution area; paired with the ROUTES_AREA page."
     },
     {
+      "name": "PALETTE_AREA",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/app/command-palette/contrib.ts:10",
+      "note": "Command-palette rows; carries the Routines open/create commands."
+    },
+    {
+      "name": "STATUSBAR_AREAS",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:1980",
+      "note": "Status-bar slots (statusBar.left/right); the conditional health affordance registers on the right."
+    },
+    {
+      "name": "PaletteContribution",
+      "kind": "type-export",
+      "upstream": "apps/desktop/src/app/command-palette/contrib.ts:13",
+      "note": "Payload of a palette data contribution (id, label, keywords, run)."
+    },
+    {
       "name": "PluginProfileRoute",
       "kind": "type-export",
       "upstream": "apps/desktop/src/sdk/index.ts:210",
@@ -84,6 +102,13 @@
       "surface": "host.newChat",
       "upstream": "apps/desktop/src/sdk/index.ts:1371",
       "note": "Opens the fresh guided-chat draft for a route. Only the one-argument form is used."
+    },
+    {
+      "name": "navigate",
+      "kind": "host-member",
+      "surface": "host.navigate",
+      "upstream": "apps/desktop/src/sdk/index.ts:753",
+      "note": "App-router navigation for shell commands (palette/status); the supported path to open /routines."
     },
     {
       "name": "composer.setDraft",

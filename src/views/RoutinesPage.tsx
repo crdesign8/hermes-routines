@@ -28,6 +28,7 @@ import {
 } from '../gateway/cronParams';
 import { listProfileRoutes, listRoutines, requestCronForRoute } from '../gateway/cronGateway';
 import { createProvisionalRoutine } from '../gateway/provisionalCreate';
+import { takeShellRequest, subscribeShellRequests } from '../state/shellRequests';
 import { launchGuidedConfiguration, type GuidedLaunchResult } from '../gateway/guidedLaunch';
 import {
   buildReopenHandle,
@@ -266,6 +267,45 @@ export function RoutinesPage() {
   const selectedJobLabel = selectedJob
     ? routineTitle(selectedJob, selectedJobKey || 'Routine')
     : selectedJobKey || 'Routine';
+
+  // Shell requests parked by the palette and status-bar handlers. Those
+  // handlers run outside React and the page may not be mounted when they
+  // fire, so each parks one pending intent and navigates; the page honors
+  // it here — on mount (parked before navigation) and while mounted
+  // (parked while already on the page). The ref mirrors the current search
+  // matches because the subscription reads them outside render, and the
+  // pending flag holds an attention request that lands before the inventory
+  // is ready instead of focusing an empty list. The disposer keeps the
+  // subscription from outliving the page.
+  const searchMatchesRef = useRef(searchMatches);
+  searchMatchesRef.current = searchMatches;
+  const pendingAttentionRef = useRef(false);
+  useEffect(() => {
+    const apply = (kind: 'create' | 'attention' | null): void => {
+      if (kind === 'create') {
+        setSelectedJobKey(null);
+        setGuided(null);
+        setGuidedRecent(null);
+        setIsCreating(true);
+      } else if (kind === 'attention') {
+        if (state.status === S.READY) {
+          dispatch({ type: 'attention-focus', jobs: searchMatchesRef.current });
+        } else {
+          pendingAttentionRef.current = true;
+        }
+      }
+    };
+    apply(takeShellRequest());
+    const dispose = subscribeShellRequests(() => {
+      apply(takeShellRequest());
+    });
+    return dispose;
+  }, [dispatch, state.status, S.READY]);
+  useEffect(() => {
+    if (!pendingAttentionRef.current || state.status !== S.READY) return;
+    pendingAttentionRef.current = false;
+    dispatch({ type: 'attention-focus', jobs: searchMatches });
+  }, [dispatch, state.jobs, state.status, searchMatches, S.READY]);
 
   /**
    * One dismiss path for every panel (issue #78), so the control in the

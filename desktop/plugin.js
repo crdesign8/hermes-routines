@@ -3,7 +3,13 @@
 // Regenerate with: npm run build   |   Verify freshness: npm run check-generated
 
 // src/plugin.tsx
-import { ROUTES_AREA, SIDEBAR_NAV_AREA } from "@hermes/plugin-sdk";
+import {
+  PALETTE_AREA,
+  ROUTES_AREA,
+  SIDEBAR_NAV_AREA,
+  STATUSBAR_AREAS,
+  host as host5
+} from "@hermes/plugin-sdk";
 
 // src/constants.ts
 var PLUGIN_ID = "hermes-routines";
@@ -14,6 +20,51 @@ var SIDEBAR_ID = "sidebar-nav";
 var SIDEBAR_ORDER = 50;
 var SIDEBAR_LABEL = "Routines";
 var SIDEBAR_CODICON = "history";
+var PALETTE_OPEN_ID = "palette-open";
+var PALETTE_NEW_ID = "palette-new";
+var STATUS_ID = "status";
+var COMMAND_OPEN_ID = "routines.open";
+var COMMAND_NEW_ID = "routines.newRoutine";
+var COMMAND_OPEN_LABEL = "Routines: Open";
+var COMMAND_NEW_LABEL = "Routines: New routine";
+var STATUS_ORDER = 80;
+var STATUS_POLL_MS = 6e4;
+
+// src/state/shellRequests.ts
+var pending = null;
+var listeners = /* @__PURE__ */ new Set();
+function notify() {
+  for (const listener of Array.from(listeners)) {
+    try {
+      listener();
+    } catch {
+    }
+  }
+}
+function park(kind) {
+  pending = kind;
+  notify();
+}
+function requestRoutineCreate() {
+  park("create");
+}
+function requestAttentionFocus() {
+  park("attention");
+}
+function peekShellRequest() {
+  return pending;
+}
+function takeShellRequest() {
+  const next = pending;
+  pending = null;
+  return next;
+}
+function subscribeShellRequests(listener) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
 
 // src/views/RoutinesPage.tsx
 import { useCallback, useEffect as useEffect2, useMemo as useMemo2, useRef as useRef2, useState as useState3 } from "react";
@@ -4823,7 +4874,7 @@ function RoutineInspectorPanel({
 import { jsx as jsx7 } from "react/jsx-runtime";
 function RoutineList({
   jobs,
-  pending,
+  pending: pending2,
   locked,
   selectedId,
   onSelect,
@@ -4852,7 +4903,7 @@ function RoutineList({
     const fallback = `routine ${index + 1}`;
     const jobId = jobIdOf(job);
     const viewKey = routineKey(job, fallback);
-    const busier = jobId !== "" && pending.indexOf(jobId) !== -1;
+    const busier = jobId !== "" && pending2.indexOf(jobId) !== -1;
     return /* @__PURE__ */ jsx7(
       RoutineCard,
       {
@@ -5941,6 +5992,35 @@ function RoutinesPage() {
   }, [state.jobs, selectedJobKey]);
   const selectedJobId = selectedJob ? jobIdOf(selectedJob) : "";
   const selectedJobLabel = selectedJob ? routineTitle(selectedJob, selectedJobKey || "Routine") : selectedJobKey || "Routine";
+  const searchMatchesRef = useRef2(searchMatches);
+  searchMatchesRef.current = searchMatches;
+  const pendingAttentionRef = useRef2(false);
+  useEffect2(() => {
+    const apply = (kind) => {
+      if (kind === "create") {
+        setSelectedJobKey(null);
+        setGuided(null);
+        setGuidedRecent(null);
+        setIsCreating(true);
+      } else if (kind === "attention") {
+        if (state.status === S.READY) {
+          dispatch({ type: "attention-focus", jobs: searchMatchesRef.current });
+        } else {
+          pendingAttentionRef.current = true;
+        }
+      }
+    };
+    apply(takeShellRequest());
+    const dispose = subscribeShellRequests(() => {
+      apply(takeShellRequest());
+    });
+    return dispose;
+  }, [dispatch, state.status, S.READY]);
+  useEffect2(() => {
+    if (!pendingAttentionRef.current || state.status !== S.READY) return;
+    pendingAttentionRef.current = false;
+    dispatch({ type: "attention-focus", jobs: searchMatches });
+  }, [dispatch, state.jobs, state.status, searchMatches, S.READY]);
   function closeSurface(surface) {
     const key = surface === "inspector" ? selectedJobKey : null;
     if (surface === "inspector") setSelectedJobKey(null);
@@ -6533,20 +6613,125 @@ function RoutinesPage() {
   ] });
 }
 
+// src/views/RoutinesStatus.tsx
+import { useEffect as useEffect3, useState as useState4 } from "react";
+import { host as host4, useValue as useValue2 } from "@hermes/plugin-sdk";
+import { jsx as jsx15, jsxs as jsxs14 } from "react/jsx-runtime";
+function RoutinesStatusItemView({ count, onOpen }) {
+  if (count === null || count <= 0) return null;
+  const label = count === 1 ? "1 routine needs attention \u2014 open Routines" : `${count} routines need attention \u2014 open Routines`;
+  return /* @__PURE__ */ jsxs14(
+    "button",
+    {
+      type: "button",
+      className: "hr-status",
+      onClick: onOpen,
+      "aria-label": label,
+      title: "Open Routines needing attention",
+      children: [
+        /* @__PURE__ */ jsx15("span", { "aria-hidden": "true", children: "!" }),
+        /* @__PURE__ */ jsx15("span", { children: count })
+      ]
+    }
+  );
+}
+function openAttention() {
+  requestAttentionFocus();
+  if (typeof host4.navigate === "function") {
+    host4.navigate(ROUTE_PATH);
+  }
+}
+function RoutinesStatusItem() {
+  const activeProfile = useValue2(host4.state.profile);
+  const activeConnectionId = useValue2(host4.state.connectionId);
+  const [count, setCount] = useState4(null);
+  useEffect3(() => {
+    let cancelled = false;
+    const read = async () => {
+      try {
+        const routes = await listProfileRoutes();
+        if (cancelled) return;
+        const route = resolveActiveRoute(routes, activeProfile, activeConnectionId);
+        if (route === null) {
+          if (!cancelled) setCount(null);
+          return;
+        }
+        const payload = await listRoutines(route);
+        if (cancelled) return;
+        setCount(attentionCount(normalizeJobs(payload)));
+      } catch {
+        if (!cancelled) setCount(null);
+      }
+    };
+    void read();
+    const timer = setInterval(() => {
+      void read();
+    }, STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [activeProfile, activeConnectionId]);
+  return /* @__PURE__ */ jsx15(RoutinesStatusItemView, { count, onOpen: openAttention });
+}
+
 // src/plugin.tsx
-import { jsx as jsx15 } from "react/jsx-runtime";
+import { jsx as jsx16 } from "react/jsx-runtime";
+function openRoutines() {
+  if (typeof host5.navigate === "function") {
+    host5.navigate(ROUTE_PATH);
+  }
+}
+function newRoutine() {
+  requestRoutineCreate();
+  if (typeof host5.navigate === "function") {
+    host5.navigate(ROUTE_PATH);
+  }
+}
+function openRoutineAttention() {
+  requestAttentionFocus();
+  if (typeof host5.navigate === "function") {
+    host5.navigate(ROUTE_PATH);
+  }
+}
 function register(ctx) {
   ctx.register({
     id: ROUTE_ID,
     area: ROUTES_AREA,
     data: { path: ROUTE_PATH },
-    render: () => /* @__PURE__ */ jsx15(RoutinesPage, {})
+    render: () => /* @__PURE__ */ jsx16(RoutinesPage, {})
   });
   ctx.register({
     id: SIDEBAR_ID,
     area: SIDEBAR_NAV_AREA,
     order: SIDEBAR_ORDER,
     data: { path: ROUTE_PATH, label: SIDEBAR_LABEL, codicon: SIDEBAR_CODICON }
+  });
+  ctx.register({
+    id: PALETTE_OPEN_ID,
+    area: PALETTE_AREA,
+    data: {
+      id: COMMAND_OPEN_ID,
+      label: COMMAND_OPEN_LABEL,
+      keywords: ["routines", "open", "schedules", "cron"],
+      run: openRoutines
+    }
+  });
+  ctx.register({
+    id: PALETTE_NEW_ID,
+    area: PALETTE_AREA,
+    data: {
+      id: COMMAND_NEW_ID,
+      label: COMMAND_NEW_LABEL,
+      keywords: ["routines", "new", "create", "schedule", "cron"],
+      run: newRoutine
+    }
+  });
+  ctx.register({
+    id: STATUS_ID,
+    area: STATUSBAR_AREAS.right,
+    order: STATUS_ORDER,
+    render: () => /* @__PURE__ */ jsx16(RoutinesStatusItem, {})
   });
 }
 var plugin = {
@@ -6564,6 +6749,10 @@ export {
   BROADCAST_ADDRESS_ACTION,
   BROADCAST_ADVANCED_ACTION,
   BROADCAST_REVIEW_WARNING,
+  COMMAND_NEW_ID,
+  COMMAND_NEW_LABEL,
+  COMMAND_OPEN_ID,
+  COMMAND_OPEN_LABEL,
   CONFIG_BAND_ID,
   DAYS_OF_MONTH,
   DAYS_OF_WEEK,
@@ -6596,6 +6785,8 @@ export {
   NeedsAttentionNotice,
   NeedsConfigurationFocusBar,
   NeedsConfigurationNotice,
+  PALETTE_NEW_ID,
+  PALETTE_OPEN_ID,
   PLUGIN_ID,
   PLUGIN_NAME,
   PanelNav,
@@ -6610,11 +6801,16 @@ export {
   RoutineInspectorPanel,
   RoutineList,
   RoutinesPage,
+  RoutinesStatusItem,
+  RoutinesStatusItemView,
   RunWhen,
   SIDEBAR_CODICON,
   SIDEBAR_ID,
   SIDEBAR_LABEL,
   SIDEBAR_ORDER,
+  STATUS_ID,
+  STATUS_ORDER,
+  STATUS_POLL_MS,
   StaleBanner,
   TIME_SLOTS,
   TRIGGER_OPTIONS,
@@ -6701,13 +6897,17 @@ export {
   messageOf,
   mintedRoutineFrom,
   needsAttention,
+  newRoutine,
   nextRunCopyOf,
   nextRunIso,
   normalizeJobs,
   openGuidedRoutineChat,
+  openRoutineAttention,
+  openRoutines,
   parseTimestamp,
   pauseJob,
   pausedConfirmedBy,
+  peekShellRequest,
   plugin,
   profileRoute,
   proposedSnapshot,
@@ -6716,7 +6916,9 @@ export {
   register,
   relaunchGuidedConfiguration,
   removeJob,
+  requestAttentionFocus,
   requestCronForRoute,
+  requestRoutineCreate,
   resolveActiveRoute,
   resolveProfileRoute,
   resolveProvisionalCreate,
@@ -6741,6 +6943,8 @@ export {
   snapshotJobConfig,
   submitProposalForRoutine,
   submitProposalHandoff,
+  subscribeShellRequests,
+  takeShellRequest,
   toOrdinal,
   validateProposal,
   validateScheduleConfig,

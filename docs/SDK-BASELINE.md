@@ -41,6 +41,9 @@ calls (`host.*` for host members). Every entry points at the upstream
 | `useValue` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:2089` |
 | `ROUTES_AREA` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/app/routes.ts:88` |
 | `SIDEBAR_NAV_AREA` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/app/routes.ts:128` |
+| `PALETTE_AREA` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/app/command-palette/contrib.ts:10` |
+| `STATUSBAR_AREAS` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:1980` |
+| `PaletteContribution` | type-export | `@hermes/plugin-sdk` | `apps/desktop/src/app/command-palette/contrib.ts:13` |
 | `PluginProfileRoute` | type-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:210` |
 | `PluginContext` | type-export | `@hermes/plugin-sdk` | `apps/desktop/src/contrib/plugin.ts:76` |
 | `HermesPlugin` | type-export | `@hermes/plugin-sdk` | `apps/desktop/src/contrib/plugin.ts:128` |
@@ -56,6 +59,7 @@ calls (`host.*` for host members). Every entry points at the upstream
 | `requestProfile` | host-member | `host.requestProfile` | `apps/desktop/src/sdk/index.ts:1512` |
 | `request` | host-member | `host.request` | `apps/desktop/src/sdk/index.ts:1621` |
 | `newChat` | host-member | `host.newChat` | `apps/desktop/src/sdk/index.ts:1371` |
+| `navigate` | host-member | `host.navigate` | `apps/desktop/src/sdk/index.ts:753` |
 | `composer.setDraft` | host-member | `host.composer.setDraft` | `apps/desktop/src/sdk/composer.ts:93` |
 | `composer.submit` | host-member | `host.composer.submit` | `apps/desktop/src/sdk/composer.ts:123` |
 | `state.profile` | host-member | `host.state.profile` | `apps/desktop/src/sdk/index.ts:712` |
@@ -75,6 +79,14 @@ contracts worth naming here:
   emphasis as `class-variance-authority` variants. The shim declares the
   literal union this plugin uses, because cva types do not exist in the shim;
   an unlisted value still typechecks, so this cannot drift into a false gate.
+
+The shell entries (`PALETTE_AREA`, `PaletteContribution`, `STATUSBAR_AREAS`,
+`navigate`) were added for issue #101. They follow the first-party kanban
+plugin's pattern: palette rows route through `host.navigate` (never DOM
+navigation), and the status contribution is a conditional `render`
+contribution owned by its mounting component, so disable/reload unmounts it
+with its poller. No `KEYBINDS_AREA` entry: keybinds were evaluated and
+deliberately left out rather than claiming a global chord.
 
 `shim-internal` entries are structural helpers the shim needs to describe its
 own shape (`ctx.register`'s argument, the readonly atom face). They are

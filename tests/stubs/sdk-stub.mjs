@@ -5,6 +5,7 @@ const impl = {
   requestProfile: async () => ({ jobs: [] }),
   request: async () => ({ jobs: [] }),
   newChat: () => undefined,
+  navigate: () => undefined,
 };
 
 // Composer verbs are acknowledged through a per-verb result the tests
@@ -13,11 +14,13 @@ const impl = {
 const composerResult = { setDraft: true, submit: true };
 
 const calls = [];
-const DOORS = ['profileRoutes', 'requestProfile', 'request', 'newChat'];
+const DOORS = ['profileRoutes', 'requestProfile', 'request', 'newChat', 'navigate'];
 const COMPOSER_DOORS = ['setDraft', 'submit'];
 
 export const ROUTES_AREA = 'routes';
 export const SIDEBAR_NAV_AREA = 'sidebar.nav';
+export const PALETTE_AREA = 'palette';
+export const STATUSBAR_AREAS = { left: 'statusBar.left', right: 'statusBar.right' };
 
 // Mirrors the real SDK host face. Doors are recording wrappers around the
 // configurable `impl`; __dropDoor removes a door so fail-closed tests can
