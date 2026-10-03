@@ -25,6 +25,7 @@
     "docs/",
     "src/",
     "scripts/",
+    "sdk-baseline.json",
     "plugin.yaml",
     "LICENSE",
     "README.md",
@@ -43,8 +44,9 @@
     "check:allowlist": "node scripts/check-allowlist.mjs",
     "check:version": "node scripts/check-version.mjs",
     "check:manifest": "node scripts/check-manifest.mjs",
+    "check:sdk-baseline": "node scripts/check-sdk-baseline.mjs",
     "check:label-policy": "node scripts/issue-triage.mjs --validate",
-    "check": "npm run typecheck && node scripts/check-allowlist.mjs && node scripts/check-version.mjs && node scripts/check-manifest.mjs && node scripts/issue-triage.mjs --validate && node scripts/build.mjs --check"
+    "check": "npm run typecheck && node scripts/check-allowlist.mjs && node scripts/check-version.mjs && node scripts/check-manifest.mjs && node scripts/check-sdk-baseline.mjs && node scripts/issue-triage.mjs --validate && node scripts/build.mjs --check"
   },
   "devDependencies": {
     "@types/node": "24.13.6",

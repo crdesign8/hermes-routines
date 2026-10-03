@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "upstream": {
+    "repository": "NousResearch/hermes-agent",
+    "ref": "89937f86858a2d7826f783cd77c5a24b1d56dc4e",
+    "sdkModule": "apps/desktop/src/sdk/index.ts",
+    "docs": "website/docs/developer-guide/desktop-plugin-sdk.md",
+    "examplePlugins": "NousResearch/hermes-example-plugins",
+    "firstPartyPlugins": "apps/desktop/src/plugins/",
+    "package": {
+      "name": "@hermes/plugin-sdk",
+      "published": false,
+      "verifiedOn": "2026-10-03",
+      "evidence": "npm view @hermes/plugin-sdk -> 404 on the public registry"
+    }
+  },
+  "symbols": [
+    {
+      "name": "host",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:668",
+      "note": "Gateway/state/composer doors. The only module-level value the plugin drives traffic through."
+    },
+    {
+      "name": "useValue",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:2089",
+      "note": "React binding for readonly atoms (re-exported useStore). RoutinesPage subscribes to host.state."
+    },
+    {
+      "name": "ROUTES_AREA",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/app/routes.ts:88",
+      "note": "Full-page contribution area for /routines."
+    },
+    {
+      "name": "SIDEBAR_NAV_AREA",
+      "kind": "value-export",
+      "upstream": "apps/desktop/src/app/routes.ts:128",
+      "note": "Sidebar nav row contribution area; paired with the ROUTES_AREA page."
+    },
+    {
+      "name": "PluginProfileRoute",
+      "kind": "type-export",
+      "upstream": "apps/desktop/src/sdk/index.ts:210",
+      "note": "connectionId / mode / profile / targetProfile descriptor; every routed call is keyed on it."
+    },
+    {
+      "name": "PluginContext",
+      "kind": "type-export",
+      "upstream": "apps/desktop/src/contrib/plugin.ts:76",
+      "note": "Scoped context handed to register(); this plugin only uses ctx.register."
+    },
+    {
+      "name": "HermesPlugin",
+      "kind": "type-export",
+      "upstream": "apps/desktop/src/contrib/plugin.ts:128",
+      "note": "The descriptor the plugin default-exports (loader contract)."
+    },
+    {
+      "name": "profileRoutes",
+      "kind": "host-member",
+      "surface": "host.profileRoutes",
+      "upstream": "apps/desktop/src/sdk/index.ts:1476",
+      "note": "Inventories registered profile/connection routes; the resolver never falls back to the active gateway."
+    },
+    {
+      "name": "requestProfile",
+      "kind": "host-member",
+      "surface": "host.requestProfile",
+      "upstream": "apps/desktop/src/sdk/index.ts:1512",
+      "note": "Registry-routed RPC (route, method, params, timeoutMs?, { spawnPriority? }). Carries every cron.manage call."
+    },
+    {
+      "name": "request",
+      "kind": "host-member",
+      "surface": "host.request",
+      "upstream": "apps/desktop/src/sdk/index.ts:1621",
+      "note": "Active-gateway RPC (method, params?, timeoutMs?) — used only when no route resolves."
+    },
+    {
+      "name": "newChat",
+      "kind": "host-member",
+      "surface": "host.newChat",
+      "upstream": "apps/desktop/src/sdk/index.ts:1371",
+      "note": "Opens the fresh guided-chat draft for a route. Only the one-argument form is used."
+    },
+    {
+      "name": "composer.setDraft",
+      "kind": "host-member",
+      "surface": "host.composer.setDraft",
+      "upstream": "apps/desktop/src/sdk/composer.ts:93",
+      "note": "Fail-closed draft write for an addressed session; returns false when no mounted surface owns it."
+    },
+    {
+      "name": "composer.submit",
+      "kind": "host-member",
+      "surface": "host.composer.submit",
+      "upstream": "apps/desktop/src/sdk/composer.ts:123",
+      "note": "Fail-closed submit for an addressed session; used only for the guided-chat auto-submit path."
+    },
+    {
+      "name": "state.profile",
+      "kind": "host-member",
+      "surface": "host.state.profile",
+      "upstream": "apps/desktop/src/sdk/index.ts:712",
+      "note": "Readonly atom of the active gateway profile — the active-profile binding the page subscribes to."
+    },
+    {
+      "name": "state.connectionId",
+      "kind": "host-member",
+      "surface": "host.state.connectionId",
+      "upstream": "apps/desktop/src/sdk/index.ts:684",
+      "note": "Readonly atom of the active connection id; profile + connectionId are matched as one identity."
+    },
+    {
+      "name": "PluginContribution",
+      "kind": "shim-internal",
+      "upstream": "apps/desktop/src/contrib/plugin.ts:30",
+      "note": "Structural stand-in for the ctx.register argument. Declared inside the shim, never imported by src (upstream defines it as Omit<Contribution, 'source' | 'id'> & { id: string })."
+    },
+    {
+      "name": "ReadableAtom",
+      "kind": "shim-internal",
+      "upstream": "apps/desktop/src/sdk/index.ts:21",
+      "note": "Minimal structural stand-in for the nanostores ReadableAtom that types host.state atoms. Declared inside the shim, never imported by src."
+    }
+  ]
+}

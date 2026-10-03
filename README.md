@@ -172,7 +172,10 @@ verified and are unsupported.
 
 The repository does not declare a separate minimum Hermes Desktop release.
 Verify that the Desktop host implements the plugin descriptor and
-`@hermes/plugin-sdk` surface used by the local type shim before installing.
+`@hermes/plugin-sdk` surface recorded in
+[`docs/SDK-BASELINE.md`](docs/SDK-BASELINE.md) (machine-readable:
+[`sdk-baseline.json`](sdk-baseline.json)) before installing. `npm run check`
+verifies that record against the source on every run.
 
 ## Installation
 
@@ -315,8 +318,11 @@ npm run build
 ```
 
 `npm run check` runs the typecheck, import/allowlist and dynamic-evaluation
-checks, version synchronization check, and generated-artifact freshness
-check. Before opening a pull request, run all commands above and review the
+checks, version synchronization check, the Desktop SDK compatibility baseline
+check (`docs/SDK-BASELINE.md`), and generated-artifact freshness
+check. Consuming a new `@hermes/plugin-sdk` symbol therefore means recording it
+in `sdk-baseline.json` first; the gate fails otherwise. Before opening a pull
+request, run all commands above and review the
 staged diff. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the contribution
 workflow and [`docs/INSTALL.md`](docs/INSTALL.md) for the deeper install
 reference.
@@ -327,8 +333,12 @@ reference.
 - `desktop/plugin.js` — deterministic generated Desktop artifact.
 - `scripts/` — build, checks, and atomic installer.
 - `tests/` — Node test suite and SDK/host stubs.
+- `sdk-baseline.json` — machine-readable upstream SDK contract this plugin
+  consumes.
 - `docs/INSTALL.md` — installation, upgrade, uninstall, and troubleshooting
   reference.
+- `docs/SDK-BASELINE.md` — the SDK compatibility baseline and its refresh
+  procedure.
 
 ## License
 
