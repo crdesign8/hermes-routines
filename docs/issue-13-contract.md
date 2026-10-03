@@ -2,6 +2,11 @@
 > the Fase 1 baseline snapshot for issue #13. The current source of truth
 > for installation, upgrade, uninstall, and troubleshooting is
 > [`docs/INSTALL.md`](docs/INSTALL.md).
+>
+> The snapshot also predates issue #99, which removed the manual installer it
+> describes (`scripts/install.mjs`). Its items 5 and 6 are kept verbatim as the
+> historical record of that decision; the live model is the unified plugin
+> package installed by `hermes plugins install`.
 
 # Issue #13 — Contrato upstream e decisões seladas (Fase 1: nota de contrato — snapshot baseline; fases 2–3: implementação concluída)
 

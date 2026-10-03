@@ -1,61 +1,193 @@
 # INSTALL — hermes-routines
 
-## Mapping
+## One package, one install root
 
-| Source (repo)         | Destination (app home)                                   |
-|-----------------------|----------------------------------------------------------|
-| `desktop/plugin.js`   | `<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js` |
+There is exactly one installation model. `hermes-routines` is a **unified
+Hermes plugin package**: `plugin.yaml` and `desktop/plugin.js` live in the same
+repository and are installed together by the Hermes plugin manager. Nothing in
+this repository installs anything by itself.
 
-The plugin folder name equals the plugin id `hermes-routines`.
-The installed file is always named
-`plugin.js` and must be byte-identical to `desktop/plugin.js`
-(the **generated** artifact — see Development);
-`scripts/install.mjs` stages to a unique temp file
-(`plugin.js.tmp.<pid>.<rand>`, 64-bit `crypto.randomBytes` suffix,
-exclusive `wx` create so an existing temp is never truncated), verifies
-sha256, `fsync`s the temp before an atomic rename, verifies sha256
-after, and fails the install on mismatch (no half-copy is ever left
-behind; concurrent installs use different temp names and both rename
-over identical bytes, so last-writer-wins stays intact).
+```sh
+hermes plugins install crdesign8/hermes-routines
+```
 
-This is the official app-level door: ONE root,
-`<HERMES_HOME>/desktop-plugins/`, with `<id>/plugin.js` for a
-standalone desktop plugin. The plugin stays installed and loaded
-whichever profile, gateway, or machine the window is pointed at —
-nothing is installed per profile.
+What happens, and who owns each step:
 
-## Distribution manifest (`plugin.yaml`)
+| Step | Owner | What it does |
+|---|---|---|
+| Install | `hermes plugins install` (host) | clones/updates the package at `<home>/plugins/hermes-routines/` and writes the provenance record in `plugins/.install-metadata.json` |
+| Enable | `hermes plugins enable` / Capabilities → Plugins | the desktop half is **opt-in** (`defaultEnabled: false`); it inventories immediately and stays disabled until the user toggles it |
+| Project | Desktop Electron main (host) | copies `desktop/plugin.js` into `<home>/desktop-plugins/hermes-routines/plugin.js` beside a `.hermes-package.json` marker, and re-copies whenever the source changes |
+| Load / hot reload | Desktop runtime (host) | loads the projected file through the same pipeline as any disk plugin, watching it for changes |
 
-`plugin.yaml` lives at the package root and ships in the published
-package (`files` in `package.json`), next to `desktop/plugin.js` — it is
-**not** copied by the flat installer above. The installer maps exactly
-one file (`desktop/plugin.js` →
-`<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js`); the manifest is
-distribution metadata for catalog/registry validation, resolved from
-the package, not from the profile home.
+`plugin.yaml` and `desktop/plugin.js` are NOT two installations. The manifest
+is the agent half (distribution metadata for catalog/registry validation) and
+`desktop/plugin.js` is the desktop half; the host projects the latter out of
+the same folder. There is no second install root to keep in sync and no second
+supported way to install.
 
-Single source of truth stays `package.json`: `name` / `version` /
+## The projection, and where the app root comes from
+
+| Source (repo) | Projected to (app root) |
+|---|---|
+| `desktop/plugin.js` | `<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js` |
+
+`<HERMES_HOME>` is the **app home** — `~/.hermes` by default, or whatever home
+the Desktop window is pointed at. The projected folder name equals the plugin
+id `hermes-routines`, which is what the host loader requires (the folder name
+must match the descriptor's `id`).
+
+The projection is a **copy**, and that is deliberate: it is what makes the
+desktop half app-level. It exists once, however many profiles carry the package,
+and it never appears or disappears when the profile selector changes. Upstream
+stamps a `.hermes-package.json` marker into the projected folder recording the
+package name and its origin; that marker is what lets the Plugins page pair the
+desktop half back to the agent package and refresh it. **Do not hand-edit the
+projected file** — the next reconcile replaces it. A `desktop-plugins/` folder
+without a marker that does contain a `plugin.js` is treated upstream as a
+standalone plugin you installed by hand and is never overwritten.
+
+Verify a projection by hash, if you want to:
+
+```sh
+sha256sum desktop/plugin.js \
+  "$HERMES_HOME/desktop-plugins/hermes-routines/plugin.js"
+```
+
+The two hashes must match. This is a **verification**, not an install step —
+the host did the copy.
+
+## Minimum supported Hermes release
+
+The unified package model requires a Desktop host that projects
+`plugins/<id>/desktop/plugin.js` into the app root:
+
+| Field | Value |
+|---|---|
+| Minimum release | **`2026.9.11`** (upstream tag `v2026.9.11`) |
+| What it added | `materializeDesktopHalf` + `reconcileUnifiedDesktopHalves` in `apps/desktop/electron/desktop-plugins-root.ts`, wired into `fs-ipc.ts` |
+
+Verified by probing every tagged upstream release: `v2026.9.11` is the earliest
+tag carrying that projection; `v2026.9.7` has none of it. On a host older than
+that, `hermes plugins install` still installs the agent half, but nothing
+projects the desktop half and the Routines page never appears. Check with
+`hermes --version`. The plugin's SDK-side contract is pinned separately in
+[`docs/SDK-BASELINE.md`](SDK-BASELINE.md).
+
+## Update
+
+```sh
+hermes plugins update hermes-routines
+```
+
+Update is a pull of the tracked install. The host then refreshes the projected
+copy on the next root resolution (or **Rescan** in the Plugins page); the app
+picks it up through the same hot-reload path as any save. There is no version
+check or migration step here: the plugin file carries no local state (jobs live
+in the backend via `cron.manage`), so the newer `desktop/plugin.js` is the whole
+upgrade.
+
+If you installed from a clone you made yourself (no provenance record), adopt it
+once and it becomes a normal tracked install with `update`:
+
+```sh
+hermes plugins adopt hermes-routines
+```
+
+## Uninstall
+
+```sh
+hermes plugins remove hermes-routines
+```
+
+This removes the package folder. The host drops the projected desktop half on
+the next reconcile because its marker records a source that no longer exists —
+**do not delete `desktop-plugins/hermes-routines/` by hand**, and never remove
+the shared `desktop-plugins/` root, which other plugins share. Uninstalling this
+plugin does not delete routines stored by the Hermes host; manage those through
+the host's own cron interface.
+
+## Development fallback (and its limit)
+
+Developers who want to exercise a local checkout in the app can clone it into a
+scratch home and let the host do the work:
+
+```sh
+# a throwaway home, so the real one is untouched
+export HERMES_HOME="$PWD/.hermes-dev"
+hermes plugins adopt hermes-routines   # after cloning into $HERMES_HOME/plugins/
+```
+
+Then `npm run build` and trigger a **Rescan** (or reload the window) to refresh
+the projected copy.
+
+The limit, verified against the host's own package scan: **a symlinked
+`plugins/<id>` is skipped.** The reconciler enumerates package folders with a
+non-following directory filter, so a symlink into your working tree never
+projects and produces a silent no-op. Use a real clone (or a copy) inside the
+scratch home; a bind mount is fine.
+
+This is a development convenience only. It is not a supported installation
+path, it is not covered by any stability promise, and it does not create a
+second install root — the scratch home is simply a throwaway `HERMES_HOME`.
+
+## Migrating from the manual installer (removed)
+
+Releases before this change shipped `scripts/install.mjs`, a hand-rolled
+installer that copied `desktop/plugin.js` into
+`<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js` with its own sha256
+verification, staging, backup and rollback. That script is **removed**: it
+duplicated package-manager responsibilities the host now owns, and a projected
+folder the host manages would fight it.
+
+There is nothing to migrate *to* — installing via `hermes plugins install` is
+already the documented path, and the desktop half is identical either way. To
+clean up an old manual install:
+
+1. `hermes plugins install crdesign8/hermes-routines` (or keep your existing
+   package install).
+2. Remove any leftover hand-installed folder that has no
+   `.hermes-package.json` marker **and** whose `plugin.js` is not
+   byte-identical to your package's `desktop/plugin.js` — the host treats a
+   marker-less folder with differing bytes as yours and never overwrites it, so
+   it would shadow the managed projection. Delete the whole
+   `desktop-plugins/hermes-routines/` folder and let the host re-project.
+
+An even older pre-#14 layout installed per profile at
+`<profile-home>/plugins/routines/plugin.js`. The Desktop loader reads only the
+app-level root, so such a file no longer loads. Delete it for every profile
+that has one, then install through the plugin manager.
+
+## Checks
+
+```sh
+npm test                            # full suite (node:test)
+npm run typecheck                   # tsc --noEmit (strict, src/ + scripts/)
+npm run check:allowlist             # import allowlist + require/eval ban
+npm run check:version               # package.json version == descriptor version
+npm run check:manifest              # package.json == plugin.yaml == src/constants.ts == desktop/plugin.js
+npm run check:sdk-baseline          # SDK contract vs sdk-baseline.json
+npm run check:package-layout        # unified package shape the host installs
+npm run build -- --check            # desktop/plugin.js is fresh (npm run check-generated)
+npm run check                       # all gates above
+```
+
+`npm run check:package-layout` is what replaces the removed installer's
+guarantees: it asserts the entry points the host loads are present, that the
+projected folder name would equal the plugin id, that the generated artifact
+still exposes the default export the loader reads, and that README/INSTALL name
+the plugin-manager lifecycle and the minimum supported release. Freshness of
+`desktop/plugin.js` against `src/` stays `node scripts/build.mjs --check`.
+
+## Single source of truth
+
+`package.json` is the single source of truth: `name` / `version` /
 `description` must match across `package.json`, `plugin.yaml`,
-`src/constants.ts` (`PLUGIN_ID`) and the `desktop/plugin.js`
-descriptor (`description`, `defaultEnabled: false` opt-in, `version`
-pin), with `provides_tools: []` / `provides_hooks: []` declared
-explicitly empty. `node scripts/check-manifest.mjs` (part of
-`npm run check`, pinned by `tests/manifest-sync.test.mjs`) fails on any
-drift.
-
-## App home resolution
-
-Precedence (first match wins):
-
-1. `--hermes-home=<dir>` CLI flag (must be non-empty; resolved to absolute).
-2. `HERMES_HOME` environment variable (same rule).
-3. `~/.hermes` (the local app home).
-
-There is exactly one install location — no per-profile second source of
-truth. The legacy profile inputs (`--profile-home`, `--profile`,
-`HERMES_PROFILE_HOME`) are rejected with a migration pointer instead of
-installing elsewhere (see Migration). `HERMES_PROFILE` alone is ignored:
-the app-level door does not vary by profile.
+`src/constants.ts` (`PLUGIN_ID`) and the `desktop/plugin.js` descriptor
+(`description`, `defaultEnabled: false` opt-in, `version` pin), with
+`provides_tools: []` / `provides_hooks: []` declared explicitly empty.
+`node scripts/check-manifest.mjs` (part of `npm run check`, pinned by
+`tests/manifest-sync.test.mjs`) fails on any drift.
 
 ## Development
 
@@ -69,128 +201,6 @@ gone. `requestCronForRoute` behavior (routing, scoping, `timeoutMs`
 positioning, `spawnPriority` dial options, fail-closed errors, opt-ins)
 is pinned against the shipped artifact by `tests/gateway-semantics.test.mjs`
 with the SDK face stubbed.
-
-## Install
-
-The install docs and shell examples below target Linux (POSIX `sh`, e.g.
-`sha256sum`, `$HOME`).
-
-```sh
-node scripts/install.mjs install --hermes-home="$HOME/.hermes"
-# or (default command is install)
-node scripts/install.mjs --hermes-home="$HOME/.hermes"
-# or
-HERMES_HOME="$HOME/.hermes" node scripts/install.mjs install
-# or (default home is ~/.hermes)
-node scripts/install.mjs install
-```
-
-Verify manually:
-
-```sh
-sha256sum desktop/plugin.js <HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js
-```
-
-Both hashes must match.
-
-## Update
-
-`update` is `install`: re-run with the refreshed artifact. Installs are
-idempotent and atomic: when the installed bytes already match, nothing
-is rewritten (`unchanged`); otherwise the new bytes are staged,
-hash-verified, and renamed over
-`<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js`, so the
-previous version stays live until the swap completes. The replaced bytes
-are kept as `plugin.js.prev` in the same directory for `rollback`. Then
-reload the app runtime (see Reload) and re-check the two hashes.
-
-```sh
-npm run build          # refresh desktop/plugin.js from src/ first
-node scripts/install.mjs update --hermes-home="$HOME/.hermes"
-sha256sum desktop/plugin.js "$HOME/.hermes/desktop-plugins/hermes-routines/plugin.js"
-```
-
-There is no version check or migration step: the plugin file carries no
-local state (jobs live in the backend via `cron.manage`), so overwriting
-with the newer `desktop/plugin.js` is the whole upgrade.
-
-## Uninstall
-
-The installer creates or updates exactly:
-
-```text
-<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js
-```
-
-(plus `plugin.js.prev` after a differing update, and the parent dirs on
-first install), so uninstall is a plain remove — idempotent when the
-plugin is already gone:
-
-```sh
-node scripts/install.mjs uninstall --hermes-home="$HOME/.hermes"
-```
-
-or manually, remove the installed files and then the plugin directory.
-Inside `~/.hermes/desktop-plugins/hermes-routines/`, delete `plugin.js`
-and, if present, `plugin.js.prev`; then remove the
-`hermes-routines` directory itself if it is now empty. A plain directory
-removal only succeeds on an empty directory, so it cannot delete
-anything beyond this plugin.
-
-Then reload the app runtime so the `/routines` route and its
-sidebar row disappear. Removing the whole `desktop-plugins` dir is
-NOT required — other plugins share it. To reinstall later, run the
-Install command again.
-
-## Rollback
-
-A differing `install`/`update` keeps the replaced bytes as
-`plugin.js.prev`. Restore them atomically (same stage, hash-verify,
-rename contract as install):
-
-```sh
-node scripts/install.mjs rollback --hermes-home="$HOME/.hermes"
-```
-
-Rollback without a backup fails closed (`no backup to roll back`). The
-backup is kept after a rollback, so it stays repeatable.
-
-## Migration from the legacy profile install (pre-#14)
-
-Releases before this change installed per profile at
-`<profile-home>/plugins/routines/plugin.js`. That layout is removed:
-the Desktop loader reads only the app-level root, so a profile-scoped
-file no longer loads and the installer refuses to write one.
-
-1. Install app-level (see Install).
-2. Delete the old file for every profile that had it: inside
-   `<profile-home>/plugins/routines/`, remove `plugin.js`, then remove
-   the `routines` directory itself if it is now empty. Repeat for each
-   profile home, not only `default`.
-
-3. Reload the app. The Routines page now loads from
-   `<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js` and stays
-   available whichever profile is active.
-
-Legacy invocations (`--profile-home=...`, `--profile=...`,
-`HERMES_PROFILE_HOME=...`) fail with `legacy profile install removed`
-and the same pointer — they never write to a second location.
-
-## Checks
-
-```sh
-npm test                  # full suite (node:test)
-node scripts/check-allowlist.mjs   # import allowlist + require/eval ban (src/ + desktop/)
-node scripts/check-version.mjs     # package.json version == descriptor version in desktop/plugin.js
-node scripts/check-manifest.mjs    # package.json == plugin.yaml == src/constants.ts == desktop/plugin.js (+ empty provides_*)
-node scripts/build.mjs --check     # desktop/plugin.js is fresh (regenerate on drift)
-npm run typecheck                  # tsc --noEmit (strict, src/ + scripts/)
-npm run check             # all gates above
-```
-
-Freshness (`build.mjs --check`) is what binds the artifact to `src/`:
-an edit to `src/` without a rebuild fails `npm run check` and
-`tests/source-of-truth.test.mjs`.
 
 ## View (`RoutinesView`)
 
@@ -391,13 +401,12 @@ upstream reference and the refresh procedure.
 
 ## Reload
 
-After install, reload the app runtime so the plugin host picks up
-`desktop-plugins/hermes-routines/plugin.js` (restart the desktop app or trigger a
-runtime plugin reload), then go to Capabilities → Plugins and enable
-hermes-routines. The plugin is opt-in (`defaultEnabled: false`) and does
-not self-enable. Once enabled, the Routines page mounts at
-`/routines` with its sidebar row, and stays mounted whichever profile
-or gateway the window is pointed at.
+After installing, go to Capabilities → Plugins and enable hermes-routines
+(opt-in, `defaultEnabled: false`; it does not self-enable), then trigger a
+runtime plugin reload — the app watches the projected folder and hot-reloads
+each save, and ⌘K → **Reload desktop plugins** forces it. The Routines page
+mounts at `/routines` with its sidebar row, and stays mounted whichever
+profile or gateway the window is pointed at.
 
 ## Coexistence
 
@@ -408,19 +417,33 @@ or gateway the window is pointed at.
 - **No collision with `/cron`.** Routines registers only `/routines`;
   it registers no `/cron` path and no `cron` id, so side-by-side
   installs with cron plugins keep working.
+- **Shared app root.** Every desktop plugin projects into the same
+  `<HERMES_HOME>/desktop-plugins/<id>/`, keyed by plugin id, so adding
+  or removing this package never touches another plugin's folder.
 
 ## Troubleshooting
 
-- `legacy profile install removed ...` → the pre-#14 per-profile inputs
-  (`--profile-home`, `--profile`, `HERMES_PROFILE_HOME`) are rejected on
-  purpose. Install app-level with `--hermes-home` and delete the old
-  `<profile-home>/plugins/routines/plugin.js` (see Migration).
-- `sha256 mismatch ...` → disk error or the source changed mid-install;
-  concurrent installs no longer collide (unique `wx` temp per process),
-  so just re-run install and compare hashes manually. The staging temp
-  is cleaned up on failure.
-- `build: desktop/plugin.js is stale` → run `npm run build` after
+- **`plugin.yaml missing required field` / plugin never appears in
+  Capabilities → Plugins:** confirm the install is through
+  `hermes plugins install crdesign8/hermes-routines` and that
+  `<home>/plugins/hermes-routines/plugin.yaml` exists. Run
+  `hermes plugins validate <path>` for the host's own admission report.
+- **The agent half installs but the Routines page never appears:** the
+  host is older than `2026.9.11` (no unified-package projection) or the
+  desktop half is still disabled. Check `hermes --version` and the
+  plugin's toggle in Capabilities → Plugins.
+- **A symlinked checkout in `plugins/<id>` does nothing:** the host's
+  package scan skips symlinked folders by design. Clone (or copy) a real
+  directory into the home — see Development fallback above.
+- **The Routines page serves older bytes:** something hand-installed a
+  marker-less `desktop-plugins/hermes-routines/` with different content,
+  which the host deliberately never overwrites. Delete that folder and
+  let the host re-project.
+- **`build: desktop/plugin.js is stale` → run `npm run build` after
   editing `src/` (freshness gate compares hashes).
-- `allowlist: ...` → only `@hermes/plugin-sdk` + `react/jsx-runtime`
+- **`check-package-layout:` →** run the gate for the exact message; it
+  names the entry point, the id drift, or the doc that drifted from the
+  unified package model.
+- **`allowlist: ...` →** only `@hermes/plugin-sdk` + `react/jsx-runtime`
   (+ pre-approved `react`, `react/jsx-dev-runtime`) and `node:` builtins
   are allowed; `require`/`eval`/`new Function` are banned.

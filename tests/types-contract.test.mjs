@@ -67,12 +67,16 @@ describe('types-contract', () => {
       'scripts/build.mjs',
       'scripts/check-allowlist.mjs',
       'scripts/check-version.mjs',
-      'scripts/install.mjs',
+      'scripts/check-package-layout.mjs',
     ]) {
       assert.match(read(rel), /@ts-check/, `${rel} must carry // @ts-check`);
     }
     // the removed gates must be gone with their files
-    for (const rel of ['scripts/sync-shapes.mjs', 'scripts/check-types.mjs']) {
+    for (const rel of [
+      'scripts/sync-shapes.mjs',
+      'scripts/check-types.mjs',
+      'scripts/install.mjs',
+    ]) {
       assert.equal(existsSync(path.join(root, rel)), false, `${rel} must be removed`);
     }
   });

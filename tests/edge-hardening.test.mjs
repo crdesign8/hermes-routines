@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, readdirSync } from 'node:fs';
 import { register } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -133,37 +132,6 @@ describe('edge-hardening', () => {
     assert.equal(out, 'routed');
     const logged = sdk.__calls().filter((c) => c.door === 'requestProfile');
     assert.equal(logged[0].args[3], 100, 'timeout must reach host.requestProfile as 4th arg');
-  });
-
-  it('resolveHermesHome honors explicit home, HERMES_HOME env and the ~/.hermes default', async () => {
-    const install = await import('../scripts/install.mjs');
-    const saved = process.env.HERMES_HOME;
-    const savedLegacy = process.env.HERMES_PROFILE_HOME;
-    try {
-      delete process.env.HERMES_PROFILE_HOME;
-      process.env.HERMES_HOME = '/tmp/env-hermes';
-      assert.equal(install.resolveHermesHome({}), path.resolve('/tmp/env-hermes'));
-      assert.equal(
-        install.resolveHermesHome({ hermesHome: '/tmp/flag-hermes' }),
-        path.resolve('/tmp/flag-hermes'),
-      );
-      delete process.env.HERMES_HOME;
-      assert.match(install.resolveHermesHome({}), /\.hermes$/);
-      assert.throws(() => install.resolveHermesHome({ hermesHome: '   ' }), /invalid hermesHome/);
-      process.env.HERMES_PROFILE_HOME = '/tmp/legacy-profile';
-      assert.throws(() => install.resolveHermesHome({}), /legacy profile install removed/);
-    } finally {
-      if (saved === undefined) delete process.env.HERMES_HOME;
-      else process.env.HERMES_HOME = saved;
-      if (savedLegacy === undefined) delete process.env.HERMES_PROFILE_HOME;
-      else process.env.HERMES_PROFILE_HOME = savedLegacy;
-    }
-  });
-
-  it('install fails when source is missing and leaves no temp files', async () => {
-    const install = await import('../scripts/install.mjs');
-    const home = mkdtempSync(path.join(tmpdir(), 'routines-home-'));
-    assert.throws(() => install.install({ hermesHome: home, root: '/nonexistent-root' }), /install source missing/);
   });
 
   it('src gateway is fail-closed: listRoutines requires a route, listProfileRoutes wraps errors', () => {
