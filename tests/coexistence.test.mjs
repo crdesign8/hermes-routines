@@ -37,4 +37,13 @@ describe('coexistence', () => {
     assert.match(doc, /pane/i, 'docs must cover panes vs routes coexistence');
     assert.match(doc, /reload/i, 'docs must cover reload after install');
   });
+
+  it('documents that the app root is shared with other desktop plugins', () => {
+    const doc = readFileSync(installDoc, 'utf8');
+    assert.match(
+      doc,
+      /shared app root/i,
+      'docs must state the projected folder is keyed by plugin id in a root other plugins share',
+    );
+  });
 });

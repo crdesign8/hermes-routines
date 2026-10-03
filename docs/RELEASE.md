@@ -20,8 +20,9 @@ is the development changelog and is intentionally **not** packed.
 
 - A breaking change is any change that requires consumers, installers, or
   the Desktop host to do something different: manifest/plugin contract
-  changes, route changes, installer behavior changes, cron-shape semantics
-  changes, or dropped Node-engine support.
+  changes, route changes, installation lifecycle changes (issue #99 removed
+  the manual installer — the plugin manager owns install/update/remove),
+  cron-shape semantics changes, or dropped Node-engine support.
 - Breaking changes require, at minimum:
   1. A `CHANGELOG.md` entry under `Unreleased` (or the release section)
      describing the break and the migration path.
@@ -42,13 +43,20 @@ Release candidate validation for `0.1.0`:
    2. `npm run check:allowlist`
    3. `npm run check:version`
    4. `npm run check:manifest`
-   5. `npm run check:label-policy`
+   5. `npm run check:sdk-baseline`
+   6. `npm run check:package-layout` (unified package shape the host
+      installs; the gate that replaced the removed installer, issue #99)
+   7. `npm run check:label-policy`
       (`scripts/issue-triage.mjs --validate`)
-   6. `node scripts/build.mjs --check` (generated `desktop/plugin.js`
+   8. `node scripts/build.mjs --check` (generated `desktop/plugin.js`
       is in sync)
 3. Remote CI (`.github/workflows/ci.yml`, GitHub-hosted runner
    `ubuntu-24.04`) must be green on the PR. Local green runs do not
    replace the remote CI result.
+4. The host's own admission check must be green for the package
+   (`hermes plugins validate .`, which reports the manifest, the desktop
+   surface lint and the security scan). Installation is performed by the
+   host, so a release that the host would reject is not releasable.
 
 No release is cut with any gate red or skipped.
 

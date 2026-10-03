@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: the manual installer is removed.** Installation is now owned
+  end-to-end by the Hermes plugin manager, and this repository ships one
+  unified plugin package instead of projecting its own copy of the Desktop
+  artifact. `hermes plugins install crdesign8/hermes-routines` installs
+  `plugin.yaml` and `desktop/plugin.js` from the same package; the Desktop
+  Electron main process then projects the desktop half into
+  `<HERMES_HOME>/desktop-plugins/hermes-routines/plugin.js` beside a
+  `.hermes-package.json` marker and refreshes it whenever the source changes.
+  `scripts/install.mjs` is deleted, together with the copy/stage/sha256/backup/
+  rollback semantics it implemented — the host already owns staging, atomic
+  publication and refresh. There is no second install root and no manual copy
+  step; `hermes plugins update` and `hermes plugins remove` are the upgrade and
+  uninstall paths.
+
+  Migration is only needed if you installed with the old script *and* the
+  hand-written folder is still there: a marker-less
+  `desktop-plugins/hermes-routines/` whose bytes differ from your package's
+  `desktop/plugin.js` is treated upstream as yours and never overwritten, so it
+  would shadow the managed projection. Delete that folder and let the host
+  re-project. See `docs/INSTALL.md` (Migrating from the manual installer).
+
+  The minimum supported host is now recorded: **Hermes `2026.9.11`** (upstream
+  tag `v2026.9.11`), verified by probing every tagged release — it is the
+  earliest that ships `materializeDesktopHalf` +
+  `reconcileUnifiedDesktopHalves` wired into `fs-ipc.ts`. `v2026.9.7` has
+  none of it, so on an older host the package installs but the desktop half
+  never projects.
+
+  Nothing about the generated Desktop artifact changed: `desktop/plugin.js` is
+  still the deterministic, byte-identical build of `src/**`, the plugin id is
+  still `hermes-routines`, and the route/sidebar, opt-in enable switch and
+  fail-closed routing behavior are untouched.
+
+  `node scripts/check-package-layout.mjs` (wired into `npm run check`, so it
+  rules in CI) replaces what the installer used to guarantee: the entry points
+  the host loads (`plugin.yaml` + `desktop/plugin.js` in one package) must be
+  present and shipped, the projected folder name must equal the plugin id, the
+  generated artifact must still expose the default export the loader reads and
+  stay banner-marked as generated, and README/INSTALL must keep naming the
+  plugin-manager lifecycle and the minimum supported release instead of
+  documenting a manual path.
+
+  For local development the checkout can still be exercised through a
+  throwaway `HERMES_HOME` (`hermes plugins adopt`), which is documented
+  explicitly as a non-supported fallback. Its one hard limit, verified against
+  the host's own package scan: a **symlinked** `plugins/<id>` is skipped, so a
+  real clone or copy is required — a symlink produces a silent no-op.
+
 ### Added
 
 - The Desktop SDK surface this plugin consumes is now a recorded,
