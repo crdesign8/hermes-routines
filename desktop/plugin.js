@@ -1779,6 +1779,57 @@ function isRetriableGatewayError(message) {
   return RETRIABLE_GATEWAY_PATTERNS.some((pattern) => pattern.test(message));
 }
 
+// src/state/routineQueries.ts
+var ROUTINES_QUERY_SCOPE = "routines";
+function routinesQueryKey(route) {
+  const key = routeKey(route);
+  const separator = key.indexOf("::");
+  const connectionId = key.slice(0, separator);
+  const profile = key.slice(separator + 2);
+  return Object.freeze([ROUTINES_QUERY_SCOPE, connectionId, profile]);
+}
+function routinesQueryKeyString(route) {
+  return routeKey(route);
+}
+function routinesKeyForIdentity(profile, connectionId) {
+  return activeRouteKey(profile, connectionId);
+}
+function isRoutinesKeyForRoute(key, cacheKey) {
+  return key.length === 3 && key[0] === ROUTINES_QUERY_SCOPE && `${key[1]}::${key[2]}` === cacheKey;
+}
+var routineCache = /* @__PURE__ */ new Map();
+function getCachedRoutines(cacheKey) {
+  const entry = routineCache.get(cacheKey);
+  return entry === void 0 ? null : entry.slice();
+}
+function setCachedRoutines(cacheKey, jobs) {
+  routineCache.set(cacheKey, jobs.slice());
+}
+function invalidateRoutines(cacheKey) {
+  return routineCache.delete(cacheKey);
+}
+function clearRoutineCache() {
+  routineCache.clear();
+}
+function fetchRoutinesForRoute(route) {
+  if (!route) {
+    return Promise.reject(new Error("fetchRoutinesForRoute requires a resolved profile route"));
+  }
+  routinesQueryKeyString(route);
+  return listRoutines(route);
+}
+function scopedInvalidationKey(route, activeKey) {
+  if (!route) return null;
+  let key;
+  try {
+    key = routinesQueryKeyString(route);
+  } catch {
+    return null;
+  }
+  void activeKey;
+  return key;
+}
+
 // src/gateway/provisionalCreate.ts
 async function createProvisionalRoutine(request) {
   const { route, name, schedule, prompt, delivery } = request;
@@ -5933,7 +5984,6 @@ function RoutinesPage() {
   const [routesNonce, setRoutesNonce] = useState3(0);
   const headingRef = useRef2(null);
   const statusRef = useRef2(null);
-  const generationRef = useRef2(0);
   const activeProfile = useValue(host3.state.profile);
   const activeConnectionId = useValue(host3.state.connectionId);
   const dispatch = useCallback((event) => {
@@ -6084,16 +6134,18 @@ function RoutinesPage() {
       dispatch({ type: "list-error", error: wrapHostError(err, "failed to load routines").message, key });
       return void 0;
     }
-    const generation = generationRef.current += 1;
     let cancelled = false;
     void (async () => {
       try {
-        const payload = await listRoutines(route);
-        if (!cancelled && generation === generationRef.current) {
-          dispatch({ type: "list-loaded", jobs: payload, key });
+        const payload = await fetchRoutinesForRoute(route);
+        if (cancelled) return;
+        try {
+          setCachedRoutines(key, normalizeJobs(payload));
+        } catch {
         }
+        dispatch({ type: "list-loaded", jobs: payload, key });
       } catch (err) {
-        if (!cancelled && generation === generationRef.current) {
+        if (!cancelled) {
           dispatch({ type: "list-error", error: wrapHostError(err, "failed to load routines").message, key });
         }
       }
@@ -6128,6 +6180,8 @@ function RoutinesPage() {
       await requestCronForRoute(activeRoute, "cron.manage", params, void 0, {
         spawnPriority: "foreground"
       });
+      const invalidated = scopedInvalidationKey(activeRoute, state.activeKey);
+      if (invalidated !== null) invalidateRoutines(invalidated);
       dispatch({ type: "mutate-end", jobId });
       dispatch({ type: "notice", notice: "routine " + label + " " + pastTense(kind) });
       dispatch({ type: "retry-list" });
@@ -6172,6 +6226,8 @@ function RoutinesPage() {
         const createdId = jobIdFromResponse(created);
         if (!createdId) {
           dispatch({ type: "mutate-end", jobId: createSlot });
+          const createdKey = scopedInvalidationKey(route, state.activeKey);
+          if (createdKey !== null) invalidateRoutines(createdKey);
           dispatch({ type: "retry-list" });
           setIsCreating(false);
           dispatch({
@@ -6187,6 +6243,8 @@ function RoutinesPage() {
         const pauseOutcome = cronOutcomeOf(paused);
         if (!pauseOutcome.ok) {
           dispatch({ type: "mutate-end", jobId: createSlot });
+          const pausedKey = scopedInvalidationKey(route, state.activeKey);
+          if (pausedKey !== null) invalidateRoutines(pausedKey);
           dispatch({ type: "retry-list" });
           setIsCreating(false);
           dispatch({
@@ -6198,6 +6256,8 @@ function RoutinesPage() {
       }
       dispatch({ type: "mutate-end", jobId: createSlot });
       dispatch({ type: "notice", notice: "routine " + name + " created" });
+      const successKey = scopedInvalidationKey(route, state.activeKey);
+      if (successKey !== null) invalidateRoutines(successKey);
       dispatch({ type: "retry-list" });
       setIsCreating(false);
       return true;
@@ -6217,6 +6277,8 @@ function RoutinesPage() {
     try {
       const result = await createProvisionalRoutine({ route: activeRoute, name, schedule, prompt, delivery });
       dispatch({ type: "mutate-end", jobId: createSlot });
+      const guidedKey = scopedInvalidationKey(activeRoute, state.activeKey);
+      if (guidedKey !== null) invalidateRoutines(guidedKey);
       dispatch({ type: "retry-list" });
       if (result.ok === false) {
         dispatch({ type: "mutation-error", error: "failed to create routine: " + result.message });
@@ -6793,6 +6855,7 @@ export {
   REVIEW_PATCHABLE,
   ROUTE_ID,
   ROUTE_PATH,
+  ROUTINES_QUERY_SCOPE,
   ROUTINES_VIEW_STATUS,
   ROUTINE_PROPOSAL_VERSION,
   ResultTone,
@@ -6839,6 +6902,7 @@ export {
   buildReopenHandle,
   buildResumeParams,
   canGuidedTransition,
+  clearRoutineCache,
   coerceRoutes,
   collapsedSubtitleOf,
   composerDestinationDelivery,
@@ -6858,6 +6922,7 @@ export {
   dismissFocusId,
   escapeLeavesPanel,
   explainFailureOf,
+  fetchRoutinesForRoute,
   filterCounts,
   findAppliedDuplicate,
   findDestinationOption,
@@ -6867,6 +6932,7 @@ export {
   focusById,
   formatDate,
   generateTimeSlots,
+  getCachedRoutines,
   guidedConfigCandidateOf,
   guidedIndicator,
   guidedRouteDrift,
@@ -6874,10 +6940,12 @@ export {
   humanScheduleOf,
   initialGuidedWorkflow,
   initialRoutinesState,
+  invalidateRoutines,
   isBroadcastDelivery,
   isFailedStatus,
   isProposalStale,
   isRetriableGatewayError,
+  isRoutinesKeyForRoute,
   isSafeOptimistic,
   isValidJobId,
   issueOf,
@@ -6935,10 +7003,15 @@ export {
   routineStateOf,
   routineTerminal,
   routineTitle,
+  routinesKeyForIdentity,
+  routinesQueryKey,
+  routinesQueryKeyString,
   routinesViewReducer,
   runDistanceOf,
   scopedCronParams,
+  scopedInvalidationKey,
   serializeGuidedEnvelope,
+  setCachedRoutines,
   singleLine,
   snapshotJobConfig,
   submitProposalForRoutine,

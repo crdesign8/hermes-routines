@@ -8,7 +8,7 @@ import {
   type RoutinesState,
 } from '../state/routinesState';
 import { findRouteByKey } from '../domain/routing';
-import { filterCounts, jobIdFromResponse, jobIdOf, visibleJobs, type RoutineJob } from '../domain/jobs';
+import { filterCounts, jobIdFromResponse, jobIdOf, normalizeJobs, visibleJobs, type RoutineJob } from '../domain/jobs';
 import { attentionTargets, needsAttention } from '../domain/attention';
 import {
   humanScheduleOf,
@@ -26,7 +26,13 @@ import {
   buildResumeParams,
   isSafeOptimistic,
 } from '../gateway/cronParams';
-import { listProfileRoutes, listRoutines, requestCronForRoute } from '../gateway/cronGateway';
+import { listProfileRoutes, requestCronForRoute } from '../gateway/cronGateway';
+import {
+  fetchRoutinesForRoute,
+  invalidateRoutines,
+  scopedInvalidationKey,
+  setCachedRoutines,
+} from '../state/routineQueries';
 import { createProvisionalRoutine } from '../gateway/provisionalCreate';
 import { takeShellRequest, subscribeShellRequests } from '../state/shellRequests';
 import { launchGuidedConfiguration, type GuidedLaunchResult } from '../gateway/guidedLaunch';
@@ -71,17 +77,25 @@ import {
 // subscribed via `useValue`). Routes come from `host.profileRoutes()` and
 // are used ONLY to locate the exact descriptor for that active identity;
 // the view never offers a picker and never falls back to another profile.
-// listRoutines() rides host.requestProfile for cron.manage at the host's
-// default (background) dial priority; the user actions — pause, resume,
+// Routine inventory is owned by the scoped query layer
+// (`state/routineQueries`): the query key is the connection-qualified
+// `connectionId::profile` identity, fetching rides host.requestProfile for
+// cron.manage at the host's default (background) dial priority, and
+// mutations invalidate only the key they ran against. The reducer keeps
+// owning the view/product transitions (filters, selection, attention and
+// configuration focus, optimistic pause/resume behavior, profile-switch race
+// protection); the query cache never holds search text, filter choice,
+// selection or panel state. The user actions — pause, resume,
 // create — pass { spawnPriority: 'foreground' } so their possible
 // cold-start takes the pool's reserved interactive slot. A missing
 // route shows the unavailable state instead of guessing a backend, and the
 // view never passes the active-door opt-in.
 //
 // Races: every list round carries its connection-qualified key. A request
-// for profile A that resolves after the switch to B is ignored twice —
-// once by the generation guard in the effect, once by the reducer's key
-// check — so the UI keeps showing only B.
+// for profile A that resolves after the switch to B is ignored by the
+// reducer's key check — so the UI keeps showing only B. The scoped query
+// cache is keyed the same way, so a late response for A populates A's
+// entry only and can never render as B.
 //
 // State: one reducer (routinesViewReducer). Every dispatch is a functional
 // update, so each event becomes exactly one transition. Optimism (rollback
@@ -137,7 +151,6 @@ export function RoutinesPage() {
   const [routesNonce, setRoutesNonce] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
-  const generationRef = useRef(0);
 
   // Reactive active identity: the ONLY profile this page represents.
   const activeProfile = useValue(host.state.profile);
@@ -397,7 +410,7 @@ export function RoutinesPage() {
       dispatch({ type: 'list-error', error: 'the active profile route is no longer available', key });
       return undefined;
     }
-    // listRoutines validates the scoped envelope up front (fail-closed);
+    // The scoped query layer validates the envelope up front (fail-closed);
     // build the params first so a scoping fault surfaces without a host call.
     try {
       buildListParams(route);
@@ -405,16 +418,25 @@ export function RoutinesPage() {
       dispatch({ type: 'list-error', error: wrapHostError(err, 'failed to load routines').message, key });
       return undefined;
     }
-    const generation = (generationRef.current += 1);
+    // No generation counter: the connection-qualified key scopes the round.
+    // A late response for a superseded route carries that route's key and is
+    // dropped by the reducer's key check; effect cancellation covers
+    // unmount. The payload also populates ONLY its own scoped cache entry.
     let cancelled = false;
     void (async () => {
       try {
-        const payload = await listRoutines(route);
-        if (!cancelled && generation === generationRef.current) {
-          dispatch({ type: 'list-loaded', jobs: payload, key });
+        const payload = await fetchRoutinesForRoute(route);
+        if (cancelled) return;
+        try {
+          setCachedRoutines(key, normalizeJobs(payload));
+        } catch {
+          // Cache is best-effort: a payload the normalizer rejects still
+          // flows to the reducer, which reports it through the same error
+          // path as before.
         }
+        dispatch({ type: 'list-loaded', jobs: payload, key });
       } catch (err) {
-        if (!cancelled && generation === generationRef.current) {
+        if (!cancelled) {
           dispatch({ type: 'list-error', error: wrapHostError(err, 'failed to load routines').message, key });
         }
       }
@@ -466,6 +488,11 @@ export function RoutinesPage() {
       await requestCronForRoute(activeRoute, 'cron.manage', params, undefined, {
         spawnPriority: 'foreground',
       });
+      // Scoped invalidation: only the mutated route's cache entry is
+      // dropped. Other profiles keep their entries, and the refetch below
+      // repopulates this route alone.
+      const invalidated = scopedInvalidationKey(activeRoute, state.activeKey);
+      if (invalidated !== null) invalidateRoutines(invalidated);
       dispatch({ type: 'mutate-end', jobId });
       dispatch({ type: 'notice', notice: 'routine ' + label + ' ' + pastTense(kind) });
       dispatch({ type: 'retry-list' });
@@ -530,6 +557,8 @@ export function RoutinesPage() {
         const createdId = jobIdFromResponse(created);
         if (!createdId) {
           dispatch({ type: 'mutate-end', jobId: createSlot });
+          const createdKey = scopedInvalidationKey(route, state.activeKey);
+          if (createdKey !== null) invalidateRoutines(createdKey);
           dispatch({ type: 'retry-list' });
           setIsCreating(false);
           dispatch({
@@ -550,6 +579,8 @@ export function RoutinesPage() {
         const pauseOutcome = cronOutcomeOf(paused);
         if (!pauseOutcome.ok) {
           dispatch({ type: 'mutate-end', jobId: createSlot });
+          const pausedKey = scopedInvalidationKey(route, state.activeKey);
+          if (pausedKey !== null) invalidateRoutines(pausedKey);
           dispatch({ type: 'retry-list' });
           setIsCreating(false);
           dispatch({
@@ -563,6 +594,8 @@ export function RoutinesPage() {
       }
       dispatch({ type: 'mutate-end', jobId: createSlot });
       dispatch({ type: 'notice', notice: 'routine ' + name + ' created' });
+      const successKey = scopedInvalidationKey(route, state.activeKey);
+      if (successKey !== null) invalidateRoutines(successKey);
       dispatch({ type: 'retry-list' });
       setIsCreating(false);
       return true;
@@ -596,6 +629,8 @@ export function RoutinesPage() {
     try {
       const result = await createProvisionalRoutine({ route: activeRoute, name, schedule, prompt, delivery });
       dispatch({ type: 'mutate-end', jobId: createSlot });
+      const guidedKey = scopedInvalidationKey(activeRoute, state.activeKey);
+      if (guidedKey !== null) invalidateRoutines(guidedKey);
       dispatch({ type: 'retry-list' });
       if (result.ok === false) {
         dispatch({ type: 'mutation-error', error: 'failed to create routine: ' + result.message });

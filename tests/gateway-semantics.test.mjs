@@ -211,10 +211,13 @@ describe('gateway semantics: requestCronForRoute (single source: desktop/plugin.
       mutations.length,
       'every user action must ask for the interactive spawn slot',
     );
-    // the list load must never request it: it is polling, not a user action
-    const listRoutinesCalls = code.match(/listRoutines\(/g) || [];
-    assert.equal(listRoutinesCalls.length, 1, 'exactly one list load site');
-    assert.equal(/listRoutines\([^)]*spawnPriority/.test(code), false, 'polling stays background');
+    // The list load rides the scoped query layer (issue #102): exactly one
+    // fetch site in the view, delegating to the background list door. It
+    // must never request the interactive slot: it is polling, not a user
+    // action.
+    const listLoadCalls = code.match(/fetchRoutinesForRoute\(/g) || [];
+    assert.equal(listLoadCalls.length, 1, 'exactly one list load site');
+    assert.equal(/fetchRoutinesForRoute\([^)]*spawnPriority/.test(code), false, 'polling stays background');
   });
 
   it('invalid timeoutMs throws TypeError without touching any host', async () => {
