@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { Button, Input, Textarea } from '@hermes/plugin-sdk';
 import type { PluginProfileRoute } from '@hermes/plugin-sdk';
 import type { RoutineJob } from '../domain/jobs';
 import {
@@ -119,13 +120,13 @@ export function RoutineInspectorPanel({
               This routine is paused and has never run — its configuration is incomplete.
             </span>
             {configCandidate !== null && onConfigure ? (
-              <button
-                type="button"
-                className="hr-btn hr-btn-small"
+              <Button
+                variant="outline"
+                size="xs"
                 onClick={() => onConfigure(configCandidate.jobId)}
               >
                 Continue configuration
-              </button>
+              </Button>
             ) : null}
           </div>
         ) : null}
@@ -136,8 +137,9 @@ export function RoutineInspectorPanel({
             <span className="hr-create-active-title">Active</span>
             <span className="hr-create-active-subtitle">This routine will run on the schedule below.</span>
           </div>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             role="switch"
             aria-checked={routineActive(job)}
             aria-label="Routine active state"
@@ -145,15 +147,14 @@ export function RoutineInspectorPanel({
             className={`hr-switch-pill ${routineActive(job) ? 'hr-switch-active' : ''}`}
           >
             <span className="hr-switch-thumb" />
-          </button>
+          </Button>
         </div>
 
         {/* Name (disabled mirror) */}
         <div className="hr-create-field">
           <label className="hr-field-label">Name</label>
-          <input
+          <Input
             type="text"
-            className="hr-create-input"
             value={title}
             disabled
             readOnly
@@ -164,8 +165,7 @@ export function RoutineInspectorPanel({
         {/* Instruction (disabled mirror) */}
         <div className="hr-create-field">
           <label className="hr-field-label">What should this routine do?</label>
-          <textarea
-            className="hr-create-textarea"
+          <Textarea
             rows={3}
             value={routinePromptOf(job) ?? ''}
             disabled
@@ -207,9 +207,8 @@ export function RoutineInspectorPanel({
                 {/* The raw backend value stays available, read-only: it
                     is what the backend actually holds, and hiding it
                     would make an unexplained target unfalsifiable. */}
-                <input
+                <Input
                   type="text"
-                  className="hr-create-input"
                   value={storedDelivery ?? ''}
                   disabled
                   readOnly

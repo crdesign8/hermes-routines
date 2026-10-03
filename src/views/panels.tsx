@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { Button } from '@hermes/plugin-sdk';
 
 // Feedback panels shared by the page's branches: an error box (message +
 // retry) and an empty box (message, optional action). Pure — copy and
@@ -15,9 +16,9 @@ export function ErrorPanel({ title, message, onRetry }: ErrorPanelProps) {
     <div className="hr-error" role="alert">
       <strong>{title}</strong>
       <p className="hr-row-meta">{message}</p>
-      <button type="button" className="hr-btn" onClick={onRetry}>
+      <Button variant="outline" size="sm" onClick={onRetry}>
         Retry
-      </button>
+      </Button>
     </div>
   );
 }
@@ -34,9 +35,9 @@ export function EmptyPanel({ message, actionLabel, onAction }: EmptyPanelProps) 
       {actionLabel && onAction ? (
         <>
           <p>{message}</p>
-          <button type="button" className="hr-btn" onClick={onAction}>
+          <Button variant="outline" size="sm" onClick={onAction}>
             {actionLabel}
-          </button>
+          </Button>
         </>
       ) : (
         message

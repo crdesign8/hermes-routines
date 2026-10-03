@@ -584,7 +584,9 @@ describe('guided-composer-integration', () => {
     });
     const nodes = collect(element);
     const submit = nodes.find(
-      (n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-hermes',
+      (n) =>
+        n.type === 'button' &&
+        n.props['aria-label'] === 'Create this routine and finish the setup with Hermes',
     );
     assert.ok(submit, 'the guided completion act must exist in the composer');
     assert.match(texts(submit), /Finish with Hermes/, 'the act states its own outcome');

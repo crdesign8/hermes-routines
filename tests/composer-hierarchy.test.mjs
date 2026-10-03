@@ -24,7 +24,10 @@ const reactStub = await import('./stubs/react-stub.mjs');
 const ROUTE = { connectionId: 'c1', mode: 'remote', profile: 'p1', targetProfile: 't1' };
 const noop = () => {};
 const CONFIG = routines.DEFAULT_SCHEDULE_CONFIG;
-const HERMES_CLASS = 'hr-btn hr-btn-create-hermes';
+// The two acts are located by accessible name / host variant since issue
+// #100 moved both onto the host Button (the hr-btn-* classes are gone).
+// Naming the control is the stronger assertion anyway: it is what a user
+// and a screen reader actually reach.
 const HERMES_QUIET = 'hr-create-hermes-quiet';
 const HERMES_NOTE = 'hr-create-hermes-note';
 const HERMES_SENTENCE = 'Let Hermes review this paused routine in chat before you enable it.';
@@ -97,15 +100,20 @@ function renderGuided() {
 }
 
 function finishButton(element) {
-  const found = documentOrder(element).find((n) => n.type === 'button' && n.props.className === HERMES_CLASS);
+  const found = documentOrder(element).find(
+    (n) => n.type === 'button' && n.props['aria-label'] === 'Create this routine and finish the setup with Hermes',
+  );
   assert.ok(found, 'the Finish with Hermes action must exist');
   return found;
 }
 
+/**
+ * The direct act, located by host variant rather than by text: while the
+ * guided path is pending its label reads "Creating...", so the text is not a
+ * stable key.
+ */
 function directButton(element) {
-  const found = documentOrder(element).find(
-    (n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-submit',
-  );
+  const found = documentOrder(element).find((n) => n.type === 'button' && n.props['data-variant'] === 'default');
   assert.ok(found, 'the Create Routine action must exist');
   return found;
 }
@@ -203,9 +211,7 @@ describe('composer hierarchy (issue #72)', () => {
       presetDraft(draft);
       const element = renderComposer({ onSubmit: async () => true, onSubmitGuided: async () => true });
       const finish = finishButton(element);
-      const create = documentOrder(element).find(
-        (n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-submit',
-      );
+      const create = directButton(element);
       assert.ok(create, 'the direct action must exist');
       assert.equal(finish.props.disabled, true, 'an unusable draft cannot enter the assisted path');
       assert.equal(create.props.disabled, true, 'and cannot be created either');
@@ -242,7 +248,7 @@ describe('composer hierarchy (issue #72)', () => {
       undefined,
     ]);
 
-    const create = order.find((n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-submit');
+    const create = order.find((n) => n.type === 'button' && n.props['data-variant'] === 'default');
     assert.ok(create, 'the direct action must exist');
     await create.props.onClick();
     assert.equal(direct.length, 1, 'the direct action performs the ordinary create');
@@ -302,9 +308,7 @@ describe('composer hierarchy (issue #72)', () => {
         onSubmitGuided: async () => true,
       });
       const finish = finishButton(element);
-      const create = documentOrder(element).find(
-        (n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-submit',
-      );
+      const create = directButton(element);
       // The in-flight act states its own outcome; the other stays at its
       // resting label, and neither is clickable again.
       assert.match(textOf(finish), pendingPath === 'guided' ? new RegExp(label) : /Finish with Hermes →/);
@@ -411,7 +415,7 @@ describe('composer hierarchy (issue #72)', () => {
     assert.doesNotMatch(textOf(element), /Finish with Hermes/);
     // The direct path is untouched, including the creation-time state.
     assert.match(textOf(element), /Start enabled/);
-    const create = nodes.find((n) => n.type === 'button' && n.props.className === 'hr-btn hr-btn-create-submit');
+    const create = nodes.find((n) => n.type === 'button' && n.props['data-variant'] === 'default');
     assert.equal(create.props.disabled, false, 'a complete draft is still directly creatable');
   });
 });

@@ -44,6 +44,14 @@ calls (`host.*` for host members). Every entry points at the upstream
 | `PluginProfileRoute` | type-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:210` |
 | `PluginContext` | type-export | `@hermes/plugin-sdk` | `apps/desktop/src/contrib/plugin.ts:76` |
 | `HermesPlugin` | type-export | `@hermes/plugin-sdk` | `apps/desktop/src/contrib/plugin.ts:128` |
+| `Button` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:1802` |
+| `Input` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:1850` |
+| `Textarea` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:1873` |
+| `Select` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:1868` |
+| `SelectTrigger` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:1868` |
+| `SelectValue` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:1868` |
+| `SelectContent` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:1868` |
+| `SelectItem` | value-export | `@hermes/plugin-sdk` | `apps/desktop/src/sdk/index.ts:1868` |
 | `profileRoutes` | host-member | `host.profileRoutes` | `apps/desktop/src/sdk/index.ts:1476` |
 | `requestProfile` | host-member | `host.requestProfile` | `apps/desktop/src/sdk/index.ts:1512` |
 | `request` | host-member | `host.request` | `apps/desktop/src/sdk/index.ts:1621` |
@@ -54,6 +62,19 @@ calls (`host.*` for host members). Every entry points at the upstream
 | `state.connectionId` | host-member | `host.state.connectionId` | `apps/desktop/src/sdk/index.ts:684` |
 | `PluginContribution` | shim-internal | shim declaration only | `apps/desktop/src/contrib/plugin.ts:30` |
 | `ReadableAtom` | shim-internal | shim declaration only | `apps/desktop/src/sdk/index.ts:21` |
+
+The UI-kit entries (`Button`, `Input`, `Textarea`, `Select*`) were added for
+issue #100. They are ordinary value exports like the rest, but they carry two
+contracts worth naming here:
+
+- **String-valued select.** Upstream's `Select` is a Radix select whose
+  `value` is a string. `NativeSelect` therefore serializes each option value
+  on the way in and resolves it against the option list on the way out, so a
+  number or union-typed value never has to round-trip through `String()`.
+- **`variant` / `size` are cva VariantProps.** The upstream button types its
+  emphasis as `class-variance-authority` variants. The shim declares the
+  literal union this plugin uses, because cva types do not exist in the shim;
+  an unlisted value still typechecks, so this cannot drift into a false gate.
 
 `shim-internal` entries are structural helpers the shim needs to describe its
 own shape (`ctx.register`'s argument, the readonly atom face). They are

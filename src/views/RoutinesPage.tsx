@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { host, useValue, type PluginProfileRoute } from '@hermes/plugin-sdk';
+import { Button, Input, host, useValue, type PluginProfileRoute } from '@hermes/plugin-sdk';
 import {
   ROUTINES_VIEW_STATUS,
   initialRoutinesState,
@@ -732,13 +732,13 @@ export function RoutinesPage() {
                 ? 'Showing 1 routine that needs attention'
                 : `Showing ${filteredJobs.length} routines that need attention`}
           </span>
-          <button
-            type="button"
-            className="hr-btn hr-btn-small"
+          <Button
+            variant="outline"
+            size="xs"
             onClick={() => setAttentionFocus('clear')}
           >
             Show all routines
-          </button>
+          </Button>
         </div>
       ) : null;
 
@@ -746,17 +746,17 @@ export function RoutinesPage() {
       <>
         <div className="hr-toolbar">
           <div className="hr-search-wrap">
-            <input
+            <Input
               type="text"
-              className="hr-search-input"
               placeholder="Search routines…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               aria-label="Search routines"
             />
             {searchQuery ? (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 className="hr-search-clear"
                 onClick={() => setSearchQuery('')}
                 aria-label="Clear search"
@@ -764,7 +764,7 @@ export function RoutinesPage() {
                 <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                   <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
                 </svg>
-              </button>
+              </Button>
             ) : null}
           </div>
           <div className="hr-filters-col">
@@ -947,8 +947,9 @@ export function RoutinesPage() {
               <h2 id="hermes-routines-heading" ref={headingRef} tabIndex={-1} className="hr-title">
                 Routines
               </h2>
-              <button
-                type="button"
+              <Button
+                variant="default"
+                size="sm"
                 id={NEW_ROUTINE_CONTROL_ID}
                 className="hr-btn-new"
                 onClick={() => {
@@ -979,7 +980,7 @@ export function RoutinesPage() {
                     browser derives it from the content, so an aria-label here
                     would only restate what the label already says. */}
                 <span className="hr-btn-new-label">New routine</span>
-              </button>
+              </Button>
               <span className="hr-sr-only">Profile: {profileLabel}</span>
             </div>
             <p className="hr-sub">

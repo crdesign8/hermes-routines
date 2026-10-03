@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { Button } from '@hermes/plugin-sdk';
 import { BROADCAST_REVIEW_WARNING, isBroadcastDelivery } from '../domain/destinations';
 import type { ProposalReview } from '../domain/guidedWorkflow';
 
@@ -127,30 +128,15 @@ export function GuidedProposalReview({
       </div>
 
       <div className="hr-create-actions">
-        <button
-          type="button"
-          className="hr-btn hr-btn-back-routines"
-          disabled={busy}
-          onClick={onContinueConfiguring}
-        >
+        <Button variant="text" size="sm" disabled={busy} onClick={onContinueConfiguring}>
           Continue configuring
-        </button>
-        <button
-          type="button"
-          className="hr-btn hr-btn-back-routines"
-          disabled={busy}
-          onClick={() => onConfirm(false)}
-        >
+        </Button>
+        <Button variant="outline" size="sm" disabled={busy} onClick={() => onConfirm(false)}>
           Keep paused
-        </button>
-        <button
-          type="button"
-          className="hr-btn hr-btn-create-submit"
-          disabled={busy}
-          onClick={() => onConfirm(true)}
-        >
+        </Button>
+        <Button variant="default" size="sm" disabled={busy} onClick={() => onConfirm(true)}>
           Apply and activate
-        </button>
+        </Button>
       </div>
     </div>
   );

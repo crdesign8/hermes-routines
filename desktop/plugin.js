@@ -16,8 +16,8 @@ var SIDEBAR_LABEL = "Routines";
 var SIDEBAR_CODICON = "history";
 
 // src/views/RoutinesPage.tsx
-import { useCallback, useEffect as useEffect3, useMemo as useMemo2, useRef as useRef3, useState as useState4 } from "react";
-import { host as host3, useValue } from "@hermes/plugin-sdk";
+import { useCallback, useEffect as useEffect2, useMemo as useMemo2, useRef as useRef2, useState as useState3 } from "react";
+import { Button as Button10, Input as Input4, host as host3, useValue } from "@hermes/plugin-sdk";
 
 // src/domain/routing.ts
 function assertPlainObject(value, label) {
@@ -3468,6 +3468,10 @@ var ROUTINES_CSS = [
   "  width: 100%;",
   "  max-width: 280px;",
   "}",
+  // 28px, matching the filter chips: the box and its clear control are one
+  // target area and must not disagree about height (issue #79). The height
+  // lives on the wrapper since the field itself is a host Input (issue #100).
+  ".hr-search-wrap > input { flex: 1 1 auto; min-width: 0; height: 28px; }",
   ".hr-filters-col {",
   "  display: flex;",
   "  flex-direction: column;",
@@ -3521,23 +3525,6 @@ var ROUTINES_CSS = [
   "  background: transparent;",
   "  color: var(--ui-text-primary, #fff);",
   "  font-weight: 600;",
-  "}",
-  ".hr-search-input {",
-  "  width: 100%;",
-  // 28px, matching the filter chips: the box and its clear control are one
-  // target area and must not disagree about height (issue #79).
-  "  height: 28px;",
-  "  padding: 0 28px 0 10px;",
-  "  border-radius: 6px;",
-  "  font-size: 12px;",
-  "  background: var(--ui-bg-card, rgba(255,255,255,0.03));",
-  "  border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.1));",
-  "  color: var(--ui-text-primary, #fff);",
-  "  outline: none;",
-  "  transition: border-color 0.15s;",
-  "}",
-  ".hr-search-input:focus {",
-  "  border-color: var(--dt-composer-ring, var(--ui-accent, #0053fd));",
   "}",
   // Same hit-target rule as the row actions: a 16x16 box around a 10px
   // glyph was the smallest target on the page (issue #79).
@@ -3900,9 +3887,6 @@ var ROUTINES_CSS = [
   // scrolls inside its own cell instead of being cut off.
   ".hr-tech-value { font-family: var(--dt-font-mono, monospace); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }",
   ".hr-inspector-actions-bar { display: flex; gap: 8px; }",
-  ".hr-btn { display: inline-flex; align-items: center; justify-content: center; padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--ui-text-primary, #fff); background: var(--ui-bg-card, #222); border: 1px solid var(--ui-stroke-tertiary, rgba(255,255,255,0.12)); border-radius: 6px; cursor: pointer; transition: all 0.15s ease; }",
-  ".hr-btn:hover { background: var(--chrome-action-hover, rgba(255,255,255,0.08)); }",
-  ".hr-btn:disabled { opacity: 0.5; cursor: not-allowed; }",
   ".hr-btn-pause { border-color: color-mix(in srgb, var(--ui-yellow, #fbbf24) 40%, transparent); color: var(--ui-yellow, #fbbf24); background: color-mix(in srgb, var(--ui-yellow, #fbbf24) 8%, transparent); }",
   ".hr-btn-resume { border-color: color-mix(in srgb, var(--ui-green, #34d399) 40%, transparent); color: var(--ui-green, #34d399); background: color-mix(in srgb, var(--ui-green, #34d399) 8%, transparent); }",
   "",
@@ -3931,7 +3915,7 @@ var ROUTINES_CSS = [
   // The focus bar is the same band in its active state: same severity, a
   // different sentence, and the control that leaves it.
   ".hr-attention-active { border-color: color-mix(in srgb, var(--ui-red, #f87171) 55%, transparent); margin-bottom: 8px; }",
-  ".hr-attention .hr-btn { margin-left: auto; }",
+  '.hr-attention > [data-slot="button"], .hr-config-note > [data-slot="button"] { margin-left: auto; }',
   ".hr-muted { color: var(--ui-text-tertiary, #888); font-size: 13px; line-height: 1.4; }",
   ".hr-status { margin-top: 10px; color: var(--ui-text-tertiary, #888); font-size: 12px; }",
   // A status line that only restates what the page already shows (the
@@ -4071,27 +4055,13 @@ var ROUTINES_CSS = [
   "  line-height: 1.45;",
   "  color: var(--ui-text-tertiary, #888);",
   "}",
-  ".hr-btn-create-hermes {",
-  "  background: transparent;",
-  "  border: none;",
-  "  padding: 6px 0;",
-  "  font-size: 13px;",
-  "  font-weight: 600;",
-  "  color: var(--dt-primary, var(--ui-accent, #ea580c));",
-  "  cursor: pointer;",
-  "  transition: opacity 0.15s ease;",
-  "  display: inline-flex;",
-  "  align-items: center;",
-  "}",
-  ".hr-btn-create-hermes:hover:not(:disabled) {",
-  "  background: transparent;",
+  // The quiet act is a host Button (issue #100), so it is addressed by its
+  // slot rather than a retired class. The hover affordance is an underline
+  // on the label, exactly as before — the host `ghost` variant supplies the
+  // rest, and it already dims itself when disabled.
+  '[data-slot="button"]:hover:not(:disabled) {',
   "  text-decoration: underline;",
   "  text-underline-offset: 3px;",
-  "}",
-  ".hr-btn-create-hermes:disabled {",
-  "  opacity: 0.5;",
-  "  cursor: not-allowed;",
-  "  text-decoration: none;",
   "}",
   // Quiet broadcast opt-in (issue #92). Asking for the fan-out guard is not
   // itself a risk, so the pre-opt-in block takes no bordered surface — only
@@ -4104,7 +4074,7 @@ var ROUTINES_CSS = [
   "  gap: 6px;",
   "  margin: 10px 0 14px 0;",
   "}",
-  ".hr-create-broadcast-quiet .hr-btn {",
+  '.hr-create-broadcast-quiet [data-slot="button"] {',
   "  background: transparent;",
   "}",
   // Quiet inspector note (issue #92): information with no action on this
@@ -4163,7 +4133,7 @@ var ROUTINES_CSS = [
   "  color: var(--ui-text-secondary, #a1a1aa);",
   "}",
   "/* Field labels */",
-  ".hr-field-label, .hr-select-label {",
+  ".hr-field-label {",
   "  display: block;",
   "  font-size: 12px;",
   "  font-weight: 500;",
@@ -4174,28 +4144,12 @@ var ROUTINES_CSS = [
   ".hr-create-field {",
   "  margin-bottom: 14px;",
   "}",
-  ".hr-create-input, .hr-create-textarea {",
-  "  width: 100%;",
-  "  background: var(--ui-bg-card, color-mix(in srgb, var(--dt-card, #1c1917) 60%, transparent));",
-  "  border: 1px solid var(--ui-stroke-tertiary, var(--dt-border, rgba(255, 255, 255, 0.12)));",
-  "  border-radius: 8px;",
-  "  padding: 10px 14px;",
-  "  font-size: 14px;",
-  "  color: var(--ui-text-primary, var(--dt-foreground, #fff));",
-  "  font-family: inherit;",
-  "  outline: none;",
-  "  transition: border-color 0.15s ease, background 0.15s ease;",
-  "}",
-  ".hr-create-input:hover, .hr-create-textarea:hover {",
-  "  border-color: var(--ui-stroke-secondary, rgba(255, 255, 255, 0.25));",
-  "}",
-  ".hr-create-input:focus, .hr-create-textarea:focus {",
-  "  border-color: var(--dt-composer-ring, var(--dt-primary, var(--ui-accent, currentColor)));",
-  "}",
-  ".hr-create-input::placeholder, .hr-create-textarea::placeholder {",
-  "  color: var(--ui-text-tertiary, var(--dt-muted-foreground, rgba(255, 255, 255, 0.4)));",
-  "}",
-  ".hr-create-input:disabled, .hr-create-textarea:disabled {",
+  // The composer's fields are host Input/Textarea now (issue #100). Their
+  // hover, placeholder and disabled looks belong to the theme, so the local
+  // overrides that used to fight the custom border are gone; only the
+  // read-only mirrors keep a dimmed affordance, because a disabled field
+  // must still read as "reported, not editable" (issue #74).
+  '.hr-create-field [data-slot="input"]:disabled, .hr-create-field [data-slot="textarea"]:disabled {',
   "  opacity: 0.75;",
   "  cursor: not-allowed;",
   "}",
@@ -4213,80 +4167,6 @@ var ROUTINES_CSS = [
   "}",
   "",
   "/* Custom Select Field */",
-  ".hr-select-container {",
-  "  position: relative;",
-  "  width: 100%;",
-  "  margin-bottom: 12px;",
-  "}",
-  ".hr-select-trigger {",
-  "  position: relative;",
-  "  width: 100%;",
-  "  background: var(--ui-bg-card, color-mix(in srgb, var(--dt-card, #1c1917) 60%, transparent));",
-  "  border: 1px solid var(--ui-stroke-tertiary, var(--dt-border, rgba(255, 255, 255, 0.14)));",
-  "  border-radius: 8px;",
-  "  padding: 9px 12px;",
-  "  display: flex;",
-  "  justify-content: space-between;",
-  "  align-items: center;",
-  "  cursor: pointer;",
-  "  user-select: none;",
-  "  transition: border-color 0.15s ease, background 0.15s ease;",
-  "  outline: none;",
-  "  min-height: 38px;",
-  "}",
-  ".hr-select-trigger:hover {",
-  "  border-color: var(--ui-stroke-secondary, rgba(255, 255, 255, 0.25));",
-  "  background: var(--ui-bg-tertiary, color-mix(in srgb, var(--dt-card, #1c1917) 80%, transparent));",
-  "}",
-  ".hr-select-is-open .hr-select-trigger {",
-  "  border-color: var(--dt-composer-ring, var(--dt-primary, var(--ui-accent, currentColor)));",
-  "}",
-  ".hr-select-value {",
-  "  font-size: 13px;",
-  "  font-weight: 500;",
-  "  color: var(--ui-text-primary, var(--dt-foreground, #fff));",
-  "}",
-  ".hr-select-arrow {",
-  "  color: var(--ui-text-tertiary, var(--dt-muted-foreground, #888));",
-  "  display: flex;",
-  "  align-items: center;",
-  "  margin-left: 8px;",
-  "  transition: transform 0.15s ease;",
-  "}",
-  ".hr-select-is-open .hr-select-arrow {",
-  "  transform: rotate(180deg);",
-  "}",
-  ".hr-select-menu {",
-  "  position: absolute;",
-  "  top: calc(100% + 4px);",
-  "  left: 0;",
-  "  right: 0;",
-  "  max-height: 220px;",
-  "  overflow-y: auto;",
-  "  background: var(--dt-popover, var(--ui-bg-elevated, #181412));",
-  "  border: 1px solid var(--dt-border, var(--ui-stroke-secondary, rgba(255, 255, 255, 0.14)));",
-  "  border-radius: 8px;",
-  "  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65);",
-  "  z-index: 1000;",
-  "  padding: 4px;",
-  "}",
-  ".hr-select-option {",
-  "  padding: 8px 12px;",
-  "  font-size: 13px;",
-  "  color: var(--dt-popover-foreground, var(--ui-text-primary, #fff));",
-  "  border-radius: 6px;",
-  "  cursor: pointer;",
-  "  transition: background 0.12s ease, color 0.12s ease;",
-  "}",
-  ".hr-select-option:hover {",
-  "  background: var(--chrome-action-hover, var(--ui-control-hover-background, rgba(255, 255, 255, 0.08)));",
-  "  color: var(--ui-text-primary, #fff);",
-  "}",
-  ".hr-select-option-active {",
-  "  background: color-mix(in srgb, var(--dt-primary, var(--ui-accent, #ea580c)) 20%, transparent);",
-  "  color: var(--dt-primary, var(--ui-accent, #ea580c));",
-  "  font-weight: 600;",
-  "}",
   ".hr-create-sub-row {",
   "  width: 100%;",
   "  margin-top: 10px;",
@@ -4296,7 +4176,7 @@ var ROUTINES_CSS = [
   "  gap: 10px;",
   "  margin-top: 10px;",
   "}",
-  ".hr-create-sub-split .hr-select-container {",
+  ".hr-create-sub-split .hr-select {",
   "  flex: 1;",
   "  margin-bottom: 0;",
   "}",
@@ -4374,57 +4254,19 @@ var ROUTINES_CSS = [
   "  overflow-wrap: anywhere;",
   "}",
   ".hr-review-outcomes { display: flex; flex-direction: column; gap: 4px; }",
+  // The two final acts are host Buttons now (issue #100), so their own
+  // chrome is gone; the row still owns the equal-width split and the height,
+  // which are layout the primitive does not decide.
   ".hr-create-actions {",
   "  display: flex;",
   "  gap: 10px;",
   "  margin-top: 18px;",
   "}",
-  ".hr-btn-back-routines {",
-  "  flex: 1;",
-  "  height: 38px;",
-  "  border-radius: 8px;",
-  "  font-size: 13px;",
-  "  font-weight: 500;",
-  "  color: var(--ui-text-secondary, #ccc);",
-  "  background: transparent;",
-  "  border: 1px solid var(--ui-stroke-tertiary, var(--dt-border, rgba(255, 255, 255, 0.12)));",
-  "  cursor: pointer;",
-  "  transition: all 0.15s ease;",
-  "  display: flex;",
-  "  align-items: center;",
-  "  justify-content: center;",
-  "}",
-  ".hr-btn-back-routines:hover {",
-  "  background: var(--chrome-action-hover, rgba(255, 255, 255, 0.06));",
-  "  color: var(--ui-text-primary, #fff);",
-  "  border-color: var(--ui-stroke-secondary, rgba(255, 255, 255, 0.22));",
-  "}",
-  ".hr-btn-create-submit {",
-  "  flex: 1;",
-  "  height: 38px;",
-  "  border-radius: 8px;",
-  "  font-size: 13px;",
-  "  font-weight: 600;",
-  "  color: var(--dt-primary-foreground, #fff);",
-  "  background: var(--dt-primary, var(--ui-accent, #ea580c));",
-  "  border: 1px solid transparent;",
-  "  cursor: pointer;",
-  "  transition: all 0.15s ease;",
-  "  display: flex;",
-  "  align-items: center;",
-  "  justify-content: center;",
-  "}",
-  ".hr-btn-create-submit:hover:not(:disabled) {",
+  ".hr-create-actions > * { flex: 1 1 0; min-height: 38px; }",
+  // The filled act is a host Button too; its pressed and disabled looks are
+  // the host's, so nothing overrides them here any more.
+  '[data-slot="button"][data-variant="default"]:active:not(:disabled) {',
   "  opacity: 0.92;",
-  "  filter: brightness(1.08);",
-  "}",
-  ".hr-btn-create-submit:disabled {",
-  "  background: var(--ui-bg-quaternary, color-mix(in srgb, var(--dt-foreground, #fff) 8%, transparent));",
-  "  color: var(--ui-text-quaternary, var(--ui-text-tertiary, rgba(255, 255, 255, 0.35)));",
-  "  border-color: var(--ui-stroke-tertiary, rgba(255, 255, 255, 0.08));",
-  "  cursor: not-allowed;",
-  "  filter: none;",
-  "  opacity: 0.6;",
   "}",
   "",
   "/* Responsive adaptiveness */",
@@ -4455,6 +4297,7 @@ var ROUTINES_CSS = [
 ].join("\n");
 
 // src/views/FilterNav.tsx
+import { Button } from "@hermes/plugin-sdk";
 import { jsx, jsxs } from "react/jsx-runtime";
 var FILTER_OPTIONS = [
   { value: "all", label: "All" },
@@ -4465,9 +4308,10 @@ function FilterNav({ filter, disabled, counts, onSelect }) {
   return /* @__PURE__ */ jsx("nav", { className: "hr-filters", "aria-label": "Filter routines by status", children: FILTER_OPTIONS.map((entry) => {
     const count = counts ? counts[entry.value] : null;
     return /* @__PURE__ */ jsxs(
-      "button",
+      Button,
       {
-        type: "button",
+        variant: "chip",
+        size: "xs",
         className: "hr-filter-chip" + (filter === entry.value ? " hr-filter-chip-current" : ""),
         "aria-current": filter === entry.value ? "true" : void 0,
         "aria-label": count === null ? void 0 : `${entry.label} \u2014 ${count} ${count === 1 ? "routine" : "routines"}`,
@@ -4485,6 +4329,9 @@ function FilterNav({ filter, disabled, counts, onSelect }) {
 
 // src/views/RoutineList.tsx
 import { useEffect } from "react";
+
+// src/views/RoutineCard.tsx
+import { Button as Button2 } from "@hermes/plugin-sdk";
 
 // src/views/RoutineStatus.tsx
 import { jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
@@ -4577,9 +4424,10 @@ function RoutineCard(props) {
           ] }),
           /* @__PURE__ */ jsxs3("div", { className: "hr-row-actions", children: [
             !terminal ? paused ? /* @__PURE__ */ jsx3(
-              "button",
+              Button2,
               {
-                type: "button",
+                variant: "ghost",
+                size: "xs",
                 className: "hr-icon-btn hr-icon-btn-resume",
                 disabled: disabled || busy,
                 onClick: (e) => {
@@ -4591,9 +4439,10 @@ function RoutineCard(props) {
                 children: "Resume"
               }
             ) : /* @__PURE__ */ jsx3(
-              "button",
+              Button2,
               {
-                type: "button",
+                variant: "ghost",
+                size: "xs",
                 className: "hr-icon-btn hr-icon-btn-pause",
                 disabled: disabled || busy,
                 onClick: (e) => {
@@ -4606,9 +4455,10 @@ function RoutineCard(props) {
               }
             ) : null,
             /* @__PURE__ */ jsx3(
-              "button",
+              Button2,
               {
-                type: "button",
+                variant: "ghost",
+                size: "xs",
                 id: controlId,
                 className: `hr-icon-btn hr-icon-btn-edit${inspected ? " hr-icon-btn-active" : ""}`,
                 "aria-expanded": inspected,
@@ -4649,6 +4499,9 @@ function RoutineCard(props) {
     }
   );
 }
+
+// src/views/RoutineInspectorPanel.tsx
+import { Button as Button4, Input, Textarea } from "@hermes/plugin-sdk";
 
 // src/domain/failureExplain.ts
 var GENERIC_FAILURE_SUMMARY = "The last run failed.";
@@ -4747,6 +4600,7 @@ function ResultTone({
 }
 
 // src/views/PanelNav.tsx
+import { Button as Button3 } from "@hermes/plugin-sdk";
 import { jsx as jsx5, jsxs as jsxs5 } from "react/jsx-runtime";
 var NEW_ROUTINE_CONTROL_ID = "hermes-routines-new";
 function routineRowFocusId(key) {
@@ -4782,9 +4636,10 @@ function focusById(id) {
 function PanelNav({ closeLabel, onClose }) {
   return /* @__PURE__ */ jsxs5("div", { className: "hr-nav", children: [
     /* @__PURE__ */ jsxs5(
-      "button",
+      Button3,
       {
-        type: "button",
+        variant: "text",
+        size: "xs",
         className: "hr-btn-nav hr-nav-back",
         onClick: onClose,
         "aria-label": "Back to routines",
@@ -4795,9 +4650,10 @@ function PanelNav({ closeLabel, onClose }) {
       }
     ),
     /* @__PURE__ */ jsx5(
-      "button",
+      Button3,
       {
-        type: "button",
+        variant: "text",
+        size: "xs",
         className: "hr-btn-nav hr-nav-close",
         onClick: onClose,
         "aria-label": closeLabel,
@@ -4836,10 +4692,10 @@ function RoutineInspectorPanel({
         /* @__PURE__ */ jsx6("span", { className: "hr-create-active-title", children: "Paused \xB7 needs configuration" }),
         /* @__PURE__ */ jsx6("span", { className: "hr-create-active-subtitle", children: "This routine is paused and has never run \u2014 its configuration is incomplete." }),
         configCandidate !== null && onConfigure ? /* @__PURE__ */ jsx6(
-          "button",
+          Button4,
           {
-            type: "button",
-            className: "hr-btn hr-btn-small",
+            variant: "outline",
+            size: "xs",
             onClick: () => onConfigure(configCandidate.jobId),
             children: "Continue configuration"
           }
@@ -4851,9 +4707,10 @@ function RoutineInspectorPanel({
           /* @__PURE__ */ jsx6("span", { className: "hr-create-active-subtitle", children: "This routine will run on the schedule below." })
         ] }),
         /* @__PURE__ */ jsx6(
-          "button",
+          Button4,
           {
-            type: "button",
+            variant: "secondary",
+            size: "sm",
             role: "switch",
             "aria-checked": routineActive(job),
             "aria-label": "Routine active state",
@@ -4866,10 +4723,9 @@ function RoutineInspectorPanel({
       /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
         /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "Name" }),
         /* @__PURE__ */ jsx6(
-          "input",
+          Input,
           {
             type: "text",
-            className: "hr-create-input",
             value: title,
             disabled: true,
             readOnly: true,
@@ -4880,9 +4736,8 @@ function RoutineInspectorPanel({
       /* @__PURE__ */ jsxs6("div", { className: "hr-create-field", children: [
         /* @__PURE__ */ jsx6("label", { className: "hr-field-label", children: "What should this routine do?" }),
         /* @__PURE__ */ jsx6(
-          "textarea",
+          Textarea,
           {
-            className: "hr-create-textarea",
             rows: 3,
             value: routinePromptOf(job) ?? "",
             disabled: true,
@@ -4903,10 +4758,9 @@ function RoutineInspectorPanel({
           /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: describedDelivery.resolved ? describedDelivery.label : storedDelivery }),
           describedDelivery.detail ? /* @__PURE__ */ jsx6("div", { className: "hr-create-preview-sentence", children: describedDelivery.detail }) : null,
           /* @__PURE__ */ jsx6(
-            "input",
+            Input,
             {
               type: "text",
-              className: "hr-create-input",
               value: storedDelivery ?? "",
               disabled: true,
               readOnly: true,
@@ -5011,121 +4865,41 @@ function RoutineList({
 }
 
 // src/views/RoutineComposerPanel.tsx
-import { useMemo, useRef as useRef2, useState as useState2 } from "react";
+import { useMemo, useRef, useState } from "react";
+import { Button as Button5, Input as Input2, Textarea as Textarea2 } from "@hermes/plugin-sdk";
 
-// src/views/SelectField.tsx
-import { useEffect as useEffect2, useRef, useState } from "react";
+// src/views/NativeSelect.tsx
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@hermes/plugin-sdk";
 import { jsx as jsx8, jsxs as jsxs7 } from "react/jsx-runtime";
-function SelectField({
+function NativeSelect({
   label,
   value,
   options,
   onChange,
-  className = ""
+  className = "",
+  disabled = false,
+  "aria-label": ariaLabel
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef(null);
-  const listRef = useRef(null);
-  const selectedOption = options.find((opt) => opt.value === value) ?? options[0];
-  const displayLabel = selectedOption ? selectedOption.label : String(value);
-  useEffect2(() => {
-    if (!isOpen) return;
-    function handleClickOutside(e) {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setIsOpen(false);
+  const encoded = String(value);
+  const selected = options.find((option) => String(option.value) === encoded);
+  return /* @__PURE__ */ jsxs7("div", { className: `hr-select ${className}`.trim(), children: [
+    /* @__PURE__ */ jsx8("span", { className: "hr-field-label", id: `hr-select-label-${encoded}`, children: label }),
+    /* @__PURE__ */ jsxs7(
+      Select,
+      {
+        disabled,
+        value: encoded,
+        onValueChange: (next) => {
+          const match = options.find((option) => String(option.value) === next);
+          if (match !== void 0) onChange(match.value);
+        },
+        children: [
+          /* @__PURE__ */ jsx8(SelectTrigger, { "aria-label": ariaLabel ?? label, children: /* @__PURE__ */ jsx8(SelectValue, { placeholder: selected?.label ?? options[0]?.label }) }),
+          /* @__PURE__ */ jsx8(SelectContent, { children: options.map((option) => /* @__PURE__ */ jsx8(SelectItem, { value: String(option.value), children: option.label }, String(option.value))) })
+        ]
       }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isOpen]);
-  useEffect2(() => {
-    if (isOpen && listRef.current) {
-      const activeEl = listRef.current.querySelector('[aria-selected="true"]');
-      if (activeEl && typeof activeEl.scrollIntoView === "function") {
-        activeEl.scrollIntoView({ block: "nearest" });
-      }
-    }
-  }, [isOpen]);
-  function handleKeyDown(e) {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      setIsOpen((prev) => !prev);
-    } else if (e.key === "Escape") {
-      if (isOpen) {
-        e.preventDefault();
-        setIsOpen(false);
-      }
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (!isOpen) {
-        setIsOpen(true);
-      } else {
-        const currentIndex = options.findIndex((opt) => opt.value === value);
-        if (currentIndex < options.length - 1) {
-          const nextOpt = options[currentIndex + 1];
-          if (nextOpt) onChange(nextOpt.value);
-        }
-      }
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      if (!isOpen) {
-        setIsOpen(true);
-      } else {
-        const currentIndex = options.findIndex((opt) => opt.value === value);
-        if (currentIndex > 0) {
-          const prevOpt = options[currentIndex - 1];
-          if (prevOpt) onChange(prevOpt.value);
-        }
-      }
-    }
-  }
-  return /* @__PURE__ */ jsxs7(
-    "div",
-    {
-      ref: containerRef,
-      className: `hr-select-container ${className}${isOpen ? " hr-select-is-open" : ""}`,
-      children: [
-        label ? /* @__PURE__ */ jsx8("label", { className: "hr-select-label", children: label }) : null,
-        /* @__PURE__ */ jsxs7(
-          "div",
-          {
-            className: "hr-select-trigger",
-            role: "combobox",
-            tabIndex: 0,
-            "aria-expanded": isOpen,
-            "aria-haspopup": "listbox",
-            "aria-label": label,
-            onClick: () => setIsOpen((prev) => !prev),
-            onKeyDown: handleKeyDown,
-            children: [
-              /* @__PURE__ */ jsx8("span", { className: "hr-select-value", children: displayLabel }),
-              /* @__PURE__ */ jsx8("span", { className: "hr-select-arrow", "aria-hidden": "true", children: /* @__PURE__ */ jsx8("svg", { width: "10", height: "6", viewBox: "0 0 10 6", fill: "currentColor", children: /* @__PURE__ */ jsx8("path", { d: "M0 0l5 5 5-5z" }) }) })
-            ]
-          }
-        ),
-        isOpen ? /* @__PURE__ */ jsx8("div", { ref: listRef, className: "hr-select-menu", role: "listbox", "aria-label": label, children: options.map((opt) => {
-          const isSelected = opt.value === value;
-          return /* @__PURE__ */ jsx8(
-            "div",
-            {
-              role: "option",
-              "aria-selected": isSelected,
-              className: `hr-select-option${isSelected ? " hr-select-option-active" : ""}`,
-              onClick: (e) => {
-                e.stopPropagation();
-                onChange(opt.value);
-                setIsOpen(false);
-              },
-              children: opt.label
-            },
-            String(opt.value)
-          );
-        }) }) : null
-      ]
-    }
-  );
+    )
+  ] });
 }
 
 // src/views/RoutineComposerPanel.tsx
@@ -5137,19 +4911,19 @@ function RoutineComposerPanel({
   onSubmitGuided,
   destinationRoutes
 }) {
-  const [name, setName] = useState2("");
-  const [prompt, setPrompt] = useState2("");
-  const [startEnabled, setStartEnabled] = useState2(true);
-  const [scheduleConfig, setScheduleConfig] = useState2(DEFAULT_SCHEDULE_CONFIG);
-  const [pendingPath, setPendingPath] = useState2(null);
-  const [error, setError] = useState2(null);
-  const [destinationChoice, setDestinationChoice] = useState2("");
-  const [advancedPlatform, setAdvancedPlatform] = useState2("");
-  const [advancedChatId, setAdvancedChatId] = useState2("");
-  const [advancedThreadId, setAdvancedThreadId] = useState2("");
-  const [broadcastConfirmed, setBroadcastConfirmed] = useState2(false);
-  const [broadcastOptIn, setBroadcastOptIn] = useState2(false);
-  const inFlightRef = useRef2(false);
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [startEnabled, setStartEnabled] = useState(true);
+  const [scheduleConfig, setScheduleConfig] = useState(DEFAULT_SCHEDULE_CONFIG);
+  const [pendingPath, setPendingPath] = useState(null);
+  const [error, setError] = useState(null);
+  const [destinationChoice, setDestinationChoice] = useState("");
+  const [advancedPlatform, setAdvancedPlatform] = useState("");
+  const [advancedChatId, setAdvancedChatId] = useState("");
+  const [advancedThreadId, setAdvancedThreadId] = useState("");
+  const [broadcastConfirmed, setBroadcastConfirmed] = useState(false);
+  const [broadcastOptIn, setBroadcastOptIn] = useState(false);
+  const inFlightRef = useRef(false);
   const timeOptions = useMemo(
     () => TIME_SLOTS.map((t) => ({ value: t, label: t })),
     []
@@ -5245,10 +5019,9 @@ function RoutineComposerPanel({
       /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
         /* @__PURE__ */ jsx9("label", { className: "hr-field-label", children: "Name" }),
         /* @__PURE__ */ jsx9(
-          "input",
+          Input2,
           {
             type: "text",
-            className: "hr-create-input",
             placeholder: "Name this Routine",
             value: name,
             onChange: (e) => setName(e.target.value),
@@ -5259,9 +5032,8 @@ function RoutineComposerPanel({
       /* @__PURE__ */ jsxs8("div", { className: "hr-create-field", children: [
         /* @__PURE__ */ jsx9("label", { className: "hr-field-label", children: "What should this routine do?" }),
         /* @__PURE__ */ jsx9(
-          "textarea",
+          Textarea2,
           {
-            className: "hr-create-textarea",
             placeholder: "e.g. Check server health and notify #ops channel",
             rows: 3,
             value: prompt,
@@ -5273,7 +5045,7 @@ function RoutineComposerPanel({
       /* @__PURE__ */ jsxs8("div", { className: "hr-create-when-section", children: [
         /* @__PURE__ */ jsx9("div", { className: "hr-create-section-label", children: "WHEN TO RUN" }),
         /* @__PURE__ */ jsx9(
-          SelectField,
+          NativeSelect,
           {
             label: "Trigger",
             value: scheduleConfig.trigger,
@@ -5282,7 +5054,7 @@ function RoutineComposerPanel({
           }
         ),
         scheduleConfig.trigger === "every_day" || scheduleConfig.trigger === "weekdays" ? /* @__PURE__ */ jsx9("div", { className: "hr-create-sub-row", children: /* @__PURE__ */ jsx9(
-          SelectField,
+          NativeSelect,
           {
             label: "at",
             value: scheduleConfig.time,
@@ -5292,7 +5064,7 @@ function RoutineComposerPanel({
         ) }) : null,
         scheduleConfig.trigger === "every_week" ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-sub-split", children: [
           /* @__PURE__ */ jsx9(
-            SelectField,
+            NativeSelect,
             {
               label: "on",
               value: scheduleConfig.dayOfWeek,
@@ -5301,7 +5073,7 @@ function RoutineComposerPanel({
             }
           ),
           /* @__PURE__ */ jsx9(
-            SelectField,
+            NativeSelect,
             {
               label: "at",
               value: scheduleConfig.time,
@@ -5312,7 +5084,7 @@ function RoutineComposerPanel({
         ] }) : null,
         scheduleConfig.trigger === "every_month" ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-sub-split", children: [
           /* @__PURE__ */ jsx9(
-            SelectField,
+            NativeSelect,
             {
               label: "on the",
               value: scheduleConfig.dayOfMonth,
@@ -5321,7 +5093,7 @@ function RoutineComposerPanel({
             }
           ),
           /* @__PURE__ */ jsx9(
-            SelectField,
+            NativeSelect,
             {
               label: "at",
               value: scheduleConfig.time,
@@ -5332,7 +5104,7 @@ function RoutineComposerPanel({
         ] }) : null,
         scheduleConfig.trigger === "interval" ? /* @__PURE__ */ jsxs8("div", { className: "hr-create-sub-split", children: [
           /* @__PURE__ */ jsx9(
-            SelectField,
+            NativeSelect,
             {
               label: "every",
               value: scheduleConfig.intervalValue,
@@ -5341,7 +5113,7 @@ function RoutineComposerPanel({
             }
           ),
           /* @__PURE__ */ jsx9(
-            SelectField,
+            NativeSelect,
             {
               label: "unit",
               value: scheduleConfig.intervalUnit,
@@ -5355,7 +5127,7 @@ function RoutineComposerPanel({
       /* @__PURE__ */ jsxs8("div", { className: "hr-create-when-section", children: [
         /* @__PURE__ */ jsx9("div", { className: "hr-create-section-label", children: "RESULTS" }),
         /* @__PURE__ */ jsx9(
-          SelectField,
+          NativeSelect,
           {
             label: "Where should results go?",
             value: destinationChoice,
@@ -5372,10 +5144,9 @@ function RoutineComposerPanel({
           /* @__PURE__ */ jsx9("label", { className: "hr-field-label", children: "Advanced destination override" }),
           /* @__PURE__ */ jsxs8("div", { className: "hr-create-sub-split", children: [
             /* @__PURE__ */ jsx9(
-              "input",
+              Input2,
               {
                 type: "text",
-                className: "hr-create-input",
                 placeholder: "Platform",
                 value: advancedPlatform,
                 onChange: (e) => setAdvancedPlatform(e.target.value),
@@ -5383,10 +5154,9 @@ function RoutineComposerPanel({
               }
             ),
             /* @__PURE__ */ jsx9(
-              "input",
+              Input2,
               {
                 type: "text",
-                className: "hr-create-input",
                 placeholder: "Channel or chat id",
                 value: advancedChatId,
                 onChange: (e) => setAdvancedChatId(e.target.value),
@@ -5395,10 +5165,9 @@ function RoutineComposerPanel({
             )
           ] }),
           /* @__PURE__ */ jsx9(
-            "input",
+            Input2,
             {
               type: "text",
-              className: "hr-create-input",
               placeholder: "Thread id (optional)",
               value: advancedThreadId,
               onChange: (e) => setAdvancedThreadId(e.target.value),
@@ -5409,10 +5178,10 @@ function RoutineComposerPanel({
           /* @__PURE__ */ jsxs8("div", { className: "hr-create-broadcast-quiet", children: [
             /* @__PURE__ */ jsx9("p", { className: "hr-create-broadcast-note", children: "Sending to every connected channel is not a normal destination." }),
             /* @__PURE__ */ jsx9(
-              "button",
+              Button5,
               {
-                type: "button",
-                className: "hr-btn",
+                variant: "outline",
+                size: "sm",
                 onClick: () => {
                   setBroadcastOptIn(true);
                   setBroadcastConfirmed(false);
@@ -5437,10 +5206,10 @@ function RoutineComposerPanel({
             /* @__PURE__ */ jsx9("span", { children: BROADCAST_ACKNOWLEDGEMENT })
           ] }),
           /* @__PURE__ */ jsx9(
-            "button",
+            Button5,
             {
-              type: "button",
-              className: "hr-btn",
+              variant: "outline",
+              size: "sm",
               onClick: () => {
                 setBroadcastOptIn(false);
                 setBroadcastConfirmed(false);
@@ -5456,9 +5225,10 @@ function RoutineComposerPanel({
           /* @__PURE__ */ jsx9("span", { className: "hr-create-active-subtitle", children: startEnabled ? "The routine runs on the schedule above as soon as it is created." : "The routine is created paused, so it waits until you turn it on yourself." })
         ] }),
         /* @__PURE__ */ jsx9(
-          "button",
+          Button5,
           {
-            type: "button",
+            variant: "secondary",
+            size: "sm",
             role: "switch",
             "aria-checked": startEnabled,
             "aria-label": "Start the routine enabled",
@@ -5472,10 +5242,10 @@ function RoutineComposerPanel({
       onSubmitGuided ? /* @__PURE__ */ jsxs8("section", { className: "hr-create-hermes-quiet", "aria-labelledby": "hr-create-hermes-title", children: [
         /* @__PURE__ */ jsx9("span", { id: "hr-create-hermes-title", className: "hr-sr-only", children: "Finish with Hermes" }),
         /* @__PURE__ */ jsx9(
-          "button",
+          Button5,
           {
-            type: "button",
-            className: "hr-btn hr-btn-create-hermes",
+            variant: "ghost",
+            size: "sm",
             "aria-label": "Create this routine and finish the setup with Hermes",
             disabled: !draftReady || busy || broadcastBlocked,
             onClick: () => void handleSubmit("guided"),
@@ -5486,19 +5256,19 @@ function RoutineComposerPanel({
       ] }) : null,
       /* @__PURE__ */ jsxs8("div", { className: "hr-create-actions", children: [
         /* @__PURE__ */ jsx9(
-          "button",
+          Button5,
           {
-            type: "button",
-            className: "hr-btn hr-btn-back-routines",
+            variant: "text",
+            size: "sm",
             onClick: onClose,
             children: "Cancel"
           }
         ),
         /* @__PURE__ */ jsx9(
-          "button",
+          Button5,
           {
-            type: "button",
-            className: "hr-btn hr-btn-create-submit",
+            variant: "default",
+            size: "sm",
             disabled: !draftReady || busy || broadcastBlocked,
             onClick: () => void handleSubmit("direct"),
             children: pendingPath === "direct" ? "Creating\u2026" : "Create Routine"
@@ -5510,9 +5280,11 @@ function RoutineComposerPanel({
 }
 
 // src/views/GuidedRoutinePanel.tsx
-import { useState as useState3 } from "react";
+import { useState as useState2 } from "react";
+import { Button as Button7, Input as Input3, Textarea as Textarea3 } from "@hermes/plugin-sdk";
 
 // src/views/GuidedProposalReview.tsx
+import { Button as Button6 } from "@hermes/plugin-sdk";
 import { jsx as jsx10, jsxs as jsxs9 } from "react/jsx-runtime";
 function cellText(value) {
   return value.trim() ? value : "\u2014";
@@ -5559,36 +5331,9 @@ function GuidedProposalReview({
       ] })
     ] }),
     /* @__PURE__ */ jsxs9("div", { className: "hr-create-actions", children: [
-      /* @__PURE__ */ jsx10(
-        "button",
-        {
-          type: "button",
-          className: "hr-btn hr-btn-back-routines",
-          disabled: busy,
-          onClick: onContinueConfiguring,
-          children: "Continue configuring"
-        }
-      ),
-      /* @__PURE__ */ jsx10(
-        "button",
-        {
-          type: "button",
-          className: "hr-btn hr-btn-back-routines",
-          disabled: busy,
-          onClick: () => onConfirm(false),
-          children: "Keep paused"
-        }
-      ),
-      /* @__PURE__ */ jsx10(
-        "button",
-        {
-          type: "button",
-          className: "hr-btn hr-btn-create-submit",
-          disabled: busy,
-          onClick: () => onConfirm(true),
-          children: "Apply and activate"
-        }
-      )
+      /* @__PURE__ */ jsx10(Button6, { variant: "text", size: "sm", disabled: busy, onClick: onContinueConfiguring, children: "Continue configuring" }),
+      /* @__PURE__ */ jsx10(Button6, { variant: "outline", size: "sm", disabled: busy, onClick: () => onConfirm(false), children: "Keep paused" }),
+      /* @__PURE__ */ jsx10(Button6, { variant: "default", size: "sm", disabled: busy, onClick: () => onConfirm(true), children: "Apply and activate" })
     ] })
   ] });
 }
@@ -5640,12 +5385,12 @@ function GuidedRoutinePanel({
   onLaunch,
   onClose
 }) {
-  const [launching, setLaunching] = useState3(false);
-  const [launch, setLaunch] = useState3(initialLaunch ?? null);
-  const [autoSubmit] = useState3(autoSubmitOnFirstLaunch !== false);
-  const [handoff, setHandoff] = useState3("");
-  const [wf, setWf] = useState3(() => initialGuidedWorkflow(routine.jobId));
-  const [busy, setBusy] = useState3(false);
+  const [launching, setLaunching] = useState2(false);
+  const [launch, setLaunch] = useState2(initialLaunch ?? null);
+  const [autoSubmit] = useState2(autoSubmitOnFirstLaunch !== false);
+  const [handoff, setHandoff] = useState2("");
+  const [wf, setWf] = useState2(() => initialGuidedWorkflow(routine.jobId));
+  const [busy, setBusy] = useState2(false);
   const firstLaunch = launch === null;
   const S = GUIDED_WORKFLOW_STATE;
   const title = routineTitle(routine.job, submittedName || "Routine");
@@ -5818,7 +5563,7 @@ function GuidedRoutinePanel({
   const showHandoff = wf.state === S.PROVISIONAL_PAUSED || wf.state === S.CONFIGURING;
   const showReview = wf.state === S.PROPOSAL_READY && review !== null;
   function actionsFor() {
-    const close = /* @__PURE__ */ jsx11("button", { type: "button", className: "hr-btn hr-btn-back-routines", onClick: onClose, children: "Close" });
+    const close = /* @__PURE__ */ jsx11(Button7, { variant: "text", size: "sm", onClick: onClose, children: "Close" });
     if (showReview) {
       return /* @__PURE__ */ jsx11("div", { className: "hr-create-actions", children: close });
     }
@@ -5826,10 +5571,10 @@ function GuidedRoutinePanel({
       return /* @__PURE__ */ jsxs10("div", { className: "hr-create-actions", children: [
         close,
         /* @__PURE__ */ jsx11(
-          "button",
+          Button7,
           {
-            type: "button",
-            className: "hr-btn hr-btn-create-submit",
+            variant: "default",
+            size: "sm",
             disabled: inFlight,
             onClick: () => void handleActivate(),
             children: wf.failure !== null && wf.failure.stage === "resume" ? "Retry activation" : "Activate now"
@@ -5842,30 +5587,30 @@ function GuidedRoutinePanel({
       return /* @__PURE__ */ jsxs10("div", { className: "hr-create-actions", children: [
         close,
         recovery === "apply" ? /* @__PURE__ */ jsx11(
-          "button",
+          Button7,
           {
-            type: "button",
-            className: "hr-btn hr-btn-create-submit",
+            variant: "default",
+            size: "sm",
             disabled: inFlight,
             onClick: () => void handleConfirm(wf.desiredActive),
             children: "Try applying again"
           }
         ) : null,
         recovery === "activation" ? /* @__PURE__ */ jsx11(
-          "button",
+          Button7,
           {
-            type: "button",
-            className: "hr-btn hr-btn-create-submit",
+            variant: "default",
+            size: "sm",
             disabled: inFlight,
             onClick: () => void handleActivate(),
             children: "Retry activation"
           }
         ) : null,
         recovery === "refresh" ? /* @__PURE__ */ jsx11(
-          "button",
+          Button7,
           {
-            type: "button",
-            className: "hr-btn hr-btn-create-submit",
+            variant: "default",
+            size: "sm",
             disabled: inFlight,
             onClick: () => void handleRefresh(),
             children: "Refresh status"
@@ -5877,10 +5622,10 @@ function GuidedRoutinePanel({
       return /* @__PURE__ */ jsxs10("div", { className: "hr-create-actions", children: [
         close,
         !opened ? /* @__PURE__ */ jsx11(
-          "button",
+          Button7,
           {
-            type: "button",
-            className: "hr-btn hr-btn-create-submit",
+            variant: "default",
+            size: "sm",
             disabled: launching,
             onClick: () => void handleLaunch(),
             children: launching ? "Opening\u2026" : failed2 ? "Retry chat" : "Configure with Hermes"
@@ -5902,10 +5647,9 @@ function GuidedRoutinePanel({
       /* @__PURE__ */ jsxs10("div", { className: "hr-create-field", children: [
         /* @__PURE__ */ jsx11("label", { className: "hr-field-label", children: "Job id" }),
         /* @__PURE__ */ jsx11(
-          "input",
+          Input3,
           {
             type: "text",
-            className: "hr-create-input",
             value: routine.jobId,
             disabled: true,
             readOnly: true,
@@ -5925,9 +5669,8 @@ function GuidedRoutinePanel({
         /* @__PURE__ */ jsxs10("div", { className: "hr-create-field", children: [
           /* @__PURE__ */ jsx11("label", { className: "hr-field-label", children: "What should this routine do?" }),
           /* @__PURE__ */ jsx11(
-            "textarea",
+            Textarea3,
             {
-              className: "hr-create-textarea",
               rows: 3,
               value: instruction ?? "",
               disabled: true,
@@ -5955,10 +5698,9 @@ function GuidedRoutinePanel({
       showHandoff ? /* @__PURE__ */ jsxs10("div", { className: "hr-create-field", children: [
         /* @__PURE__ */ jsx11("label", { className: "hr-field-label", htmlFor: "hr-guided-handoff", children: "Proposal returned by Hermes" }),
         /* @__PURE__ */ jsx11(
-          "textarea",
+          Textarea3,
           {
             id: "hr-guided-handoff",
-            className: "hr-create-textarea",
             rows: 4,
             value: handoff,
             onChange: (e) => setHandoff(e.target.value),
@@ -5967,10 +5709,10 @@ function GuidedRoutinePanel({
           }
         ),
         /* @__PURE__ */ jsx11("div", { className: "hr-create-actions", children: /* @__PURE__ */ jsx11(
-          "button",
+          Button7,
           {
-            type: "button",
-            className: "hr-btn hr-btn-create-submit",
+            variant: "default",
+            size: "sm",
             disabled: inFlight || handoff.trim().length === 0,
             onClick: () => void handleReviewProposal(),
             children: busy ? "Reading\u2026" : "Review proposal"
@@ -5984,6 +5726,7 @@ function GuidedRoutinePanel({
 }
 
 // src/views/panels.tsx
+import { Button as Button8 } from "@hermes/plugin-sdk";
 import { Fragment as Fragment3, jsx as jsx12, jsxs as jsxs11 } from "react/jsx-runtime";
 function StatusLine({ text, statusRef, restatesVisibleState }) {
   return /* @__PURE__ */ jsx12(
@@ -6000,6 +5743,7 @@ function StatusLine({ text, statusRef, restatesVisibleState }) {
 }
 
 // src/views/RoutineStates.tsx
+import { Button as Button9 } from "@hermes/plugin-sdk";
 import { jsx as jsx13, jsxs as jsxs12 } from "react/jsx-runtime";
 function LoadingState({ text }) {
   return /* @__PURE__ */ jsxs12("div", { className: "hr-state", role: "status", "aria-live": "polite", "aria-busy": "true", children: [
@@ -6030,7 +5774,7 @@ function ErrorState({
   return /* @__PURE__ */ jsxs12("div", { className: "hr-error", role: "alert", children: [
     /* @__PURE__ */ jsx13("strong", { children: title }),
     /* @__PURE__ */ jsx13("p", { className: "hr-row-meta", children: message }),
-    /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
+    /* @__PURE__ */ jsx13(Button9, { variant: "outline", size: "sm", onClick: onRetry, children: "Retry" })
   ] });
 }
 function UnavailableState({
@@ -6040,13 +5784,13 @@ function UnavailableState({
   return /* @__PURE__ */ jsxs12("div", { className: "hr-error", role: "alert", children: [
     /* @__PURE__ */ jsx13("strong", { children: "Routines unavailable for this profile." }),
     /* @__PURE__ */ jsx13("p", { className: "hr-row-meta", children: profile ? `The Desktop profile \u201C${profile}\u201D has no routines route right now. Connect the profile, then retry.` : "The active Desktop profile has no routines route right now. Select a profile, then retry." }),
-    /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn", onClick: onRetry, children: "Retry" })
+    /* @__PURE__ */ jsx13(Button9, { variant: "outline", size: "sm", onClick: onRetry, children: "Retry" })
   ] });
 }
 function StaleBanner({ onRetry }) {
   return /* @__PURE__ */ jsxs12("div", { className: "hr-stale", role: "status", children: [
     /* @__PURE__ */ jsx13("span", { children: "Showing last loaded jobs." }),
-    /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onRetry, children: "Refresh" })
+    /* @__PURE__ */ jsx13(Button9, { variant: "outline", size: "xs", onClick: onRetry, children: "Refresh" })
   ] });
 }
 var ATTENTION_BAND_ID = "hermes-routines-attention";
@@ -6079,7 +5823,7 @@ function NeedsAttentionNotice({
     ),
     /* @__PURE__ */ jsx13("span", { className: "hr-attention-text", children: count === 1 ? "1 routine needs attention" : `${count} routines need attention` }),
     paused > 0 ? /* @__PURE__ */ jsx13("span", { className: "hr-attention-note", children: paused === 1 ? "1 paused routine also failed before it was paused" : `${paused} paused routines also failed before they were paused` }) : null,
-    /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onFocus, children: "Show them" })
+    /* @__PURE__ */ jsx13(Button9, { variant: "outline", size: "xs", onClick: onFocus, children: "Show them" })
   ] });
 }
 var CONFIG_BAND_ID = "hermes-routines-config";
@@ -6090,7 +5834,7 @@ function NeedsConfigurationNotice({
   if (count === 0) return null;
   return /* @__PURE__ */ jsxs12("div", { id: CONFIG_BAND_ID, className: "hr-config-note", role: "status", tabIndex: -1, children: [
     /* @__PURE__ */ jsx13("span", { children: count === 1 ? "1 routine needs configuration" : `${count} routines need configuration` }),
-    /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onView, children: "View" })
+    /* @__PURE__ */ jsx13(Button9, { variant: "outline", size: "xs", onClick: onView, children: "View" })
   ] });
 }
 function NeedsConfigurationFocusBar({
@@ -6106,7 +5850,7 @@ function NeedsConfigurationFocusBar({
       tabIndex: -1,
       children: [
         /* @__PURE__ */ jsx13("span", { className: "hr-attention-text", children: visibleCount === 0 ? "No routine needing configuration matches this search" : visibleCount === 1 ? "Showing 1 routine that needs configuration" : `Showing ${visibleCount} routines that need configuration` }),
-        /* @__PURE__ */ jsx13("button", { type: "button", className: "hr-btn hr-btn-small", onClick: onClear, children: "Show all routines" })
+        /* @__PURE__ */ jsx13(Button9, { variant: "outline", size: "xs", onClick: onClear, children: "Show all routines" })
       ]
     }
   );
@@ -6126,11 +5870,11 @@ function matchesQuery(job, query) {
   return name.includes(q) || schedule.includes(q);
 }
 function RoutinesPage() {
-  const [state, setState] = useState4(initialRoutinesState);
-  const [routesNonce, setRoutesNonce] = useState4(0);
-  const headingRef = useRef3(null);
-  const statusRef = useRef3(null);
-  const generationRef = useRef3(0);
+  const [state, setState] = useState3(initialRoutinesState);
+  const [routesNonce, setRoutesNonce] = useState3(0);
+  const headingRef = useRef2(null);
+  const statusRef = useRef2(null);
+  const generationRef = useRef2(0);
   const activeProfile = useValue(host3.state.profile);
   const activeConnectionId = useValue(host3.state.connectionId);
   const dispatch = useCallback((event) => {
@@ -6140,12 +5884,12 @@ function RoutinesPage() {
   const locked = state.pending.length !== 0;
   const shown = visibleJobs(state.jobs, state.filter);
   const S = ROUTINES_VIEW_STATUS;
-  const [searchQuery, setSearchQuery] = useState4("");
-  const [selectedJobKey, setSelectedJobKey] = useState4(null);
-  const [isCreating, setIsCreating] = useState4(false);
-  const [guided, setGuided] = useState4(null);
-  const [guidedRecent, setGuidedRecent] = useState4(null);
-  useEffect3(() => {
+  const [searchQuery, setSearchQuery] = useState3("");
+  const [selectedJobKey, setSelectedJobKey] = useState3(null);
+  const [isCreating, setIsCreating] = useState3(false);
+  const [guided, setGuided] = useState3(null);
+  const [guidedRecent, setGuidedRecent] = useState3(null);
+  useEffect2(() => {
     if (selectedJobKey === null) return;
     const stillThere = state.jobs.some(
       (job, index) => routineKey(job, `routine ${index + 1}`) === selectedJobKey
@@ -6209,7 +5953,7 @@ function RoutinesPage() {
     event.stopPropagation();
     closeSurface(openSurface);
   }
-  useEffect3(() => {
+  useEffect2(() => {
     let cancelled = false;
     dispatch({ type: "routes-loading" });
     void (async () => {
@@ -6232,12 +5976,12 @@ function RoutinesPage() {
       cancelled = true;
     };
   }, [routesNonce, dispatch]);
-  useEffect3(() => {
+  useEffect2(() => {
     if (state.status === S.ROUTES_LOADING || state.status === S.ROUTES_ERROR) return;
     if (state.routes.length === 0 && state.status !== S.ROUTE_UNAVAILABLE) return;
     dispatch({ type: "active-changed", profile: activeProfile, connectionId: activeConnectionId });
   }, [activeProfile, activeConnectionId, state.status, state.routes.length, dispatch, S.ROUTES_LOADING, S.ROUTES_ERROR, S.ROUTE_UNAVAILABLE]);
-  useEffect3(() => {
+  useEffect2(() => {
     if (state.status !== S.LIST_LOADING) return void 0;
     if (!state.activeKey) return void 0;
     const key = state.activeKey;
@@ -6270,7 +6014,7 @@ function RoutinesPage() {
       cancelled = true;
     };
   }, [state.status, state.routes, state.activeKey, dispatch, S.LIST_LOADING]);
-  useEffect3(() => {
+  useEffect2(() => {
     if (state.status === S.ROUTES_ERROR || state.status === S.LIST_ERROR) statusRef.current?.focus();
   }, [state.status, S.ROUTES_ERROR, S.LIST_ERROR]);
   function handleRetryRoutes() {
@@ -6482,10 +6226,10 @@ function RoutinesPage() {
         children: [
           /* @__PURE__ */ jsx14("span", { className: "hr-attention-text", children: filteredJobs.length === 0 ? "No failing routine matches this search" : filteredJobs.length === 1 ? "Showing 1 routine that needs attention" : `Showing ${filteredJobs.length} routines that need attention` }),
           /* @__PURE__ */ jsx14(
-            "button",
+            Button10,
             {
-              type: "button",
-              className: "hr-btn hr-btn-small",
+              variant: "outline",
+              size: "xs",
               onClick: () => setAttentionFocus("clear"),
               children: "Show all routines"
             }
@@ -6497,10 +6241,9 @@ function RoutinesPage() {
       /* @__PURE__ */ jsxs13("div", { className: "hr-toolbar", children: [
         /* @__PURE__ */ jsxs13("div", { className: "hr-search-wrap", children: [
           /* @__PURE__ */ jsx14(
-            "input",
+            Input4,
             {
               type: "text",
-              className: "hr-search-input",
               placeholder: "Search routines\u2026",
               value: searchQuery,
               onChange: (e) => setSearchQuery(e.target.value),
@@ -6508,9 +6251,10 @@ function RoutinesPage() {
             }
           ),
           searchQuery ? /* @__PURE__ */ jsx14(
-            "button",
+            Button10,
             {
-              type: "button",
+              variant: "ghost",
+              size: "icon-xs",
               className: "hr-search-clear",
               onClick: () => setSearchQuery(""),
               "aria-label": "Clear search",
@@ -6692,9 +6436,10 @@ function RoutinesPage() {
           /* @__PURE__ */ jsxs13("div", { className: "hr-header-top", children: [
             /* @__PURE__ */ jsx14("h2", { id: "hermes-routines-heading", ref: headingRef, tabIndex: -1, className: "hr-title", children: "Routines" }),
             /* @__PURE__ */ jsxs13(
-              "button",
+              Button10,
               {
-                type: "button",
+                variant: "default",
+                size: "sm",
                 id: NEW_ROUTINE_CONTROL_ID,
                 className: "hr-btn-new",
                 onClick: () => {
@@ -6839,6 +6584,7 @@ export {
   LoadingState,
   NEW_ROUTINE_CONTROL_ID,
   NOW_WINDOW_MS,
+  NativeSelect,
   NeedsAttentionNotice,
   NeedsConfigurationFocusBar,
   NeedsConfigurationNotice,
@@ -6861,7 +6607,6 @@ export {
   SIDEBAR_ID,
   SIDEBAR_LABEL,
   SIDEBAR_ORDER,
-  SelectField,
   StaleBanner,
   TIME_SLOTS,
   TRIGGER_OPTIONS,

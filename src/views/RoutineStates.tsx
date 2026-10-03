@@ -2,6 +2,8 @@
 // fail-closed unavailable — never raw text. Mirrors the Crew distinction
 // between loading / empty / compact error / stale banner.
 
+import { Button } from '@hermes/plugin-sdk';
+
 export function LoadingState({ text }: { text: string }) {
   return (
     <div className="hr-state" role="status" aria-live="polite" aria-busy="true">
@@ -57,9 +59,9 @@ export function ErrorState({
     <div className="hr-error" role="alert">
       <strong>{title}</strong>
       <p className="hr-row-meta">{message}</p>
-      <button type="button" className="hr-btn" onClick={onRetry}>
+      <Button variant="outline" size="sm" onClick={onRetry}>
         Retry
-      </button>
+      </Button>
     </div>
   );
 }
@@ -79,9 +81,9 @@ export function UnavailableState({
           ? `The Desktop profile “${profile}” has no routines route right now. Connect the profile, then retry.`
           : 'The active Desktop profile has no routines route right now. Select a profile, then retry.'}
       </p>
-      <button type="button" className="hr-btn" onClick={onRetry}>
+      <Button variant="outline" size="sm" onClick={onRetry}>
         Retry
-      </button>
+      </Button>
     </div>
   );
 }
@@ -90,9 +92,9 @@ export function StaleBanner({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="hr-stale" role="status">
       <span>Showing last loaded jobs.</span>
-      <button type="button" className="hr-btn hr-btn-small" onClick={onRetry}>
+      <Button variant="outline" size="xs" onClick={onRetry}>
         Refresh
-      </button>
+      </Button>
     </div>
   );
 }
@@ -165,9 +167,9 @@ export function NeedsAttentionNotice({
             : `${paused} paused routines also failed before they were paused`}
         </span>
       ) : null}
-      <button type="button" className="hr-btn hr-btn-small" onClick={onFocus}>
+      <Button variant="outline" size="xs" onClick={onFocus}>
         Show them
-      </button>
+      </Button>
     </div>
   );
 }
@@ -211,9 +213,9 @@ export function NeedsConfigurationNotice({
       <span>
         {count === 1 ? '1 routine needs configuration' : `${count} routines need configuration`}
       </span>
-      <button type="button" className="hr-btn hr-btn-small" onClick={onView}>
+      <Button variant="outline" size="xs" onClick={onView}>
         View
-      </button>
+      </Button>
     </div>
   );
 }
@@ -247,9 +249,9 @@ export function NeedsConfigurationFocusBar({
             ? 'Showing 1 routine that needs configuration'
             : `Showing ${visibleCount} routines that need configuration`}
       </span>
-      <button type="button" className="hr-btn hr-btn-small" onClick={onClear}>
+      <Button variant="outline" size="xs" onClick={onClear}>
         Show all routines
-      </button>
+      </Button>
     </div>
   );
 }
