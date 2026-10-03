@@ -367,19 +367,27 @@ The cron builders (`listJobs`, `addJob`, `removeJob`, `pauseJob`,
 type-checked (it is banner-marked and rebuilt from the typed source).
 
 SDK decision (recorded): `@hermes/plugin-sdk` is NOT added as a
-devDependency. Verification 2026-09-23: `npm view @hermes/plugin-sdk`
+devDependency. Verification 2026-10-03: `npm view @hermes/plugin-sdk`
 returns 404 on the public registry, so the published package cannot
 represent the SDK the Desktop host loads; adding it would be false
 safety. The contract instead uses the local shim
-`src/types/plugin-sdk.d.ts` mirroring the verified loader
-(`tests/stubs/sdk-stub.mjs`: `profileRoutes` / `requestProfile` /
-`request`, `ROUTES_AREA`, `SIDEBAR_NAV_AREA` — no `definePlugin`,
-which does not exist upstream) plus the mount note above (single
-`ROUTES_AREA` mount, descriptor as entry metadata only). `typescript`,
-`esbuild`, `@types/node` and `@types/react` are devDependencies only —
-no runtime dep. `tests/types-contract.test.mjs` pins the wiring
-(tsconfig flags, shim names, `@ts-check` presence, no SDK/runtime deps,
-`npm run check` gates, version typing).
+`src/types/plugin-sdk.d.ts`, which is deliberately minimal and bound to
+`sdk-baseline.json` — the machine-readable record of the upstream
+symbols this repository consumes (`NousResearch/hermes-agent`
+`apps/desktop/src/sdk/index.ts` at the pinned commit). The ruling gate is
+`node scripts/check-sdk-baseline.mjs` (part of `npm run check`):
+`tests/stubs/sdk-stub.mjs` mirrors the same surface (`profileRoutes` /
+`requestProfile` / `request`, `ROUTES_AREA`, `SIDEBAR_NAV_AREA` — no
+`definePlugin`, which does not exist upstream) plus the mount note above
+(single `ROUTES_AREA` mount, descriptor as entry metadata only).
+`typescript`, `esbuild`, `@types/node` and `@types/react` are
+devDependencies only — no runtime dep. `tests/types-contract.test.mjs`
+pins the wiring (tsconfig flags, shim names, `@ts-check` presence, no
+SDK/runtime deps, `npm run check` gates, version typing) and
+`tests/sdk-baseline.test.mjs` pins the compatibility baseline
+(documentation, exact exported/consumed surfaces, and fail-closed
+behaviour on a new SDK symbol). See `docs/SDK-BASELINE.md` for the pinned
+upstream reference and the refresh procedure.
 
 ## Reload
 

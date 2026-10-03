@@ -44,6 +44,13 @@ checked in, but it is never the source of truth. Do not edit it manually.
   `npm run build`.
 - Preserve the strict typing and security boundaries enforced by
   `npm run check`.
+- Treat the Desktop SDK as a recorded contract. Record a new
+  `@hermes/plugin-sdk` export or `host.*` member in `sdk-baseline.json`
+  before using it, and refresh the pinned upstream reference in
+  [`docs/SDK-BASELINE.md`](docs/SDK-BASELINE.md) when the upstream contract
+  moved. `npm run check` fails on an unrecorded symbol, on a shim that grew
+  past the baseline, and on a baseline entry nothing consumes. Never
+  reimplement an SDK API locally or add a speculative declaration.
 - Do not add runtime dependencies without explaining why they are necessary.
   The shipped artifact is expected to externalize only the host-provided
   `@hermes/plugin-sdk` and React packages.

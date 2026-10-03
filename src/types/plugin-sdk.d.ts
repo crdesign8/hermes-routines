@@ -1,17 +1,31 @@
 // Minimal, strict type surface for `@hermes/plugin-sdk`.
 //
 // Why a local shim instead of real types: `npm view @hermes/plugin-sdk`
-// returns 404 on the public registry (re-verified 2026-09-23), so the
+// returns 404 on the public registry (re-verified 2026-10-03), so the
 // package the Desktop host loads cannot be consumed as a devDependency.
 // A tsconfig `paths` mapping into a hermes-agent checkout would couple
 // this standalone repo to an absolute path outside it and drag the whole
 // SDK type graph (nanostores, React Query, the UI kit) along for three
 // imported values.
 //
+// This file is a DELIBERATELY MINIMAL shim, not a local reimplementation of
+// the SDK. Its contract is the machine-readable baseline in
+// `sdk-baseline.json`, explained in `docs/SDK-BASELINE.md` and enforced by
+// `scripts/check-sdk-baseline.mjs` (part of `npm run check`):
+//   - it declares exactly one exported symbol per baseline entry of kind
+//     `value-export` / `type-export` — the symbols `src/` imports;
+//   - it declares no exported symbol the baseline does not record, so the
+//     shim cannot silently grow beyond the recorded contract;
+//   - the two helpers the shim needs for its own shape (`PluginContribution`,
+//     `ReadableAtom`) are baseline `shim-internal` and stay UNexported.
+// Adding an SDK import therefore means: record it in `sdk-baseline.json` with
+// its upstream anchor, then declare it here.
+//
 // Every declaration mirrors a surface this plugin actually calls, verified
 // against `hermes-agent/apps/desktop/src/sdk/index.ts` plus the documented
 // contract in `hermes-agent/website/docs/developer-guide/desktop-plugin-sdk.md`
-// on 2026-09-23:
+// at `NousResearch/hermes-agent@89937f86858a2d7826f783cd77c5a24b1d56dc4e`
+// (2026-10-03):
 //   - HermesPlugin / PluginContext / PluginContribution: contrib/plugin.ts
 //     (`createPluginContext`, `register` returns a disposer)
 //   - PluginProfileRoute — connectionId, mode, profile, targetProfile are
@@ -53,8 +67,13 @@ declare module '@hermes/plugin-sdk' {
     targetProfile: string;
   }
 
-  /** One registry contribution; the host namespaces `id` and stamps `source`. */
-  export interface PluginContribution {
+  /**
+   * One registry contribution; the host namespaces `id` and stamps `source`.
+   * Shim-internal (baseline kind `shim-internal`): it types the `ctx.register`
+   * argument and mirrors upstream's `PluginContribution` type alias, but no
+   * source file imports this name, so it is deliberately NOT exported.
+   */
+  interface PluginContribution {
     id: string;
     area: string;
     title?: string;
@@ -143,8 +162,12 @@ declare module '@hermes/plugin-sdk' {
     };
   }
 
-  /** Minimal readable atom face: `.get()` in handlers, `useValue` in React. */
-  export interface ReadableAtom<T> {
+  /**
+   * Minimal readable atom face: `.get()` in handlers, `useValue` in React.
+   * Shim-internal (baseline kind `shim-internal`): it types the atoms this
+   * shim exposes, and no source file imports it, so it stays UNexported.
+   */
+  interface ReadableAtom<T> {
     get(): T;
     subscribe(listener: (value: T) => void): () => void;
   }

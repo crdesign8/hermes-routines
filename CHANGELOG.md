@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Desktop SDK surface this plugin consumes is now a recorded,
+  machine-checkable compatibility baseline. `sdk-baseline.json` pins the exact
+  upstream reference (`NousResearch/hermes-agent` at
+  `89937f86858a2d7826f783cd77c5a24b1d56dc4e`, `apps/desktop/src/sdk/index.ts`)
+  and lists every SDK export and `host.*` member the source actually uses, each
+  with the upstream `file:line` it was verified against; `docs/SDK-BASELINE.md`
+  explains the baseline and the procedure for refreshing it when upstream
+  moves. `node scripts/check-sdk-baseline.mjs` (wired into `npm run check`, so
+  it rules in CI) fails when `src/` imports an SDK export or calls a `host.*`
+  member the baseline does not record, when the local type shim exports a name
+  the baseline does not record, when the shim drops a declaration the source
+  still imports, and when the baseline records a symbol nothing consumes — so
+  the shim can no longer grow silently and a new SDK dependency can no longer
+  land without being verified against the pinned upstream contract.
+
+  The shim itself was reduced to that contract: `PluginContribution` and
+  `ReadableAtom` are structural helpers the shim needs for its own shape, not
+  SDK imports, so they are no longer exported and are recorded as
+  `shim-internal` entries. Official consumable typings still do not exist —
+  `npm view @hermes/plugin-sdk` returns 404 on the public registry
+  (re-verified 2026-10-03) — so the shim stays deliberately minimal instead of
+  being dropped. Route registration, sidebar nav, active-profile routing and
+  guided chat behavior are unchanged: the bundle is byte-identical.
+
 - The routines list now surfaces the routines that are failing instead of
   leaving a critical failure to be discovered as a small icon in a longer
   list. When one or more routines have a meaningful current failure, a band
