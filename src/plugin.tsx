@@ -157,6 +157,7 @@ export * from './gateway/proposalApply';
 export * from './gateway/proposalConfirm';
 export * from './lib/errors';
 export * from './state/routinesState';
+export * from './state/routineQueries';
 export * from './state/shellRequests';
 export * from './domain/routineSchedule';
 export * from './views/RoutineComposerPanel';
